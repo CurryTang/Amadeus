@@ -177,14 +177,13 @@ deploy_backend_remote() {
   ensure_remote_repo
   ssh_cmd "
     cd '${REMOTE_DIR}/backend'
-    npm ci --production
+    if ! npm ci --omit=dev --no-audit --no-fund; then
+      echo 'npm ci failed (likely memory pressure), falling back to npm install --omit=dev'
+      npm install --omit=dev --no-audit --no-fund
+    fi
     pm2 stop '${BACKEND_PM2_APP}' 2>/dev/null || true
     pm2 delete '${BACKEND_PM2_APP}' 2>/dev/null || true
-    if [ -f ecosystem.config.js ]; then
-      pm2 start ecosystem.config.js --env production
-    else
-      pm2 start src/index.js --name '${BACKEND_PM2_APP}' --cwd '${REMOTE_DIR}/backend'
-    fi
+    pm2 start src/index.js --name '${BACKEND_PM2_APP}' --cwd '${REMOTE_DIR}/backend'
     pm2 save
   "
 }
@@ -244,11 +243,13 @@ deploy_frontend_remote_compile_local() {
   fi
 
   local bundle="/tmp/auto-reader-frontend-standalone.tgz"
+  local tar_args=(.next/standalone .next/static)
   local include_public=()
   if [[ -d "${REPO_ROOT}/frontend/public" ]]; then
     include_public+=(public)
   fi
-  tar -C "${REPO_ROOT}/frontend" -czf "${bundle}" .next/standalone .next/static "${include_public[@]}"
+  tar_args+=("${include_public[@]}")
+  COPYFILE_DISABLE=1 tar --exclude='._*' -C "${REPO_ROOT}/frontend" -czf "${bundle}" "${tar_args[@]}"
   scp "${bundle}" "${REMOTE_USER}@${REMOTE_HOST}:/tmp/auto-reader-frontend-standalone.tgz"
 
   ssh_cmd "
@@ -256,6 +257,15 @@ deploy_frontend_remote_compile_local() {
     cd '${REMOTE_DIR}/frontend'
     tar -xzf /tmp/auto-reader-frontend-standalone.tgz
     rm -f /tmp/auto-reader-frontend-standalone.tgz
+    mkdir -p .next/standalone/.next
+    if [ -d .next/static ]; then
+      rm -rf .next/standalone/.next/static
+      cp -R .next/static .next/standalone/.next/static
+    fi
+    if [ -d public ]; then
+      rm -rf .next/standalone/public
+      cp -R public .next/standalone/public
+    fi
     pm2 stop '${FRONTEND_PM2_APP}' 2>/dev/null || true
     pm2 delete '${FRONTEND_PM2_APP}' 2>/dev/null || true
     PORT='${FRONTEND_PORT}' pm2 start .next/standalone/server.js --name '${FRONTEND_PM2_APP}' --cwd '${REMOTE_DIR}/frontend'
