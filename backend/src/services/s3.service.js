@@ -7,15 +7,67 @@ const {
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const config = require('../config');
 
-const s3Client = new S3Client({
-  region: config.aws.region,
-  credentials: {
-    accessKeyId: config.aws.accessKeyId,
-    secretAccessKey: config.aws.secretAccessKey,
-  },
-});
+const storageConfig = config.objectStorage || {};
+const provider = String(storageConfig.provider || 'aws-s3').toLowerCase();
+const bucket = storageConfig.bucket || config.aws?.s3Bucket;
+const region = storageConfig.region || config.aws?.region || 'us-east-1';
+const endpoint = String(storageConfig.endpoint || config.aws?.endpoint || '').trim();
+const forcePathStyle = Boolean(storageConfig.forcePathStyle || config.aws?.forcePathStyle);
+const publicBaseUrl = String(storageConfig.publicBaseUrl || config.aws?.publicBaseUrl || '').trim();
+
+const clientOptions = {
+  region,
+};
+if (storageConfig.accessKeyId && storageConfig.secretAccessKey) {
+  clientOptions.credentials = {
+    accessKeyId: storageConfig.accessKeyId,
+    secretAccessKey: storageConfig.secretAccessKey,
+  };
+}
+if (endpoint) {
+  clientOptions.endpoint = endpoint;
+}
+if (forcePathStyle) {
+  clientOptions.forcePathStyle = true;
+}
+
+const s3Client = new S3Client(clientOptions);
 
 const PRESIGNED_URL_EXPIRY = 3600; // 1 hour
+
+function sanitizeEndpoint(value) {
+  return String(value || '').replace(/\/+$/, '');
+}
+
+function buildObjectUrl(key) {
+  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  if (publicBaseUrl) {
+    return `${sanitizeEndpoint(publicBaseUrl)}/${encodedKey}`;
+  }
+
+  if (!endpoint) {
+    // AWS S3 default endpoint layout
+    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
+  }
+
+  const normalizedEndpoint = sanitizeEndpoint(endpoint);
+  if (forcePathStyle || provider === 'minio') {
+    return `${normalizedEndpoint}/${bucket}/${encodedKey}`;
+  }
+
+  try {
+    const parsed = new URL(normalizedEndpoint);
+    return `${parsed.protocol}//${bucket}.${parsed.host}/${encodedKey}`;
+  } catch (_) {
+    return `${normalizedEndpoint}/${bucket}/${encodedKey}`;
+  }
+}
+
+function assertStorageReady() {
+  if (!bucket) {
+    throw new Error('Object storage bucket is not configured. Set OBJECT_STORAGE_BUCKET.');
+  }
+}
 
 /**
  * Generate a presigned URL for uploading a file to S3
@@ -24,8 +76,9 @@ const PRESIGNED_URL_EXPIRY = 3600; // 1 hour
  * @returns {Promise<{uploadUrl: string, key: string}>}
  */
 async function generatePresignedUploadUrl(key, contentType) {
+  assertStorageReady();
   const command = new PutObjectCommand({
-    Bucket: config.aws.s3Bucket,
+    Bucket: bucket,
     Key: key,
     ContentType: contentType,
   });
@@ -43,8 +96,9 @@ async function generatePresignedUploadUrl(key, contentType) {
  * @returns {Promise<string>}
  */
 async function generatePresignedDownloadUrl(key) {
+  assertStorageReady();
   const command = new GetObjectCommand({
-    Bucket: config.aws.s3Bucket,
+    Bucket: bucket,
     Key: key,
   });
 
@@ -63,16 +117,16 @@ async function generatePresignedDownloadUrl(key) {
  * @returns {Promise<{key: string, location: string}>}
  */
 async function uploadBuffer(buffer, key, contentType) {
+  assertStorageReady();
   const command = new PutObjectCommand({
-    Bucket: config.aws.s3Bucket,
+    Bucket: bucket,
     Key: key,
     Body: buffer,
     ContentType: contentType,
   });
 
   await s3Client.send(command);
-
-  const location = `https://${config.aws.s3Bucket}.s3.${config.aws.region}.amazonaws.com/${key}`;
+  const location = buildObjectUrl(key);
 
   return { key, location };
 }
@@ -83,8 +137,9 @@ async function uploadBuffer(buffer, key, contentType) {
  * @returns {Promise<void>}
  */
 async function deleteObject(key) {
+  assertStorageReady();
   const command = new DeleteObjectCommand({
-    Bucket: config.aws.s3Bucket,
+    Bucket: bucket,
     Key: key,
   });
 
@@ -97,8 +152,9 @@ async function deleteObject(key) {
  * @returns {Promise<Buffer>}
  */
 async function downloadBuffer(key) {
+  assertStorageReady();
   const command = new GetObjectCommand({
-    Bucket: config.aws.s3Bucket,
+    Bucket: bucket,
     Key: key,
   });
 

@@ -6,6 +6,8 @@ IMPLEMENTATION_PLAN.md
 .env
 .env.local
 .env.*.local
+*.env.generated
+deployment.mode.generated
 apps/vibe-researcher/.env
 
 # Dependencies

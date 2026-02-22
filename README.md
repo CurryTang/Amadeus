@@ -36,25 +36,31 @@ git clone https://github.com/CurryTang/auto-researcher.git
 cd auto-researcher
 ```
 
-### 2. Set Up Backend
+### 2. Generate Mode-Specific Configs
 
 ```bash
-cd backend
-npm install
-cp .env.example .env
-# Edit .env with your credentials (see Configuration)
-npm start
+./scripts/install.sh
+# Generates:
+# - backend/.env.generated
+# - frontend/.env.generated
+# - deployment.mode.generated
 ```
 
-### 3. Set Up Frontend
+### 3. Apply Generated Envs
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cp backend/.env.generated backend/.env
+cp frontend/.env.generated frontend/.env
 ```
 
-### 4. Install Chrome Extension
+### 4. Start Backend and Frontend
+
+```bash
+cd backend && npm install && npm run dev
+cd frontend && npm install && npm run dev
+```
+
+### 5. Install Chrome Extension
 
 1. Open Chrome and go to `chrome://extensions/`
 2. Enable "Developer mode"
@@ -97,21 +103,23 @@ npm run dev
 - [Deployment Guide](docs/DEPLOYMENT.md) - How to deploy to production
 - [Usage Guide](docs/USAGE.md) - How to use the application
 - [Configuration Guide](docs/CONFIGURATION.md) - All configuration options
-- [S3 Setup Guide](docs/S3_SETUP_GUIDE.md) - AWS S3 configuration
+- [Installation Modes](docs/INSTALLATION_MODES.md) - 4 deployment modes + provider matrix
+- [S3 Setup Guide](docs/S3_SETUP_GUIDE.md) - Object storage setup (S3/MinIO/OSS)
 - [Tracker Authentication Guide](docs/TRACKER_AUTH.md) - Google Scholar and Twitter/X tracker auth setup
 
 ## Tech Stack
 
 **Frontend:**
 - React 18
-- Vite
+- Next.js
 - React Markdown + KaTeX + Mermaid
 - GitHub Pages hosting
 
 **Backend:**
 - Node.js + Express
-- Turso (SQLite cloud)
-- AWS S3
+- Turso / local sqlite (documents metadata)
+- MongoDB / MongoDB Atlas (ResearchOps metadata)
+- AWS S3 / MinIO / Aliyun OSS (paper object storage)
 - PM2 process manager
 
 **AI:**
@@ -123,19 +131,28 @@ npm run dev
 Key environment variables:
 
 ```bash
-# Required
-TURSO_DATABASE_URL=libsql://your-db.turso.io
-TURSO_AUTH_TOKEN=your-token
-AWS_ACCESS_KEY_ID=your-key
-AWS_SECRET_ACCESS_KEY=your-secret
-AWS_S3_BUCKET=your-bucket
+# Documents metadata (local sqlite or Turso cloud)
+TURSO_DATABASE_URL=file:./local.db
+# TURSO_DATABASE_URL=libsql://your-db.turso.io
+TURSO_AUTH_TOKEN=
+
+# ResearchOps metadata (local Mongo or Atlas)
+MONGODB_URI=mongodb://127.0.0.1:27017/auto_researcher
+# MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/auto_researcher
+
+# Object storage (aws-s3 | minio | aliyun-oss)
+OBJECT_STORAGE_PROVIDER=aws-s3
+OBJECT_STORAGE_BUCKET=your-bucket
+OBJECT_STORAGE_REGION=us-east-1
+OBJECT_STORAGE_ACCESS_KEY_ID=your-key
+OBJECT_STORAGE_SECRET_ACCESS_KEY=your-secret
 
 # Authentication
 ADMIN_TOKEN=your-admin-token  # For write operations
 
-# Optional
-READER_MAX_PER_HOUR=5        # Papers processed per hour
-RATE_LIMIT_MAX=200           # API rate limit
+# Remote offload optional
+TRACKER_PROXY_HEAVY_OPS=true
+TAILSCALE_ENABLED=false
 ```
 
 See [Configuration Guide](docs/CONFIGURATION.md) for all options.

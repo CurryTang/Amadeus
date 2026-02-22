@@ -1,10 +1,31 @@
 require('dotenv').config();
 const path = require('path');
 
+function parseBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
 const tailscaleEnabled = process.env.TAILSCALE_ENABLED === 'true';
 const tailscaleDesktopUrl = process.env.TAILSCALE_DESKTOP_URL || '';
 const defaultDesktopUrl = process.env.PROCESSING_DESKTOP_URL
   || (tailscaleEnabled && tailscaleDesktopUrl ? tailscaleDesktopUrl : 'http://127.0.0.1:7001');
+
+const objectStorageProvider = String(
+  process.env.OBJECT_STORAGE_PROVIDER
+  || process.env.STORAGE_PROVIDER
+  || 'aws-s3'
+).trim().toLowerCase();
+const objectStorageBucket = process.env.OBJECT_STORAGE_BUCKET || process.env.AWS_S3_BUCKET || 'auto-reader-documents';
+const objectStorageRegion = process.env.OBJECT_STORAGE_REGION || process.env.AWS_REGION || 'us-east-1';
+const objectStorageAccessKeyId = process.env.OBJECT_STORAGE_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+const objectStorageSecretAccessKey = process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+const objectStorageEndpoint = process.env.OBJECT_STORAGE_ENDPOINT || '';
+const objectStorageForcePathStyle = parseBool(process.env.OBJECT_STORAGE_FORCE_PATH_STYLE, false);
+const objectStoragePublicBaseUrl = process.env.OBJECT_STORAGE_PUBLIC_BASE_URL || '';
 
 module.exports = {
   port: process.env.PORT || 3000,
@@ -30,11 +51,27 @@ module.exports = {
     mongodbDbName: process.env.MONGODB_DB_NAME || '',
   },
 
+  // Backward-compatible AWS view over objectStorage settings.
   aws: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    region: process.env.AWS_REGION || 'us-east-1',
-    s3Bucket: process.env.AWS_S3_BUCKET || 'auto-reader-documents',
+    accessKeyId: objectStorageAccessKeyId,
+    secretAccessKey: objectStorageSecretAccessKey,
+    region: objectStorageRegion,
+    s3Bucket: objectStorageBucket,
+    endpoint: objectStorageEndpoint,
+    forcePathStyle: objectStorageForcePathStyle,
+    publicBaseUrl: objectStoragePublicBaseUrl,
+  },
+
+  // Unified object storage config: aws-s3 | minio | aliyun-oss
+  objectStorage: {
+    provider: objectStorageProvider,
+    accessKeyId: objectStorageAccessKeyId,
+    secretAccessKey: objectStorageSecretAccessKey,
+    region: objectStorageRegion,
+    bucket: objectStorageBucket,
+    endpoint: objectStorageEndpoint,
+    forcePathStyle: objectStorageForcePathStyle,
+    publicBaseUrl: objectStoragePublicBaseUrl,
   },
 
   cors: {

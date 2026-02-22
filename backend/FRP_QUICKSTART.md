@@ -2,6 +2,12 @@
 
 This is a quick reference for setting up the DO server as a proxy with desktop processing.
 
+You can first generate mode/provider env templates with:
+
+```bash
+./scripts/install.sh
+```
+
 ## TL;DR
 
 **On DO Server:**

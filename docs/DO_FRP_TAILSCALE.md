@@ -2,6 +2,12 @@
 
 This repo keeps one codebase and one auth/metadata system, with heavy work offloaded.
 
+Before manual edits, you can generate mode-specific env files with:
+
+```bash
+./scripts/install.sh
+```
+
 Flow:
 `Client -> DO API -> FRP -> local executor -> DO API -> Client`
 
