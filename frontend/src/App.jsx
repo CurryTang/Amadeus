@@ -419,7 +419,7 @@ function AppContent() {
       <header className="header">
         <div className="header-row">
           <div className="header-content">
-            <h1>Auto Reader</h1>
+            <h1>Vibe Researcher</h1>
           </div>
           <div className="header-right">
             <Tabs.Root value={activeArea} onValueChange={setActiveArea} className="area-tabs">
