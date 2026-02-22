@@ -16,6 +16,23 @@ export function AuthProvider({ children, apiUrl }) {
   // Verify a JWT with the backend
   const verifyToken = useCallback(async (token) => {
     if (!token) {
+      try {
+        // Allow no-token sessions when backend auth is disabled.
+        const response = await fetch(`${apiUrl}/auth/verify`);
+        const data = await response.json();
+        if (data.authEnabled === false) {
+          setIsAuthenticated(true);
+          setIsLoading(false);
+          const meRes = await fetch(`${apiUrl}/auth/me`);
+          if (meRes.ok) {
+            const me = await meRes.json();
+            setUsername(me.username);
+          }
+          return true;
+        }
+      } catch {
+        // fall through to unauthenticated state
+      }
       setIsAuthenticated(false);
       setIsLoading(false);
       return false;
