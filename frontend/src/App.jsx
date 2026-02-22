@@ -417,12 +417,11 @@ function AppContent() {
   return (
     <div className="app">
       <header className="header">
-        <div className="header-content">
-          <h1>Auto Reader</h1>
-          <p className="subtitle">Your Research Library</p>
-        </div>
-        <div className="header-nav">
-          <div className="header-nav-row">
+        <div className="header-row">
+          <div className="header-content">
+            <h1>Auto Reader</h1>
+          </div>
+          <div className="header-right">
             <Tabs.Root value={activeArea} onValueChange={setActiveArea} className="area-tabs">
               <Tabs.List size="2">
                 <Tabs.Trigger value="latest">Latest</Tabs.Trigger>
@@ -464,41 +463,41 @@ function AppContent() {
               </Button>
             </div>
           </div>
+        </div>
 
-          <div className="header-nav-row header-nav-row-sub">
-            <div className="library-sub-controls">
-              {activeArea === 'library' ? (
-                <>
-                  <Tabs.Root value={readFilter} onValueChange={setReadFilter} className="sub-tabs">
-                    <Tabs.List size="1">
-                      <Tabs.Trigger value="all">All</Tabs.Trigger>
-                      <Tabs.Trigger value="unread">Unread</Tabs.Trigger>
-                      <Tabs.Trigger value="read">Read</Tabs.Trigger>
-                    </Tabs.List>
-                  </Tabs.Root>
-                  <Button
-                    className="header-btn"
-                    variant={showFilters ? 'solid' : 'soft'}
-                    size="2"
-                    onClick={() => setShowFilters(!showFilters)}
-                    title="Search & Filter"
-                  >
-                    Search
-                  </Button>
-                  <Button
-                    className="header-btn"
-                    variant={researchMode ? 'solid' : 'soft'}
-                    size="2"
-                    onClick={toggleResearchMode}
-                    title={researchMode ? 'Cancel selection' : 'Select papers for research pack'}
-                  >
-                    {researchMode ? 'Cancel Selection' : 'Research Mode'}
-                  </Button>
-                </>
-              ) : (
-                <div className="library-sub-placeholder" />
-              )}
-            </div>
+        <div className="header-sub-row">
+          <div className="library-sub-controls">
+            {activeArea === 'library' ? (
+              <>
+                <Tabs.Root value={readFilter} onValueChange={setReadFilter} className="sub-tabs">
+                  <Tabs.List size="1">
+                    <Tabs.Trigger value="all">All</Tabs.Trigger>
+                    <Tabs.Trigger value="unread">Unread</Tabs.Trigger>
+                    <Tabs.Trigger value="read">Read</Tabs.Trigger>
+                  </Tabs.List>
+                </Tabs.Root>
+                <Button
+                  className="header-btn"
+                  variant={showFilters ? 'solid' : 'soft'}
+                  size="2"
+                  onClick={() => setShowFilters(!showFilters)}
+                  title="Search & Filter"
+                >
+                  Search
+                </Button>
+                <Button
+                  className="header-btn"
+                  variant={researchMode ? 'solid' : 'soft'}
+                  size="2"
+                  onClick={toggleResearchMode}
+                  title={researchMode ? 'Cancel selection' : 'Select papers for research pack'}
+                >
+                  {researchMode ? 'Cancel Selection' : 'Research Mode'}
+                </Button>
+              </>
+            ) : (
+              <div className="library-sub-placeholder" />
+            )}
           </div>
         </div>
       </header>
