@@ -1,0 +1,46 @@
+{
+  "name": "auto-reader-backend",
+  "version": "1.0.0",
+  "description": "Backend server for Auto Reader - stores document metadata and manages S3 uploads",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --no-deprecation src/index.js",
+    "start:cluster": "node --no-deprecation src/cluster.js",
+    "dev": "nodemon --no-deprecation src/index.js",
+    "processing": "node --no-deprecation processing-server.js",
+    "processing:dev": "nodemon --no-deprecation processing-server.js",
+    "exp:x-papers": "node --no-deprecation scripts/exp-x-paper-posts.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.400.0",
+    "@aws-sdk/s3-request-presigner": "^3.400.0",
+    "@libsql/client": "^0.5.0",
+    "archiver": "^7.0.1",
+    "bcryptjs": "^3.0.3",
+    "cheerio": "^1.2.0",
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "form-data": "^4.0.0",
+    "helmet": "^7.1.0",
+    "imapflow": "^1.2.9",
+    "jsonwebtoken": "^9.0.3",
+    "mailparser": "^3.9.3",
+    "multer": "^1.4.5-lts.1",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "playwright": "^1.52.0",
+    "puppeteer": "^21.6.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "@google/generative-ai": "^0.2.0",
+    "openai": "^4.28.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

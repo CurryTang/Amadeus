@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Reader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- Login Screen (shown when not authenticated) -->
+    <div id="loginScreen" class="login-screen hidden">
+      <div class="login-screen-header">
+        <h1>Auto Reader</h1>
+        <p class="subtitle">Sign in to continue</p>
+      </div>
+      <div class="form-group">
+        <label for="loginUsername">Username</label>
+        <input type="text" id="loginUsername" placeholder="Username" autocomplete="username" autofocus>
+      </div>
+      <div class="form-group">
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+      </div>
+      <p id="loginError" class="login-error hidden"></p>
+      <button type="button" id="loginBtn" class="btn btn-primary btn-full">Sign in</button>
+    </div>
+
+    <!-- Main Content (shown when authenticated) -->
+    <div id="mainContent" class="hidden">
+      <header>
+        <h1>Auto Reader</h1>
+        <p class="subtitle">Save to your research library</p>
+      </header>
+
+      <form id="saveForm">
+        <div class="form-group">
+          <label for="title">Title</label>
+          <input type="text" id="title" name="title" placeholder="Enter title..." required>
+        </div>
+
+        <div class="form-group">
+          <label for="url">URL</label>
+          <input type="url" id="url" name="url" placeholder="https://...">
+        </div>
+
+        <div class="form-group">
+          <label for="type">Type</label>
+          <select id="type" name="type">
+            <option value="paper">Paper</option>
+            <option value="book">Book</option>
+            <option value="blog" selected>Blog</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="analysisProvider">Analysis Provider</label>
+          <select id="analysisProvider" name="analysisProvider">
+            <option value="codex-cli" selected>Codex CLI (gpt-5.1-codex-mini)</option>
+            <option value="gemini-cli">Gemini CLI (Local)</option>
+            <option value="google-api">Google API (Cloud)</option>
+            <option value="claude-code">Claude Code (Headless)</option>
+          </select>
+          <p class="hint" id="providerHint">Provider for AI paper analysis</p>
+        </div>
+
+        <div class="form-group">
+          <label>Tags</label>
+          <div class="tags-container">
+            <div class="selected-tags" id="selectedTags"></div>
+            <div class="tag-input-wrapper">
+              <input type="text" id="tagInput" placeholder="Add or create tag..." autocomplete="off">
+              <button type="button" id="addTagBtn" class="btn-add-tag">+</button>
+            </div>
+            <div class="tag-suggestions" id="tagSuggestions"></div>
+          </div>
+          <div class="available-tags" id="availableTags"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="notes">Notes</label>
+          <textarea id="notes" name="notes" rows="3" placeholder="Add notes..."></textarea>
+        </div>
+
+        <div class="upload-section">
+          <label for="fileInput" class="upload-label" id="uploadLabel">
+            <span class="upload-icon">📄</span>
+            <span>Upload Local File (optional)</span>
+            <input type="file" id="fileInput" accept=".pdf,.epub,.txt,.html" hidden>
+          </label>
+          <div class="file-info" id="fileInfo" style="display: none;">
+            <p class="file-name" id="fileName"></p>
+            <button type="button" id="clearFile" class="btn-clear-file">✕</button>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <button type="button" id="saveAsPdf" class="btn btn-primary btn-full">
+            Save as PDF
+          </button>
+        </div>
+      </form>
+
+      <div id="status" class="status hidden"></div>
+
+      <footer>
+        <a href="#" id="viewLibrary">View Library</a>
+        <span class="separator">|</span>
+        <a href="#" id="settings">Settings</a>
+        <span class="separator">|</span>
+        <a href="#" id="logoutLink">Sign out</a>
+      </footer>
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

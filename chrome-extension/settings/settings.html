@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Reader Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Auto Reader Settings</h1>
+      <p class="subtitle">Configure presets and preferences</p>
+    </header>
+
+    <main>
+      <!-- API Configuration -->
+      <section class="settings-section">
+        <h2>API Configuration</h2>
+        <div class="form-group">
+          <label for="apiUrl">Backend API URL</label>
+          <input type="text" id="apiUrl" placeholder="http://localhost:3000/api">
+          <p class="hint">The URL of your Auto Reader backend server</p>
+        </div>
+      </section>
+
+      <!-- Analysis Provider -->
+      <section class="settings-section">
+        <h2>Analysis Provider</h2>
+        <p class="section-desc">
+          Choose which AI provider to use for paper analysis. The provider can also be changed per upload.
+        </p>
+        <div class="form-group">
+          <label for="defaultProvider">Default Provider</label>
+          <select id="defaultProvider">
+            <option value="gemini-cli">Gemini CLI (Local)</option>
+            <option value="google-api">Google API (Cloud)</option>
+            <option value="claude-code">Claude Code (Headless)</option>
+          </select>
+          <p class="hint" id="providerDescription">Uses local Gemini CLI installation</p>
+        </div>
+        <div class="provider-status" id="providerStatus">
+          <p class="hint">Loading provider status...</p>
+        </div>
+      </section>
+
+      <!-- Preset Modes -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>Preset Modes</h2>
+          <button id="addPresetBtn" class="btn btn-primary btn-sm">+ Add Preset</button>
+        </div>
+        <p class="section-desc">
+          Presets automatically detect specific websites and enable special features like PDF extraction.
+        </p>
+        <div id="presetsList" class="presets-list">
+          <!-- Presets will be rendered here -->
+        </div>
+      </section>
+
+      <!-- Reset -->
+      <section class="settings-section">
+        <h2>Reset</h2>
+        <button id="resetPresetsBtn" class="btn btn-danger">Reset to Default Presets</button>
+        <p class="hint">This will restore all presets to their original settings</p>
+      </section>
+    </main>
+
+    <footer>
+      <button id="saveBtn" class="btn btn-primary btn-lg">Save Settings</button>
+      <button id="backBtn" class="btn btn-secondary btn-lg">Back to Extension</button>
+    </footer>
+  </div>
+
+  <!-- Edit Preset Modal -->
+  <div id="presetModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitle">Edit Preset</h3>
+        <button class="modal-close" id="closeModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="presetName">Name</label>
+          <input type="text" id="presetName" placeholder="e.g., arXiv">
+        </div>
+        <div class="form-group">
+          <label for="presetIcon">Icon (emoji)</label>
+          <input type="text" id="presetIcon" placeholder="e.g., 📄" maxlength="4">
+        </div>
+        <div class="form-group">
+          <label for="presetColor">Color</label>
+          <div class="color-input-wrapper">
+            <input type="color" id="presetColor" value="#2563eb">
+            <input type="text" id="presetColorText" placeholder="#2563eb">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="presetType">Document Type</label>
+          <select id="presetType">
+            <option value="paper">Paper</option>
+            <option value="book">Book</option>
+            <option value="blog">Blog</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>URL Patterns</label>
+          <p class="hint">One pattern per line. Use * as wildcard.</p>
+          <textarea id="presetPatterns" rows="4" placeholder="example.com/paper/*&#10;example.org/article/*"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="presetEndpoint">Special API Endpoint (optional)</label>
+          <input type="text" id="presetEndpoint" placeholder="/upload/arxiv">
+          <p class="hint">Leave empty for standard upload</p>
+        </div>
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="presetEnabled" checked>
+            <span>Enabled</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="deletePresetBtn" class="btn btn-danger">Delete</button>
+        <div class="modal-actions">
+          <button id="cancelModalBtn" class="btn btn-secondary">Cancel</button>
+          <button id="savePresetBtn" class="btn btn-primary">Save Preset</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Reader",
+  "version": "1.0.0",
+  "description": "Save papers, books, and blogs for your research. Convert webpages to PDF and organize your reading materials.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "clipboardRead",
+    "cookies"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://your-domain.example.com/*",
+    "https://*.amazonaws.com/*",
+    "https://export.arxiv.org/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-scripts/extractor.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  }
+}
