@@ -11,6 +11,15 @@ It generates:
 - `frontend/.env.generated`
 - `deployment.mode.generated`
 
+Installer prompts include:
+- Deployment mode preset (1-4)
+- Object storage provider
+- Document metadata provider (sqlite/Turso)
+- ResearchOps metadata provider (Mongo local/Atlas)
+- Network topology (direct/FRP/FRP+Tailscale)
+- Frontend compile target + deploy target
+- Backend compile target + deploy target
+
 ## Supported deployment modes
 
 1. Frontend local, backend remote, cloud databases  
@@ -21,7 +30,7 @@ It generates:
 ## Paper storage providers
 
 - `aws-s3`
-- `minio` (local host/device/client)
+- `minio` (local host server, local client machine, or LAN device)
 - `aliyun-oss` (S3 compatible endpoint mode)
 
 Configured by:
@@ -33,6 +42,10 @@ Configured by:
 - `OBJECT_STORAGE_ENDPOINT`
 - `OBJECT_STORAGE_FORCE_PATH_STYLE`
 - `OBJECT_STORAGE_PUBLIC_BASE_URL`
+
+Common MinIO endpoint examples:
+- MinIO on backend host: `OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:9000`
+- MinIO on another LAN device/client: `OBJECT_STORAGE_ENDPOINT=http://192.168.x.x:9000`
 
 ## Metadata providers
 

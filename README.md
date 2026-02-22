@@ -44,6 +44,7 @@ cd auto-researcher
 # - backend/.env.generated
 # - frontend/.env.generated
 # - deployment.mode.generated
+# Also lets you choose frontend/backend compile and deploy targets.
 ```
 
 ### 3. Apply Generated Envs
