@@ -48,11 +48,8 @@ This repository now integrates Vibe Researcher at code level (not as a standalon
 - Header and subwindow tabs are now sticky and layout-consistent across `Latest / Library / Vibe`
 
 ### Security / hygiene
-- Added ignore rules so app artifacts cannot leak:
-  - `apps/vibe-researcher/.env`
-  - `apps/vibe-researcher/node_modules/`
-  - `apps/vibe-researcher/dist/`
-  - `apps/vibe-researcher/packages/web-dashboard/.next*`
+- Legacy standalone folder `apps/vibe-researcher/` has been removed.
+- Keep generated frontend artifacts out of git:
   - `frontend/.next/`
 
 ### Infra (DO + FRP + optional Tailscale)

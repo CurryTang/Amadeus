@@ -1,0 +1,15 @@
+# __PROJECT_NAME__ — Agent Notes
+
+## Startup Rule
+
+- Before implementation, read `__RESOURCE_PATH__`.
+
+## Execution Rules
+
+- Use project-local scripts before inventing new workflows.
+- Keep behavior changes explicit in docs.
+- Validate critical flows after edits.
+
+## Reference-First Rule
+
+- Treat `__RESOURCE_PATH__` as the first source of truth for this project.

@@ -107,6 +107,20 @@ cd frontend && npm install && npm run dev
 - [Installation Modes](docs/INSTALLATION_MODES.md) - 4 deployment modes + provider matrix
 - [S3 Setup Guide](docs/S3_SETUP_GUIDE.md) - Object storage setup (S3/MinIO/OSS)
 - [Tracker Authentication Guide](docs/TRACKER_AUTH.md) - Google Scholar and Twitter/X tracker auth setup
+- [Project Structure Template](docs/PROJECT_STRUCTURE_TEMPLATE.md) - Starter folder layout + `.claude/skills` + `resource/`
+
+## Agent Bootstrap
+
+```bash
+# Pull external research skills into .claude/skills
+./scripts/bootstrap-project-skills.sh
+
+# Generate CLAUDE.md + AGENTS.md for a project
+./scripts/generate-agent-instructions.sh /path/to/project ProjectName
+```
+
+Agent reference rule:
+- Always check `resource/` first for project-specific references.
 
 ## Tech Stack
 

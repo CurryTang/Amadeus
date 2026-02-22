@@ -8,18 +8,15 @@ IMPLEMENTATION_PLAN.md
 .env.*.local
 *.env.generated
 deployment.mode.generated
-apps/vibe-researcher/.env
 
 # Dependencies
 node_modules/
-apps/vibe-researcher/node_modules/
 
 # Build outputs
 dist/
 build/
-apps/vibe-researcher/dist/
-apps/vibe-researcher/packages/web-dashboard/.next*
 frontend/.next/
+.claude/skills/AI-Research-SKILLs/
 
 # IDE
 .vscode/

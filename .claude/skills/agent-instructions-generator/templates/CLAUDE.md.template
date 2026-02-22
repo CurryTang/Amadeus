@@ -1,0 +1,11 @@
+# __PROJECT_NAME__ — Claude Notes
+
+## Core Rules
+
+- Follow repository conventions and existing architecture.
+- Keep deployment-safe changes isolated and testable.
+- Check `__RESOURCE_PATH__` before assumptions.
+
+## Reference Rule
+
+- Always inspect `__RESOURCE_PATH__` first for project-specific docs, playbooks, and constraints.
