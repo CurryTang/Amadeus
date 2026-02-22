@@ -104,6 +104,7 @@ app.get('/', (req, res) => {
       reader: '/api/reader',
       codeAnalysis: '/api/code-analysis',
       tags: '/api/tags',
+      researchOps: '/api/researchops',
     },
   });
 });

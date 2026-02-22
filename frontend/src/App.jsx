@@ -1,5 +1,8 @@
+'use client';
+
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { Theme, Tabs, Button } from '@radix-ui/themes';
 import DocumentList from './components/DocumentList';
 import NotesModal from './components/NotesModal';
 import UserNotesModal from './components/UserNotesModal';
@@ -8,16 +11,17 @@ import SshServersAdmin from './components/SshServersAdmin';
 import TrackerAdmin from './components/TrackerAdmin';
 import LatestPapers from './components/LatestPapers';
 import SendModal from './components/SendModal';
+import VibeResearcherPanel from './components/VibeResearcherPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // API URL strategy:
-// - Development: always prefer local Vite proxy (/api) unless explicitly overridden
-//   with VITE_DEV_API_URL.
-// - Production: use VITE_API_URL when provided, otherwise default public endpoint.
-const DEV_API_URL = import.meta.env.VITE_DEV_API_URL || '/api';
-const PROD_API_URL = import.meta.env.VITE_API_URL || 'https://your-domain.example.com/api';
-const API_URL = import.meta.env.DEV ? DEV_API_URL : PROD_API_URL;
-const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000);
+// - Development: prefer local proxy (/api) unless overridden with NEXT_PUBLIC_DEV_API_URL.
+// - Production: use NEXT_PUBLIC_API_URL when provided, otherwise default public endpoint.
+const IS_DEV = process.env.NODE_ENV !== 'production';
+const DEV_API_URL = process.env.NEXT_PUBLIC_DEV_API_URL || '/api';
+const PROD_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://your-domain.example.com/api';
+const API_URL = IS_DEV ? DEV_API_URL : PROD_API_URL;
+const API_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_API_TIMEOUT_MS || 15000);
 
 function getApiErrorMessage(err, fallback) {
   if (err?.response?.status === 500) {
@@ -67,7 +71,7 @@ function AppContent() {
   const [showSshAdmin, setShowSshAdmin] = useState(false);
   const [showTrackerAdmin, setShowTrackerAdmin] = useState(false);
 
-  // Main area tab: 'latest' | 'library'
+  // Main area tab: 'latest' | 'library' | 'vibe'
   const [activeArea, setActiveArea] = useState('latest');
 
   const { isAuthenticated, isLoading: authLoading, username, logout, getAuthHeaders } = useAuth();
@@ -418,85 +422,84 @@ function AppContent() {
           <p className="subtitle">Your Research Library</p>
         </div>
         <div className="header-nav">
-          <div className="nav-tabs">
-            <button
-              className={`nav-tab area-tab ${activeArea === 'latest' ? 'active' : ''}`}
-              onClick={() => setActiveArea('latest')}
-            >
-              Latest
-            </button>
-            <button
-              className={`nav-tab area-tab ${activeArea === 'library' ? 'active' : ''}`}
-              onClick={() => setActiveArea('library')}
-            >
-              Library
-            </button>
-          </div>
-          {activeArea === 'library' && (
-            <div className="nav-tabs sub-tabs">
-              <button
-                className={`nav-tab ${readFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setReadFilter('all')}
+          <div className="header-nav-row">
+            <Tabs.Root value={activeArea} onValueChange={setActiveArea} className="area-tabs">
+              <Tabs.List size="2">
+                <Tabs.Trigger value="latest">Latest</Tabs.Trigger>
+                <Tabs.Trigger value="library">Library</Tabs.Trigger>
+                <Tabs.Trigger value="vibe">Vibe Researcher</Tabs.Trigger>
+              </Tabs.List>
+            </Tabs.Root>
+            <div className="header-actions">
+              {isAuthenticated && (
+                <>
+                  <Button
+                    className="header-btn"
+                    variant="soft"
+                    size="2"
+                    onClick={() => setShowTrackerAdmin(true)}
+                    title="Paper Tracker"
+                  >
+                    Tracker
+                  </Button>
+                  <Button
+                    className="header-btn"
+                    variant="soft"
+                    size="2"
+                    onClick={() => setShowSshAdmin(true)}
+                    title="SSH Server Settings"
+                  >
+                    Servers
+                  </Button>
+                </>
+              )}
+              <Button
+                className="header-btn auth-btn"
+                variant={isAuthenticated ? 'solid' : 'outline'}
+                size="2"
+                onClick={handleAuthClick}
+                title={isAuthenticated ? 'Logout' : 'Login'}
               >
-                All
-              </button>
-              <button
-                className={`nav-tab ${readFilter === 'unread' ? 'active' : ''}`}
-                onClick={() => setReadFilter('unread')}
-              >
-                Unread
-              </button>
-              <button
-                className={`nav-tab ${readFilter === 'read' ? 'active' : ''}`}
-                onClick={() => setReadFilter('read')}
-              >
-                Read
-              </button>
+                {username || 'Logout'}
+              </Button>
             </div>
-          )}
-          {activeArea === 'library' && (
-            <>
-              <button
-                className={`filter-btn ${showFilters ? 'active' : ''}`}
-                onClick={() => setShowFilters(!showFilters)}
-                title="Search & Filter"
-              >
-                🔍
-              </button>
-              <button
-                className={`research-mode-btn ${researchMode ? 'active' : ''}`}
-                onClick={toggleResearchMode}
-                title={researchMode ? 'Cancel selection' : 'Select papers for research pack'}
-              >
-                {researchMode ? 'Cancel' : 'Research'}
-              </button>
-            </>
-          )}
-          {isAuthenticated && (
-            <>
-              <button
-                className="settings-btn"
-                onClick={() => setShowTrackerAdmin(true)}
-                title="Paper Tracker"
-              >
-                📡
-              </button>
-              <button
-                className="settings-btn"
-                onClick={() => setShowSshAdmin(true)}
-                title="SSH Server Settings"
-              >
-                ⚙
-              </button>
-            </>
-          )}
-          <button
-            className={`auth-btn ${isAuthenticated ? 'logged-in' : ''}`}
-            onClick={handleAuthClick}
-            title={isAuthenticated ? 'Logout' : 'Login'}
-          >
-            {username || 'Logout'}
-          </button>
+          </div>
+
+          <div className="header-nav-row header-nav-row-sub">
+            <div className="library-sub-controls">
+              {activeArea === 'library' ? (
+                <>
+                  <Tabs.Root value={readFilter} onValueChange={setReadFilter} className="sub-tabs">
+                    <Tabs.List size="1">
+                      <Tabs.Trigger value="all">All</Tabs.Trigger>
+                      <Tabs.Trigger value="unread">Unread</Tabs.Trigger>
+                      <Tabs.Trigger value="read">Read</Tabs.Trigger>
+                    </Tabs.List>
+                  </Tabs.Root>
+                  <Button
+                    className="header-btn"
+                    variant={showFilters ? 'solid' : 'soft'}
+                    size="2"
+                    onClick={() => setShowFilters(!showFilters)}
+                    title="Search & Filter"
+                  >
+                    Search
+                  </Button>
+                  <Button
+                    className="header-btn"
+                    variant={researchMode ? 'solid' : 'soft'}
+                    size="2"
+                    onClick={toggleResearchMode}
+                    title={researchMode ? 'Cancel selection' : 'Select papers for research pack'}
+                  >
+                    {researchMode ? 'Cancel Selection' : 'Research Mode'}
+                  </Button>
+                </>
+              ) : (
+                <div className="library-sub-placeholder" />
+              )}
+            </div>
+          </div>
         </div>
       </header>
 
@@ -589,7 +592,14 @@ function AppContent() {
             apiUrl={API_URL}
             isAuthenticated={isAuthenticated}
             getAuthHeaders={getAuthHeaders}
-            debug={import.meta.env.DEV}
+            debug={IS_DEV}
+          />
+        )}
+
+        {activeArea === 'vibe' && (
+          <VibeResearcherPanel
+            apiUrl={API_URL}
+            getAuthHeaders={getAuthHeaders}
           />
         )}
 
@@ -833,9 +843,11 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider apiUrl={API_URL}>
-      <AppContent />
-    </AuthProvider>
+    <Theme accentColor="blue" grayColor="slate" radius="medium">
+      <AuthProvider apiUrl={API_URL}>
+        <AppContent />
+      </AuthProvider>
+    </Theme>
   );
 }
 

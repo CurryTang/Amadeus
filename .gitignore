@@ -6,13 +6,18 @@ IMPLEMENTATION_PLAN.md
 .env
 .env.local
 .env.*.local
+apps/vibe-researcher/.env
 
 # Dependencies
 node_modules/
+apps/vibe-researcher/node_modules/
 
 # Build outputs
 dist/
 build/
+apps/vibe-researcher/dist/
+apps/vibe-researcher/packages/web-dashboard/.next*
+frontend/.next/
 
 # IDE
 .vscode/

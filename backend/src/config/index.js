@@ -1,6 +1,11 @@
 require('dotenv').config();
 const path = require('path');
 
+const tailscaleEnabled = process.env.TAILSCALE_ENABLED === 'true';
+const tailscaleDesktopUrl = process.env.TAILSCALE_DESKTOP_URL || '';
+const defaultDesktopUrl = process.env.PROCESSING_DESKTOP_URL
+  || (tailscaleEnabled && tailscaleDesktopUrl ? tailscaleDesktopUrl : 'http://127.0.0.1:7001');
+
 module.exports = {
   port: process.env.PORT || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -16,6 +21,13 @@ module.exports = {
   turso: {
     url: process.env.TURSO_DATABASE_URL || 'file:local.db',
     authToken: process.env.TURSO_AUTH_TOKEN || '',
+  },
+
+  // Metadata store selection (ResearchOps + future unified metadata)
+  database: {
+    provider: String(process.env.DB_PROVIDER || 'mongodb').toLowerCase(),
+    mongodbUri: process.env.MONGODB_URI || process.env.MONGODB_LOCAL_URI || 'mongodb://127.0.0.1:27017/auto_researcher',
+    mongodbDbName: process.env.MONGODB_DB_NAME || '',
   },
 
   aws: {
@@ -135,7 +147,7 @@ module.exports = {
   // Desktop Processing via FRP
   processing: {
     enabled: process.env.PROCESSING_ENABLED !== 'false', // Enable by default
-    desktopUrl: process.env.PROCESSING_DESKTOP_URL || 'http://127.0.0.1:7001',
+    desktopUrl: defaultDesktopUrl,
     timeout: parseInt(process.env.PROCESSING_TIMEOUT) || 300000, // 5 minutes
   },
 
@@ -145,7 +157,12 @@ module.exports = {
     enabled: process.env.TRACKER_ENABLED !== 'false',
     // Forward heavy tracker operations (run/preview) to desktop via FRP
     proxyHeavyOps: process.env.TRACKER_PROXY_HEAVY_OPS === 'true',
-    desktopUrl: process.env.TRACKER_DESKTOP_URL || process.env.PROCESSING_DESKTOP_URL || 'http://127.0.0.1:7001',
+    desktopUrl: process.env.TRACKER_DESKTOP_URL || defaultDesktopUrl,
     timeout: parseInt(process.env.TRACKER_PROXY_TIMEOUT) || 120000,
+  },
+
+  network: {
+    tailscaleEnabled,
+    tailscaleDesktopUrl,
   },
 };
