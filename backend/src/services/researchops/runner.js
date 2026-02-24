@@ -1,6 +1,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const store = require('./store');
+const orchestrator = require('./orchestrator');
 
 const runningProcesses = new Map();
 
@@ -94,11 +95,120 @@ async function executeRun(userId, run) {
     return { started: false, reason: 'already_running' };
   }
 
+  const schemaVersion = asString(run.schemaVersion || run.metadata?.schemaVersion);
+  const isV2 = schemaVersion.startsWith('2.');
+  if (isV2) {
+    await store.updateRunStatus(uid, run.id, 'RUNNING', 'Runner started (v2 orchestrator)', {
+      schemaVersion,
+      workflowSteps: Array.isArray(run.workflow) ? run.workflow.length : 0,
+    });
+
+    const processState = {
+      runId: run.id,
+      pid: null,
+      command: 'researchops-orchestrator-v2',
+      startedAt: new Date().toISOString(),
+      timer: null,
+      child: null,
+      cancel: null,
+    };
+    runningProcesses.set(run.id, processState);
+
+    (async () => {
+      try {
+        const orchestratorResult = await orchestrator.executeV2Run(uid, run, {
+          onRegisterCancel: (cancelFn) => {
+            processState.cancel = cancelFn;
+            return true;
+          },
+          onUnregisterCancel: () => {
+            processState.cancel = null;
+          },
+        });
+
+        await store.publishRunEvents(uid, run.id, [{
+          eventType: 'RESULT_SUMMARY',
+          message: 'V2 workflow completed successfully',
+          payload: { schemaVersion, mode: run.mode || 'interactive' },
+        }]);
+        await store.updateRunStatus(uid, run.id, 'SUCCEEDED', 'V2 workflow completed successfully');
+
+        // Enqueue continuation child run if agent wrote CONTINUATION.json
+        const continuation = orchestratorResult?.continuation;
+        const nextRunSpec = continuation?.nextRun && typeof continuation.nextRun === 'object'
+          ? continuation.nextRun
+          : null;
+        if (nextRunSpec) {
+          try {
+            const pendingContinuation = nextRunSpec.pendingContinuation
+              && typeof nextRunSpec.pendingContinuation === 'object'
+              ? nextRunSpec.pendingContinuation
+              : null;
+            const childPayload = {
+              projectId: asString(nextRunSpec.projectId) || run.projectId,
+              runType: asString(nextRunSpec.runType).toUpperCase() || 'AGENT',
+              schemaVersion: asString(nextRunSpec.schemaVersion) || '2.0',
+              serverId: asString(nextRunSpec.serverId) || run.serverId || 'local-default',
+              provider: asString(nextRunSpec.provider) || run.provider || null,
+              mode: asString(nextRunSpec.mode) || 'interactive',
+              workflow: Array.isArray(nextRunSpec.workflow) ? nextRunSpec.workflow : [],
+              skillRefs: Array.isArray(nextRunSpec.skillRefs)
+                ? nextRunSpec.skillRefs
+                : (Array.isArray(run.skillRefs) ? run.skillRefs : []),
+              contextRefs: nextRunSpec.contextRefs && typeof nextRunSpec.contextRefs === 'object'
+                ? nextRunSpec.contextRefs
+                : (run.contextRefs || {}),
+              metadata: {
+                ...(nextRunSpec.metadata && typeof nextRunSpec.metadata === 'object'
+                  ? nextRunSpec.metadata
+                  : {}),
+                parentRunId: run.id,
+                continuationPhase: asString(continuation.phase) || 'continuation',
+                ...(pendingContinuation ? { pendingContinuation } : {}),
+              },
+            };
+            const childRun = await store.enqueueRun(uid, childPayload);
+            await store.publishRunEvents(uid, run.id, [{
+              eventType: 'RESULT_SUMMARY',
+              message: `Continuation run enqueued: ${childRun.id} (phase: ${childPayload.metadata.continuationPhase})`,
+              payload: {
+                childRunId: childRun.id,
+                phase: childPayload.metadata.continuationPhase,
+                childRunType: childPayload.runType,
+              },
+            }]);
+          } catch (continuationError) {
+            console.error('[ResearchOpsRunner] continuation enqueue failed:', continuationError);
+            await store.publishRunEvents(uid, run.id, [{
+              eventType: 'LOG_LINE',
+              message: `[continuation-warning] Failed to enqueue child run: ${continuationError.message}`,
+            }]).catch(() => {});
+          }
+        }
+      } catch (error) {
+        console.error('[ResearchOpsRunner] v2 run failed:', error);
+        const current = await store.getRun(uid, run.id).catch(() => null);
+        if (current?.status !== 'CANCELLED') {
+          await store.publishRunEvents(uid, run.id, [{
+            eventType: 'RESULT_SUMMARY',
+            message: `V2 workflow failed: ${error.message}`,
+            payload: { schemaVersion, error: error.message },
+          }]).catch(() => {});
+          await store.updateRunStatus(uid, run.id, 'FAILED', `V2 workflow failed: ${error.message}`).catch(() => {});
+        }
+      } finally {
+        runningProcesses.delete(run.id);
+      }
+    })();
+    return { started: true, pid: null };
+  }
+
   const spec = resolveExecutionSpec(run);
   await store.updateRunStatus(uid, run.id, 'RUNNING', `Runner started: ${spec.command} ${spec.args.join(' ')}`, {
     command: spec.command,
     args: spec.args,
     cwd: spec.cwd,
+    schemaVersion: schemaVersion || '1.0',
   });
 
   const child = spawn(spec.command, spec.args, {
@@ -114,6 +224,7 @@ async function executeRun(userId, run) {
     startedAt: new Date().toISOString(),
     timer: null,
     child,
+    cancel: null,
   };
   runningProcesses.set(run.id, processState);
 
@@ -191,7 +302,12 @@ async function cancelRun(userId, runId) {
   const uid = String(userId || '').trim().toLowerCase() || 'czk';
   const state = runningProcesses.get(runId);
   if (state) {
-    state.child.kill('SIGTERM');
+    if (typeof state.cancel === 'function') {
+      state.cancel();
+    }
+    if (state.child && typeof state.child.kill === 'function') {
+      state.child.kill('SIGTERM');
+    }
     if (state.timer) clearTimeout(state.timer);
     runningProcesses.delete(runId);
   }
