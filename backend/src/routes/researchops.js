@@ -1389,25 +1389,30 @@ async function listLocalKnowledgeBaseFiles(kbFolderPath, { offset = 0, limit = 3
 
   const safeOffset = parseOffset(offset, 0, 100000);
   const safeLimit = parseLimit(limit, 3, 120);
-  const { stdout } = await runCommand('find', [rootPath, '-type', 'f'], { timeoutMs: 40000 });
-  const allFiles = String(stdout || '')
+  // Only list top-level entries (paper directories / files), not recursive
+  const { stdout } = await runCommand('find', [rootPath, '-maxdepth', '1', '-mindepth', '1'], { timeoutMs: 40000 });
+  const allEntries = String(stdout || '')
     .split(/\r?\n/)
     .map((line) => String(line || '').trim())
     .filter(Boolean)
-    .map((filePath) => toRelativePosixPath(rootPath, filePath))
-    .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
-  const page = allFiles.slice(safeOffset, safeOffset + safeLimit);
-  return {
-    rootPath,
-    items: page.map((relativePath) => ({
+  const page = allEntries.slice(safeOffset, safeOffset + safeLimit);
+  const items = await Promise.all(page.map(async (absPath) => {
+    const relativePath = toRelativePosixPath(rootPath, absPath);
+    const stat = await fs.stat(absPath).catch(() => null);
+    return {
       relativePath,
       name: path.posix.basename(relativePath),
-    })),
-    totalFiles: allFiles.length,
+      type: stat?.isDirectory() ? 'dir' : 'file',
+    };
+  }));
+  return {
+    rootPath,
+    items,
+    totalFiles: allEntries.length,
     offset: safeOffset,
     limit: safeLimit,
-    hasMore: safeOffset + page.length < allFiles.length,
+    hasMore: safeOffset + page.length < allEntries.length,
   };
 }
 
@@ -1428,7 +1433,10 @@ async function listSshKnowledgeBaseFiles(server, kbFolderPath, { offset = 0, lim
     '  echo "__NOT_DIR__"',
     '  exit 0',
     'fi',
-    'find "$root" -type f 2>/dev/null | LC_ALL=C sort | awk -v off="$off" -v lim="$lim" \'NR>off && NR<=off+lim {print "__ITEM__:" $0} END {print "__TOTAL__:" NR}\'',
+    // List top-level entries only (paper dirs / files), annotate with type
+    'find "$root" -maxdepth 1 -mindepth 1 2>/dev/null | LC_ALL=C sort | while IFS= read -r p; do',
+    '  if [ -d "$p" ]; then echo "__ITEM__:dir:$p"; else echo "__ITEM__:file:$p"; fi',
+    'done | awk -v off="$off" -v lim="$lim" \'NR>off && NR<=off+lim {print} END {print "__TOTAL__:" NR}\'',
   ].join('\n');
   const { stdout } = await runSshScript(server, script, [rootPath, String(safeOffset), String(safeLimit)], 45000);
   const output = String(stdout || '');
@@ -1439,13 +1447,15 @@ async function listSshKnowledgeBaseFiles(server, kbFolderPath, { offset = 0, lim
   const lines = output.split(/\r?\n/).filter(Boolean);
   const items = lines
     .filter((line) => line.startsWith('__ITEM__:'))
-    .map((line) => line.slice('__ITEM__:'.length).trim())
-    .map((absolutePath) => toRelativePosixPath(rootPath, absolutePath))
-    .filter(Boolean)
-    .map((relativePath) => ({
-      relativePath,
-      name: path.posix.basename(relativePath),
-    }));
+    .map((line) => {
+      const rest = line.slice('__ITEM__:'.length);
+      const colonIdx = rest.indexOf(':');
+      const type = rest.slice(0, colonIdx); // 'dir' or 'file'
+      const absolutePath = rest.slice(colonIdx + 1).trim();
+      const relativePath = toRelativePosixPath(rootPath, absolutePath);
+      return relativePath ? { relativePath, name: path.posix.basename(relativePath), type } : null;
+    })
+    .filter(Boolean);
   const totalLine = lines.find((line) => line.startsWith('__TOTAL__:')) || '';
   const totalFiles = normalizeCount(totalLine.slice('__TOTAL__:'.length), items.length);
   return {
