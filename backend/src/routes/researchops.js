@@ -1287,69 +1287,80 @@ async function readSshProjectTextFile(server, projectPath, relativePath, maxByte
   };
 }
 
+// In-memory cache: projectId/rootPath → { files, expiresAt }
+const fileListCache = new Map();
+const FILE_LIST_TTL_MS = 60 * 1000; // 60 seconds
+
+async function getLocalFileList(rootPath) {
+  const cached = fileListCache.get(rootPath);
+  if (cached && Date.now() < cached.expiresAt) return cached.files;
+
+  let files = [];
+  try {
+    const tracked = await runCommand('git', ['-C', rootPath, 'ls-files'], { timeoutMs: 10000 });
+    const untracked = await runCommand(
+      'git', ['-C', rootPath, 'ls-files', '--others', '--exclude-standard'], { timeoutMs: 10000 }
+    ).catch(() => ({ stdout: '' }));
+    files = [...new Set(
+      `${tracked.stdout || ''}\n${untracked.stdout || ''}`
+        .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    )];
+  } catch (_) {
+    try {
+      const fallback = await runCommand('find', [rootPath, '-type', 'f'], { timeoutMs: 25000 });
+      files = [...new Set(
+        String(fallback.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+          .map((fp) => path.relative(rootPath, fp).replace(/\\/g, '/'))
+      )];
+    } catch (__) { /* ignore */ }
+  }
+
+  fileListCache.set(rootPath, { files, expiresAt: Date.now() + FILE_LIST_TTL_MS });
+  return files;
+}
+
 async function searchLocalProjectFiles(projectPath, query, limit = 20) {
   const rootPath = path.resolve(expandHome(String(projectPath || '').trim()));
   const q = String(query || '').trim().toLowerCase();
   if (!q) return [];
   const cap = parseLimit(limit, 20, 100);
-  let candidates = [];
-  try {
-    const tracked = await runCommand('git', ['-C', rootPath, 'ls-files'], { timeoutMs: 10000 });
-    const untracked = await runCommand('git', ['-C', rootPath, 'ls-files', '--others', '--exclude-standard'], { timeoutMs: 10000 })
-      .catch(() => ({ stdout: '' }));
-    candidates = `${tracked.stdout || ''}\n${untracked.stdout || ''}`
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch (_) {
-    const fallback = await runCommand('find', [rootPath, '-type', 'f'], { timeoutMs: 25000 });
-    candidates = String(fallback.stdout || '')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((filePath) => path.relative(rootPath, filePath).replace(/\\/g, '/'));
-  }
-
-  return [...new Set(candidates)]
-    .filter((filePath) => filePath.toLowerCase().includes(q))
+  const files = await getLocalFileList(rootPath);
+  return files
+    .filter((fp) => fp.toLowerCase().includes(q))
     .sort((a, b) => a.localeCompare(b))
     .slice(0, cap);
 }
 
-async function searchSshProjectFiles(server, projectPath, query, limit = 20) {
-  const q = String(query || '').trim();
-  if (!q) return [];
-  const cap = parseLimit(limit, 20, 100);
+async function getSshFileList(server, projectPath) {
+  const cacheKey = `ssh:${server.host}:${server.port || 22}:${projectPath}`;
+  const cached = fileListCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.files;
+
+  // Fetch all relative file paths from the remote in one SSH call
   const script = [
     'root="$1"',
-    'query="$2"',
-    'limit="$3"',
-    'if ! printf "%s" "$limit" | grep -Eq "^[0-9]+$"; then limit=20; fi',
-    'if [ "$limit" -lt 1 ]; then limit=1; fi',
-    'if [ "$limit" -gt 100 ]; then limit=100; fi',
     'if [ ! -d "$root" ]; then echo "__NOT_DIR__"; exit 0; fi',
-    'query_lc="$(printf "%s" "$query" | tr "[:upper:]" "[:lower:]")"',
-    'count=0',
-    'find "$root" -type f 2>/dev/null | while IFS= read -r file; do',
-    '  rel="${file#$root/}"',
-    '  rel_lc="$(printf "%s" "$rel" | tr "[:upper:]" "[:lower:]")"',
-    '  case "$rel_lc" in',
-    '    *"$query_lc"*)',
-    '      echo "$rel"',
-    '      count=$((count + 1))',
-    '      if [ "$count" -ge "$limit" ]; then break; fi',
-    '      ;;',
-    '  esac',
-    'done',
+    'find "$root" -type f 2>/dev/null | while IFS= read -r f; do printf "%s\\n" "${f#$root/}"; done',
   ].join('\n');
-  const { stdout } = await runSshScript(server, script, [String(projectPath || '').trim(), q, String(cap)], 35000);
+  const { stdout } = await runSshScript(server, script, [String(projectPath || '').trim()], 35000);
   if (String(stdout || '').includes('__NOT_DIR__')) {
+    fileListCache.set(cacheKey, { files: [], expiresAt: Date.now() + FILE_LIST_TTL_MS });
     return [];
   }
-  return String(stdout || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+  const files = String(stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  fileListCache.set(cacheKey, { files, expiresAt: Date.now() + FILE_LIST_TTL_MS });
+  return files;
+}
+
+async function searchSshProjectFiles(server, projectPath, query, limit = 20) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return [];
+  const cap = parseLimit(limit, 20, 100);
+  // Use cached file list — no repeated `find` on every keystroke
+  const files = await getSshFileList(server, projectPath);
+  return files
+    .filter((fp) => fp.toLowerCase().includes(q))
+    .sort((a, b) => a.localeCompare(b))
     .slice(0, cap);
 }
 
