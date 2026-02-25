@@ -172,6 +172,7 @@ function projectShape(doc) {
     locationType: doc.locationType || 'local',
     serverId: doc.serverId || 'local-default',
     projectPath: doc.projectPath || null,
+    gitBranch: cleanString(doc.gitBranch) || null,
     kbFolderPath: cleanString(doc.kbFolderPath) || null,
     knowledgeGroupIds: normalizeKnowledgeGroupIds(doc.knowledgeGroupIds),
     createdAt: doc.createdAt,
@@ -452,6 +453,9 @@ async function updateProject(userId, projectId, payload = {}) {
   if (payload.projectPath !== undefined) {
     const p = cleanString(payload.projectPath);
     if (p) patch.projectPath = p;
+  }
+  if (payload.gitBranch !== undefined) {
+    patch.gitBranch = cleanString(payload.gitBranch) || null;
   }
 
   let updated = null;

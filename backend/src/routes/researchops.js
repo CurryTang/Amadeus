@@ -449,9 +449,13 @@ async function loadLocalProjectGitProgress(projectPath, limit) {
   return projectInsightsService.loadLocalProjectGitProgress(projectPath, limit);
 }
 
-async function loadSshProjectGitProgress(server, projectPath, limit) {
+async function loadSshProjectGitProgress(server, projectPath, limit, { branch: branchOverride = '' } = {}) {
   const target = String(projectPath || '').trim();
+  const overrideTrimmed = String(branchOverride || '').trim();
   const args = buildSshArgs(server, { connectTimeout: 15 });
+  const branchInit = overrideTrimmed
+    ? `branch="${overrideTrimmed.replace(/"/g, '')}"`
+    : 'branch="$(git -C "$target" branch --show-current 2>/dev/null)"';
   const script = buildRemotePathResolverScript([
     'limit="$2"',
     'if ! printf "%s" "$limit" | grep -Eq "^[0-9]+$"; then limit=25; fi',
@@ -460,7 +464,7 @@ async function loadSshProjectGitProgress(server, projectPath, limit) {
     'if [ ! -d "$target" ]; then echo "__NOT_DIR__:$target"; exit 0; fi',
     'echo "__ROOT__:$target"',
     'if ! git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then echo "__NOT_GIT__"; exit 0; fi',
-    'branch="$(git -C "$target" branch --show-current 2>/dev/null)"',
+    branchInit,
     'if [ -z "$branch" ]; then branch="HEAD"; fi',
     'echo "__BRANCH__:$branch"',
     'log_range="$branch"',
@@ -527,10 +531,11 @@ async function loadSshProjectGitProgress(server, projectPath, limit) {
 }
 
 async function loadProjectGitProgress(project, server, limit) {
+  const branchOpts = { branch: project.gitBranch || '' };
   if (project.locationType === 'ssh') {
-    return loadSshProjectGitProgress(server, project.projectPath, limit);
+    return loadSshProjectGitProgress(server, project.projectPath, limit, branchOpts);
   }
-  return loadLocalProjectGitProgress(project.projectPath, limit);
+  return loadLocalProjectGitProgress(project.projectPath, limit, branchOpts);
 }
 
 async function loadLocalProjectFiles(projectPath, sampleLimit) {
@@ -1809,6 +1814,9 @@ router.patch('/projects/:projectId', async (req, res) => {
       if (!rawPath) return res.status(400).json({ error: 'projectPath cannot be empty' });
       allowed.projectPath = rawPath;
     }
+    if (req.body?.gitBranch !== undefined) {
+      allowed.gitBranch = String(req.body.gitBranch || '').trim() || null;
+    }
 
     const project = await researchOpsStore.updateProject(getUserId(req), projectId, allowed);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -1833,6 +1841,7 @@ router.get('/projects/:projectId/git-log', async (req, res) => {
       try {
         gitProgress = await projectInsightsProxy.getGitLog({
           projectPath: project.projectPath,
+          branch: project.gitBranch || '',
           limit: gitLimit,
         });
         proxied = true;

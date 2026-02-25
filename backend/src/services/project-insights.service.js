@@ -322,7 +322,7 @@ async function ensureLocalProjectPath(projectPath) {
   return { normalizedPath };
 }
 
-async function loadLocalProjectGitProgress(projectPath, limit = 25) {
+async function loadLocalProjectGitProgress(projectPath, limit = 25, { branch: branchOverride = '' } = {}) {
   const targetPath = String(projectPath || '').trim();
   if (!targetPath) throw new Error('projectPath is required');
 
@@ -349,10 +349,16 @@ async function loadLocalProjectGitProgress(projectPath, limit = 25) {
     };
   }
 
-  const branchResult = await runCommand('git', ['-C', rootPath, 'branch', '--show-current'], {
-    timeoutMs: 10000,
-  }).catch(() => ({ stdout: '' }));
-  const branch = String(branchResult.stdout || '').trim() || 'HEAD';
+  let branch;
+  const overrideTrimmed = String(branchOverride || '').trim();
+  if (overrideTrimmed) {
+    branch = overrideTrimmed;
+  } else {
+    const branchResult = await runCommand('git', ['-C', rootPath, 'branch', '--show-current'], {
+      timeoutMs: 10000,
+    }).catch(() => ({ stdout: '' }));
+    branch = String(branchResult.stdout || '').trim() || 'HEAD';
+  }
   const logRange = await resolveGitLogRange(rootPath, branch);
 
   const totalResult = await runCommand('git', ['-C', rootPath, 'rev-list', '--count', logRange], {
