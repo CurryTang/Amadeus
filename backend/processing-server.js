@@ -19,14 +19,22 @@ const codeAnalysisService = require('./src/services/code-analysis.service');
 const llmService = require('./src/services/llm.service');
 const geminiCliService = require('./src/services/gemini-cli.service');
 const pdfService = require('./src/services/pdf.service');
+const projectInsightsService = require('./src/services/project-insights.service');
 const paperTrackerService = require('./src/services/paper-tracker.service');
 const twitterPlaywrightTracker = require('./src/services/twitter-playwright-tracker.service');
+const agentSessionWatcher = require('./src/services/agent-session-watcher.service');
 
 const app = express();
 const PORT = process.env.PROCESSING_PORT || 3001;
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));
+
+function clampInteger(raw, fallback, min, max) {
+  const parsed = Number.parseInt(String(raw || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
 
 // Health check
 app.get('/health', (req, res) => {
@@ -203,6 +211,121 @@ app.post('/api/tracker/twitter/playwright/preview', async (req, res) => {
   }
 });
 
+/**
+ * Check whether a local project path exists on the executor
+ * POST /api/researchops/insights/path-check
+ * Body: { projectPath }
+ */
+app.post('/api/researchops/insights/path-check', async (req, res) => {
+  try {
+    const projectPath = String(req.body?.projectPath || '').trim();
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+    const result = await projectInsightsService.checkLocalProjectPath(projectPath);
+    return res.json(result);
+  } catch (error) {
+    console.error('[Processing] Project path-check insight error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to check project path' });
+  }
+});
+
+/**
+ * Ensure a local project path exists on the executor
+ * POST /api/researchops/insights/ensure-path
+ * Body: { projectPath }
+ */
+app.post('/api/researchops/insights/ensure-path', async (req, res) => {
+  try {
+    const projectPath = String(req.body?.projectPath || '').trim();
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+    const result = await projectInsightsService.ensureLocalProjectPath(projectPath);
+    return res.json(result);
+  } catch (error) {
+    console.error('[Processing] Project ensure-path insight error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to ensure project path' });
+  }
+});
+
+/**
+ * Load project git progress for a local path on the executor
+ * POST /api/researchops/insights/git-log
+ * Body: { projectPath, limit }
+ */
+app.post('/api/researchops/insights/git-log', async (req, res) => {
+  try {
+    const projectPath = String(req.body?.projectPath || '').trim();
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+    const limit = clampInteger(req.body?.limit, 30, 1, 120);
+    const result = await projectInsightsService.loadLocalProjectGitProgress(projectPath, limit);
+    return res.json(result);
+  } catch (error) {
+    console.error('[Processing] Project git-log insight error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to load project git log' });
+  }
+});
+
+/**
+ * Load top-level project file snapshot for a local path on the executor
+ * POST /api/researchops/insights/server-files
+ * Body: { projectPath, sampleLimit }
+ */
+app.post('/api/researchops/insights/server-files', async (req, res) => {
+  try {
+    const projectPath = String(req.body?.projectPath || '').trim();
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+    const sampleLimit = clampInteger(req.body?.sampleLimit, 48, 1, 120);
+    const result = await projectInsightsService.loadLocalProjectFiles(projectPath, sampleLimit);
+    return res.json(result);
+  } catch (error) {
+    console.error('[Processing] Project server-files insight error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to load project files' });
+  }
+});
+
+/**
+ * Load git changed files (+/- lines) for a local path on the executor
+ * POST /api/researchops/insights/changed-files
+ * Body: { projectPath, limit }
+ */
+app.post('/api/researchops/insights/changed-files', async (req, res) => {
+  try {
+    const projectPath = String(req.body?.projectPath || '').trim();
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+    const limit = clampInteger(req.body?.limit, 200, 1, 1000);
+    const result = await projectInsightsService.loadLocalProjectChangedFiles(projectPath, limit);
+    return res.json(result);
+  } catch (error) {
+    console.error('[Processing] Project changed-files insight error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to load project changed files' });
+  }
+});
+
+/**
+ * Agent sessions observed from local Claude Code / Codex session files
+ * GET /api/agent-sessions?projectPath=...
+ */
+app.get('/api/agent-sessions', (req, res) => {
+  try {
+    const projectPath = String(req.query.projectPath || '').trim();
+    const items = projectPath
+      ? agentSessionWatcher.getSessionsByPath(projectPath)
+      : agentSessionWatcher.getAllSessions();
+    res.json({ items });
+  } catch (error) {
+    console.error('[Processing] agent-sessions error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('[Processing] Error:', err);
@@ -232,6 +355,8 @@ async function startServer() {
       console.log('[Processing] Paper tracker scheduler disabled on local executor');
     }
 
+    agentSessionWatcher.start();
+
     app.listen(PORT, '127.0.0.1', () => {
       console.log(`[Processing] Desktop Processing Server running on port ${PORT}`);
       console.log(`[Processing] Ready to accept requests from DO server via FRP`);
@@ -246,6 +371,7 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('[Processing] Shutting down gracefully...');
+  agentSessionWatcher.stop();
   paperTrackerService.stop();
   await pdfService.cleanupAllTmpFiles();
   process.exit(0);
@@ -253,6 +379,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   console.log('[Processing] Received SIGTERM, shutting down...');
+  agentSessionWatcher.stop();
   paperTrackerService.stop();
   await pdfService.cleanupAllTmpFiles();
   process.exit(0);

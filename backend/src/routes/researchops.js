@@ -1937,6 +1937,24 @@ router.get('/projects/:projectId/changed-files', async (req, res) => {
   }
 });
 
+/**
+ * Observed agent sessions from local Claude Code / Codex filesystem logs.
+ * Proxied from the processing server which watches ~/.claude and ~/.codex.
+ * GET /agent-sessions?projectPath=...
+ */
+router.get('/agent-sessions', async (req, res) => {
+  const projectPath = String(req.query.projectPath || '').trim();
+  if (config.projectInsights?.proxyHeavyOps === true) {
+    try {
+      const result = await projectInsightsProxy.getAgentSessions({ projectPath });
+      return res.json(result);
+    } catch (proxyError) {
+      console.warn('[ResearchOps] agent-sessions proxy failed:', proxyError.message);
+    }
+  }
+  return res.json({ items: [] });
+});
+
 router.get('/projects/:projectId', async (req, res) => {
   try {
     const project = await researchOpsStore.getProject(getUserId(req), req.params.projectId);
