@@ -1796,6 +1796,29 @@ router.post('/projects/path-check', async (req, res) => {
   }
 });
 
+router.patch('/projects/:projectId', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    const allowed = {};
+    if (req.body?.name !== undefined) allowed.name = req.body.name;
+    if (req.body?.description !== undefined) allowed.description = req.body.description;
+    if (req.body?.projectPath !== undefined) {
+      const rawPath = String(req.body.projectPath || '').trim();
+      if (!rawPath) return res.status(400).json({ error: 'projectPath cannot be empty' });
+      allowed.projectPath = rawPath;
+    }
+
+    const project = await researchOpsStore.updateProject(getUserId(req), projectId, allowed);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    res.json({ project });
+  } catch (error) {
+    console.error('[ResearchOps] updateProject failed:', error);
+    res.status(400).json({ error: sanitizeError(error, 'Failed to update project') });
+  }
+});
+
 router.get('/projects/:projectId/git-log', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
