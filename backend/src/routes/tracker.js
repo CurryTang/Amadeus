@@ -4,7 +4,11 @@ const { requireAuth } = require('../middleware/auth');
 const config = require('../config');
 const paperTracker = require('../services/paper-tracker.service');
 const hfTracker = require('../services/hf-tracker.service');
+const twitterTracker = require('../services/twitter-tracker.service');
+const alphaxivTracker = require('../services/alphaxiv-tracker.service');
 const twitterPlaywrightTracker = require('../services/twitter-playwright-tracker.service');
+const financeTracker = require('../services/finance-tracker.service');
+const arxivService = require('../services/arxiv.service');
 const trackerProxy = require('../services/tracker-proxy.service');
 const {
   extractTwitterHandle,
@@ -14,9 +18,680 @@ const { getDb } = require('../db');
 
 // ─── Feed cache (24h TTL, in-memory) ────────────────────────────────────────
 const FEED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-let feedCache = { data: [], fetchedAt: null };
+let feedCache = { data: [], fetchedAt: null, perSource: [] };
+const FEED_SUPPORTED_SOURCE_TYPES = ['hf', 'twitter', 'arxiv_authors', 'alphaxiv', 'finance'];
+const GENERIC_SOURCE_PRIORITY = { twitter: 5, arxiv_authors: 4, hf: 3, finance: 2, alphaxiv: 1, arxiv: 1 };
+const FEED_SORT_SOURCE_PRIORITY = { twitter: 5, arxiv_authors: 4, hf: 3, finance: 2, alphaxiv: 1, arxiv: 1 };
+const FEED_SOURCE_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_SOURCE_TIMEOUT_MS || '12000', 10);
+const FEED_CACHE_MAX_ITEMS = Number.isFinite(Number(config.tracker?.feedCacheMaxItems))
+  ? Math.max(1, Math.min(Number(config.tracker.feedCacheMaxItems), 20000))
+  : 1000;
+const FEED_METADATA_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_METADATA_TIMEOUT_MS || '4500', 10);
+const FEED_METADATA_ENRICH_MAX = Number.isFinite(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '80', 10))
+  ? Math.max(0, Math.min(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '80', 10), 500))
+  : 80;
+const FEED_PERSIST_ROW_ID = 1;
+const FEED_PERSIST_MAX_STALE_MS = parseInt(
+  process.env.TRACKER_FEED_PERSIST_MAX_STALE_MS || String(72 * 60 * 60 * 1000),
+  10
+);
+const FEED_REFRESH_INTERVAL_MS = parseInt(
+  process.env.TRACKER_FEED_REFRESH_INTERVAL_MS || String(24 * 60 * 60 * 1000),
+  10
+);
+const FEED_REFRESH_STARTUP_DELAY_MS = parseInt(
+  process.env.TRACKER_FEED_REFRESH_STARTUP_DELAY_MS || '45000',
+  10
+);
 
-// GET /api/tracker/feed — latest papers from HuggingFace (cached 24h)
+let feedRefreshRunning = false;
+
+function normalizeArxivId(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  return value.replace(/v\d+$/i, '');
+}
+
+function parsePostedAt(raw) {
+  if (!raw) return '';
+  const ms = new Date(raw).getTime();
+  if (!Number.isFinite(ms)) return '';
+  return new Date(ms).toISOString();
+}
+
+function getSourcePriority(type) {
+  return GENERIC_SOURCE_PRIORITY[String(type || '').toLowerCase()] || 0;
+}
+
+function getFeedSortSourcePriority(type) {
+  return FEED_SORT_SOURCE_PRIORITY[String(type || '').toLowerCase()] || 0;
+}
+
+function getBestFeedSortPriority(item = {}) {
+  const sourceTypes = Array.isArray(item.sourceTypes) ? item.sourceTypes : [];
+  const primaryType = String(item.sourceType || '').toLowerCase();
+  const candidates = [...sourceTypes, primaryType].filter(Boolean);
+  if (candidates.length === 0) return 0;
+  return Math.max(...candidates.map((type) => getFeedSortSourcePriority(type)));
+}
+
+function normalizeTitle(raw) {
+  return String(raw || '').trim().replace(/\s+/g, ' ');
+}
+
+function isLowSignalTitle(title) {
+  const normalized = normalizeTitle(title).toLowerCase();
+  if (!normalized) return true;
+  if (/^arxiv[:\s]/i.test(normalized)) return true;
+  if (normalized === 'paper' || normalized === 'papers') return true;
+  if (normalized === 'new paper' || normalized === 'new papers') return true;
+  if (normalized === 'paper:' || normalized === 'papers:') return true;
+  return false;
+}
+
+function chooseBestTitle(primary, fallback, arxivId = '') {
+  const a = normalizeTitle(primary);
+  const b = normalizeTitle(fallback);
+  if (a && !isLowSignalTitle(a)) return a;
+  if (b && !isLowSignalTitle(b)) return b;
+  if (a) return a;
+  if (b) return b;
+  return `arXiv:${arxivId}`;
+}
+
+function mergeSourcePaper(existing, incoming) {
+  const names = new Set([
+    ...(Array.isArray(existing.sourceNames) ? existing.sourceNames : []),
+    ...(Array.isArray(incoming.sourceNames) ? incoming.sourceNames : []),
+    existing.sourceName,
+    incoming.sourceName,
+  ].filter(Boolean));
+  const types = new Set([
+    ...(Array.isArray(existing.sourceTypes) ? existing.sourceTypes : []),
+    ...(Array.isArray(incoming.sourceTypes) ? incoming.sourceTypes : []),
+    String(existing.sourceType || '').toLowerCase(),
+    String(incoming.sourceType || '').toLowerCase(),
+  ].filter(Boolean));
+
+  const titleA = normalizeTitle(existing.title);
+  const titleB = normalizeTitle(incoming.title);
+
+  const abstractA = String(existing.abstract || '');
+  const abstractB = String(incoming.abstract || '');
+  const betterAbstract = abstractA.length >= abstractB.length ? abstractA : abstractB;
+
+  const authorsA = Array.isArray(existing.authors) ? existing.authors : [];
+  const authorsB = Array.isArray(incoming.authors) ? incoming.authors : [];
+  const betterAuthors = authorsA.length >= authorsB.length ? authorsA : authorsB;
+
+  const sourceTypeA = String(existing.sourceType || '').toLowerCase();
+  const sourceTypeB = String(incoming.sourceType || '').toLowerCase();
+  const keepIncomingSource = getSourcePriority(sourceTypeB) >= getSourcePriority(sourceTypeA);
+
+  return {
+    ...existing,
+    ...incoming,
+    title: chooseBestTitle(titleA, titleB, existing.arxivId || incoming.arxivId),
+    abstract: betterAbstract,
+    authors: betterAuthors,
+    publishedAt: existing.publishedAt || incoming.publishedAt || '',
+    trackedDate: existing.trackedDate || incoming.trackedDate || '',
+    sourceType: keepIncomingSource ? sourceTypeB : sourceTypeA,
+    sourceName: keepIncomingSource ? (incoming.sourceName || existing.sourceName) : (existing.sourceName || incoming.sourceName),
+    sourceNames: [...names],
+    sourceTypes: [...types],
+    upvotes: Math.max(Number(existing.upvotes || 0), Number(incoming.upvotes || 0)),
+    views: Math.max(Number(existing.views || 0), Number(incoming.views || 0)),
+    score: Math.max(Number(existing.score || 0), Number(incoming.score || 0)),
+    saved: Boolean(existing.saved || incoming.saved),
+  };
+}
+
+function mergeSourceFinanceItem(existing, incoming) {
+  const names = new Set([
+    ...(Array.isArray(existing.sourceNames) ? existing.sourceNames : []),
+    ...(Array.isArray(incoming.sourceNames) ? incoming.sourceNames : []),
+    existing.sourceName,
+    incoming.sourceName,
+  ].filter(Boolean));
+  const types = new Set([
+    ...(Array.isArray(existing.sourceTypes) ? existing.sourceTypes : []),
+    ...(Array.isArray(incoming.sourceTypes) ? incoming.sourceTypes : []),
+    String(existing.sourceType || '').toLowerCase(),
+    String(incoming.sourceType || '').toLowerCase(),
+  ].filter(Boolean));
+
+  const sourceTypeA = String(existing.sourceType || '').toLowerCase();
+  const sourceTypeB = String(incoming.sourceType || '').toLowerCase();
+  const keepIncomingSource = getSourcePriority(sourceTypeB) >= getSourcePriority(sourceTypeA);
+
+  const summaryA = String(existing.summary || existing.abstract || '');
+  const summaryB = String(incoming.summary || incoming.abstract || '');
+
+  return {
+    ...existing,
+    ...incoming,
+    title: normalizeTitle(incoming.title) || normalizeTitle(existing.title) || 'Finance headline',
+    summary: summaryA.length >= summaryB.length ? summaryA : summaryB,
+    abstract: summaryA.length >= summaryB.length ? summaryA : summaryB,
+    sourceType: keepIncomingSource ? sourceTypeB : sourceTypeA,
+    sourceName: keepIncomingSource ? (incoming.sourceName || existing.sourceName) : (existing.sourceName || incoming.sourceName),
+    sourceNames: [...names],
+    sourceTypes: [...types],
+    publishedAt: existing.publishedAt || incoming.publishedAt || '',
+    trackedDate: existing.trackedDate || incoming.trackedDate || '',
+  };
+}
+
+function buildFeedItemKey(item) {
+  if (!item) return '';
+  if (item.itemType === 'finance') {
+    const external = String(item.externalId || item.url || '').trim();
+    if (!external) return '';
+    return `finance:${external}`;
+  }
+  const arxivId = normalizeArxivId(item.arxivId);
+  if (!arxivId) return '';
+  return `paper:${arxivId}`;
+}
+
+function mergeFeedItems(existing, incoming) {
+  if (!existing) return incoming;
+  if (existing.itemType === 'finance' || incoming.itemType === 'finance') {
+    return mergeSourceFinanceItem(existing, incoming);
+  }
+  return mergeSourcePaper(existing, incoming);
+}
+
+function sortFeedPapers(items = []) {
+  return [...items].sort((a, b) => {
+    const sourcePriorityA = getBestFeedSortPriority(a);
+    const sourcePriorityB = getBestFeedSortPriority(b);
+    if (sourcePriorityB !== sourcePriorityA) return sourcePriorityB - sourcePriorityA;
+
+    const timeA = new Date(a.trackedDate || a.publishedAt || 0).getTime() || 0;
+    const timeB = new Date(b.trackedDate || b.publishedAt || 0).getTime() || 0;
+    if (timeB !== timeA) return timeB - timeA;
+    const scoreA = Number(a.score || 0) || 0;
+    const scoreB = Number(b.score || 0) || 0;
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return String(a.title || '').localeCompare(String(b.title || ''));
+  });
+}
+
+function safeParseJson(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed === undefined ? fallback : parsed;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function normalizeFeedSnapshotData(items = []) {
+  if (!Array.isArray(items)) return [];
+  const normalized = items.map((item) => ({
+    ...item,
+    sourceTypes: Array.isArray(item?.sourceTypes) ? item.sourceTypes : [],
+    sourceNames: Array.isArray(item?.sourceNames) ? item.sourceNames : [],
+    authors: Array.isArray(item?.authors) ? item.authors : [],
+    score: Number(item?.score || 0) || 0,
+    upvotes: Number(item?.upvotes || 0) || 0,
+    views: Number(item?.views || 0) || 0,
+    saved: false,
+  }));
+  return sortFeedPapers(normalized).slice(0, FEED_CACHE_MAX_ITEMS);
+}
+
+async function loadPersistedFeedSnapshot() {
+  const db = getDb();
+  const result = await db.execute({
+    sql: `
+      SELECT fetched_at, data_json, per_source_json, source_count
+      FROM tracker_feed_cache
+      WHERE id = ?
+      LIMIT 1
+    `,
+    args: [FEED_PERSIST_ROW_ID],
+  });
+  const row = result.rows?.[0];
+  if (!row) return null;
+
+  const fetchedMs = new Date(row.fetched_at || '').getTime();
+  if (!Number.isFinite(fetchedMs)) return null;
+  if (Date.now() - fetchedMs > FEED_PERSIST_MAX_STALE_MS) return null;
+
+  const data = normalizeFeedSnapshotData(safeParseJson(row.data_json, []));
+  if (data.length === 0) return null;
+
+  return {
+    data,
+    fetchedAt: fetchedMs,
+    perSource: safeParseJson(row.per_source_json, []),
+    sourceCount: Number(row.source_count || 0) || 0,
+  };
+}
+
+async function savePersistedFeedSnapshot({ data = [], perSource = [], sourceCount = 0, fetchedAtMs = Date.now() } = {}) {
+  const db = getDb();
+  const normalizedData = normalizeFeedSnapshotData(data);
+  await db.execute({
+    sql: `
+      INSERT INTO tracker_feed_cache (id, fetched_at, data_json, per_source_json, source_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO UPDATE SET
+        fetched_at = excluded.fetched_at,
+        data_json = excluded.data_json,
+        per_source_json = excluded.per_source_json,
+        source_count = excluded.source_count,
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    args: [
+      FEED_PERSIST_ROW_ID,
+      new Date(fetchedAtMs).toISOString(),
+      JSON.stringify(normalizedData),
+      JSON.stringify(Array.isArray(perSource) ? perSource : []),
+      Number(sourceCount || 0) || 0,
+    ],
+  });
+}
+
+async function clearPersistedFeedSnapshot() {
+  const db = getDb();
+  await db.execute({ sql: `DELETE FROM tracker_feed_cache WHERE id = ?`, args: [FEED_PERSIST_ROW_ID] });
+}
+
+async function annotateSavedStatus(items = []) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const db = getDb();
+  const paperItems = items.filter((item) => item.itemType !== 'finance' && item.arxivId);
+  if (paperItems.length === 0) {
+    return items.map((item) => ({ ...item, saved: false }));
+  }
+
+  const likeClauses = paperItems.map(() => 'original_url LIKE ?').join(' OR ');
+  const args = paperItems.map((item) => `%arxiv.org%${item.arxivId}%`);
+  const result = await db.execute({
+    sql: `SELECT original_url FROM documents WHERE ${likeClauses}`,
+    args,
+  });
+
+  const savedIds = new Set();
+  for (const row of result.rows || []) {
+    const url = String(row.original_url || '');
+    const match = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/i);
+    if (!match?.[1]) continue;
+    savedIds.add(normalizeArxivId(match[1]));
+  }
+
+  return items.map((item) => {
+    if (item.itemType === 'finance' || !item.arxivId) return { ...item, saved: false };
+    return { ...item, saved: savedIds.has(normalizeArxivId(item.arxivId)) };
+  });
+}
+
+function mapArchivedPostsToPapers(posts = [], source) {
+  const results = [];
+  const seen = new Set();
+  const normalizedSourceType = String(source.type || '').toLowerCase();
+  const sourceName = source.name || source.type;
+
+  for (const post of posts) {
+    const arxivIds = Array.isArray(post.arxivIds) ? post.arxivIds : [];
+    for (const rawId of arxivIds) {
+      const arxivId = normalizeArxivId(rawId);
+      if (!arxivId || seen.has(arxivId)) continue;
+      seen.add(arxivId);
+      const influencer = post.influencerHandle ? `@${post.influencerHandle}` : '';
+      results.push({
+        itemType: 'paper',
+        arxivId,
+        title: chooseBestTitle(post.postTextSnippet, post.postText, arxivId),
+        abstract: '',
+        authors: [],
+        publishedAt: post.postedAt || '',
+        trackedDate: post.crawledAt || post.postedAt || '',
+        sourceType: normalizedSourceType,
+        sourceName,
+        sourceTypes: [normalizedSourceType],
+        sourceNames: [sourceName],
+        score: 0,
+        notes: post.postUrl
+          ? `From ${influencer ? `${influencer} ` : ''}post: ${post.postUrl}`
+          : '',
+      });
+    }
+  }
+  return results;
+}
+
+function normalizeFeedPaper(raw, source) {
+  const arxivId = normalizeArxivId(raw?.arxivId);
+  if (!arxivId) return null;
+  const normalizedSourceType = String(source.type || '').toLowerCase();
+  const sourceName = source.name || source.type;
+  const score = Math.max(
+    Number(raw?.score || 0) || 0,
+    Number(raw?.upvotes || 0) || 0,
+    Number(raw?.views || 0) || 0
+  );
+
+  return {
+    itemType: 'paper',
+    arxivId,
+    title: chooseBestTitle(raw?.title, raw?.tweetText, arxivId),
+    abstract: String(raw?.abstract || ''),
+    authors: Array.isArray(raw?.authors) ? raw.authors : [],
+    publishedAt: parsePostedAt(raw?.publishedAt),
+    trackedDate: parsePostedAt(raw?.trackedDate || raw?.publishedAt),
+    sourceType: normalizedSourceType,
+    sourceName,
+    sourceTypes: [normalizedSourceType],
+    sourceNames: [sourceName],
+    upvotes: Number(raw?.upvotes || 0) || 0,
+    views: Number(raw?.views || 0) || 0,
+    score,
+    saved: false,
+  };
+}
+
+function normalizeFeedFinanceItem(raw, source) {
+  const externalId = String(raw?.externalId || raw?.url || '').trim();
+  if (!externalId) return null;
+  const normalizedSourceType = String(source.type || '').toLowerCase();
+  const sourceName = source.name || source.type;
+  const summary = String(raw?.summary || '').trim();
+
+  return {
+    itemType: 'finance',
+    externalId,
+    symbol: String(raw?.symbol || '').toUpperCase(),
+    title: normalizeTitle(raw?.title) || 'Finance headline',
+    abstract: summary,
+    summary,
+    url: String(raw?.url || '').trim(),
+    authors: [],
+    publishedAt: parsePostedAt(raw?.publishedAt),
+    trackedDate: parsePostedAt(raw?.trackedDate || raw?.publishedAt),
+    sourceType: normalizedSourceType,
+    sourceName,
+    sourceTypes: [normalizedSourceType],
+    sourceNames: [sourceName],
+    score: Number(raw?.score || 0) || 0,
+    saved: false,
+  };
+}
+
+function needsArxivEnrichment(item) {
+  if (!item?.arxivId) return false;
+  const weakTitle = isLowSignalTitle(item.title);
+  const weakAbstract = String(item.abstract || '').trim().length < 60;
+  const noAuthors = !Array.isArray(item.authors) || item.authors.length === 0;
+  return weakTitle || (weakAbstract && noAuthors);
+}
+
+async function withTimeout(task, timeoutMs, label) {
+  const safeMs = Number.isFinite(timeoutMs) ? Math.max(500, Math.min(timeoutMs, 15000)) : 4500;
+  let timeoutHandle = null;
+  try {
+    return await Promise.race([
+      task(),
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(`${label}_timeout_${safeMs}ms`)), safeMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
+async function enrichFeedWithArxivMetadata(items = []) {
+  if (!Array.isArray(items) || items.length === 0 || FEED_METADATA_ENRICH_MAX <= 0) return items;
+
+  const enriched = [...items];
+  const candidates = items
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => needsArxivEnrichment(item))
+    .slice(0, FEED_METADATA_ENRICH_MAX);
+
+  if (candidates.length === 0) return enriched;
+
+  const concurrency = Math.min(4, candidates.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < candidates.length) {
+      const current = candidates[cursor++];
+      const { item, idx } = current;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const meta = await withTimeout(
+          () => arxivService.fetchMetadata(item.arxivId),
+          FEED_METADATA_TIMEOUT_MS,
+          'arxiv_metadata'
+        );
+        const next = { ...enriched[idx] };
+        next.title = chooseBestTitle(next.title, meta?.title, item.arxivId);
+        if (String(next.abstract || '').trim().length < 60 && meta?.abstract) {
+          next.abstract = String(meta.abstract).trim();
+        }
+        if ((!Array.isArray(next.authors) || next.authors.length === 0) && Array.isArray(meta?.authors)) {
+          next.authors = meta.authors;
+        }
+        if (!next.publishedAt && meta?.published) {
+          next.publishedAt = parsePostedAt(meta.published);
+        }
+        enriched[idx] = next;
+      } catch (_) {
+        // Keep original feed item when metadata enrichment fails/times out.
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return enriched;
+}
+
+async function fetchSourceFeedPapers(source, { debug = false } = {}) {
+  const sourceType = String(source.type || '').toLowerCase();
+  const sourceName = source.name || source.type;
+  const withTimeout = async (task) => {
+    const timeoutMs = Number.isFinite(FEED_SOURCE_TIMEOUT_MS)
+      ? Math.max(3000, Math.min(FEED_SOURCE_TIMEOUT_MS, 45000))
+      : 12000;
+    let timeoutHandle = null;
+    try {
+      return await Promise.race([
+        task(),
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(`source_timeout_${timeoutMs}ms`)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+  };
+  try {
+    let items = [];
+    if (sourceType === 'hf') {
+      const raw = await withTimeout(() => hfTracker.getNewPapers(source.config || {}));
+      items = raw.map((item) => normalizeFeedPaper(item, source)).filter(Boolean);
+    }
+    else if (sourceType === 'alphaxiv') {
+      const raw = await withTimeout(() => alphaxivTracker.getNewPapers(source.config || {}));
+      items = raw.map((item) => normalizeFeedPaper(item, source)).filter(Boolean);
+    }
+    else if (sourceType === 'arxiv_authors') {
+      const authors = Array.isArray(source.config?.authors) ? source.config.authors : [];
+      const maxPerAuthor = Math.min(Math.max(1, parseInt(source.config?.maxPerAuthor || '5', 10)), 20);
+      const lookbackDays = Math.min(Math.max(1, parseInt(source.config?.lookbackDays || '30', 10)), 90);
+      const seen = new Set();
+      for (const authorName of authors) {
+        const name = String(authorName || '').trim();
+        if (!name) continue;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const results = await arxivService.searchByAuthor(name, { maxResults: maxPerAuthor, lookbackDays });
+          for (const paper of results) {
+            if (!paper.arxivId || seen.has(paper.arxivId)) continue;
+            seen.add(paper.arxivId);
+            items.push(normalizeFeedPaper(paper, source));
+          }
+        } catch (_) { /* skip author on error */ }
+      }
+      items = items.filter(Boolean);
+    }
+    else if (sourceType === 'twitter') {
+      const mode = String(source.config?.mode || 'nitter').toLowerCase();
+      if (mode === 'playwright') {
+        // Feed endpoint should stay lightweight. Reuse archived posts by default.
+        const archivedPosts = await paperTracker.getArchivedTwitterPosts({
+          sourceId: source.id,
+          limit: 300,
+        });
+        items = mapArchivedPostsToPapers(archivedPosts, source);
+        // Debug mode can perform a live scrape when there is no archive yet.
+        if (debug && items.length === 0) {
+          const raw = await withTimeout(() => twitterPlaywrightTracker.getNewPapers(source.config || {}));
+          items = raw.map((item) => normalizeFeedPaper(item, source)).filter(Boolean);
+        }
+      } else {
+        const raw = await withTimeout(() => twitterTracker.getNewPapers(source.config || {}));
+        items = raw.map((item) => normalizeFeedPaper(item, source)).filter(Boolean);
+      }
+    }
+    else if (sourceType === 'finance') {
+      const raw = await withTimeout(() => financeTracker.getLatestItems(source.config || {}));
+      items = raw.map((item) => normalizeFeedFinanceItem(item, source)).filter(Boolean);
+    }
+    else {
+      return { source: sourceName, type: sourceType, total: 0, skipped: true, reason: 'unsupported_source_type' };
+    }
+
+    return {
+      source: sourceName,
+      type: sourceType,
+      total: items.length,
+      skipped: false,
+      items,
+    };
+  } catch (error) {
+    return {
+      source: sourceName,
+      type: sourceType,
+      total: 0,
+      skipped: true,
+      reason: error.message || 'fetch_failed',
+      items: [],
+    };
+  }
+}
+
+async function buildFeedSnapshot({ debug = false } = {}) {
+  const allSources = await paperTracker.getSources();
+  const enabledSources = allSources.filter((source) =>
+    source.enabled && FEED_SUPPORTED_SOURCE_TYPES.includes(String(source.type || '').toLowerCase())
+  );
+
+  const sourceRuns = [];
+  for (const source of enabledSources) {
+    // Keep predictable external request behavior and avoid hammering external APIs.
+    // eslint-disable-next-line no-await-in-loop
+    const result = await fetchSourceFeedPapers(source, { debug });
+    sourceRuns.push(result);
+  }
+
+  const mergedByFeedKey = new Map();
+  for (const run of sourceRuns) {
+    const sourceItems = Array.isArray(run.items) ? run.items : [];
+    for (const item of sourceItems) {
+      const key = buildFeedItemKey(item);
+      if (!key) continue;
+      const existing = mergedByFeedKey.get(key);
+      if (!existing) mergedByFeedKey.set(key, item);
+      else mergedByFeedKey.set(key, mergeFeedItems(existing, item));
+    }
+  }
+
+  const items = sortFeedPapers([...mergedByFeedKey.values()]);
+  const enrichedItems = await enrichFeedWithArxivMetadata(items);
+  const cappedItems = enrichedItems.slice(0, FEED_CACHE_MAX_ITEMS);
+  if (enrichedItems.length > cappedItems.length) {
+    console.log(
+      `[tracker] feed cache cap applied: ${enrichedItems.length} -> ${cappedItems.length} (oldest trimmed)`
+    );
+  }
+
+  const perSource = sourceRuns.map((run) => ({
+    source: run.source,
+    type: run.type,
+    total: run.total || 0,
+    skipped: run.skipped || false,
+    reason: run.reason || null,
+  }));
+
+  const fetchedAtMs = Date.now();
+  return {
+    data: normalizeFeedSnapshotData(cappedItems),
+    fetchedAt: fetchedAtMs,
+    perSource,
+    sourceCount: enabledSources.length,
+  };
+}
+
+async function refreshFeedSnapshot(reason = 'manual', { debug = false } = {}) {
+  if (feedRefreshRunning) return null;
+  feedRefreshRunning = true;
+  try {
+    const snapshot = await buildFeedSnapshot({ debug });
+    feedCache = {
+      data: snapshot.data,
+      fetchedAt: snapshot.fetchedAt,
+      perSource: snapshot.perSource,
+      sourceCount: snapshot.sourceCount,
+    };
+    await savePersistedFeedSnapshot({
+      data: snapshot.data,
+      perSource: snapshot.perSource,
+      sourceCount: snapshot.sourceCount,
+      fetchedAtMs: snapshot.fetchedAt,
+    });
+    console.log(`[tracker] feed snapshot refreshed (${reason}), items=${snapshot.data.length}`);
+    return snapshot;
+  } catch (error) {
+    console.error(`[tracker] feed snapshot refresh failed (${reason}):`, error.message || error);
+    throw error;
+  } finally {
+    feedRefreshRunning = false;
+  }
+}
+
+function startFeedRefreshScheduler() {
+  if (!config.tracker?.enabled) return;
+  if (globalThis.__AUTO_RESEARCHER_FEED_REFRESH_STARTED__) return;
+  globalThis.__AUTO_RESEARCHER_FEED_REFRESH_STARTED__ = true;
+
+  const startupDelay = Number.isFinite(FEED_REFRESH_STARTUP_DELAY_MS)
+    ? Math.max(2000, FEED_REFRESH_STARTUP_DELAY_MS)
+    : 45000;
+  const intervalMs = Number.isFinite(FEED_REFRESH_INTERVAL_MS)
+    ? Math.max(60 * 60 * 1000, FEED_REFRESH_INTERVAL_MS)
+    : 24 * 60 * 60 * 1000;
+
+  setTimeout(() => {
+    refreshFeedSnapshot('startup').catch(() => {});
+  }, startupDelay);
+
+  setInterval(() => {
+    refreshFeedSnapshot('scheduled').catch(() => {});
+  }, intervalMs);
+
+  console.log(`[tracker] feed refresh scheduler enabled (every ${Math.round(intervalMs / 3600000)}h)`);
+}
+
+startFeedRefreshScheduler();
+
+// GET /api/tracker/feed — latest papers from enabled sources (cached 24h)
 // ?debug=1 bypasses cache  ?offset=N ?limit=N (default 5)
 router.get('/feed', async (req, res) => {
   try {
@@ -26,49 +701,102 @@ router.get('/feed', async (req, res) => {
     const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 50)) : 5;
     const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
     const now = Date.now();
-    const cacheAge = feedCache.fetchedAt ? now - feedCache.fetchedAt : Infinity;
+    let snapshot = null;
+    let cacheSource = 'live';
 
-    if (!debug && cacheAge < FEED_CACHE_TTL_MS && feedCache.data.length > 0) {
-      const pageData = feedCache.data.slice(offset, offset + limit);
-      return res.json({
-        data: pageData,
-        cached: true,
-        fetchedAt: new Date(feedCache.fetchedAt).toISOString(),
-        offset,
-        limit,
-        hasMore: offset + pageData.length < feedCache.data.length,
-        total: feedCache.data.length,
-      });
+    if (!debug && Array.isArray(feedCache.data) && feedCache.data.length > 0 && feedCache.fetchedAt) {
+      const cacheAge = now - Number(feedCache.fetchedAt);
+      if (Number.isFinite(cacheAge) && cacheAge < FEED_CACHE_TTL_MS) {
+        snapshot = {
+          data: normalizeFeedSnapshotData(feedCache.data),
+          fetchedAt: Number(feedCache.fetchedAt),
+          perSource: Array.isArray(feedCache.perSource) ? feedCache.perSource : [],
+          sourceCount: Number(feedCache.sourceCount || 0) || 0,
+        };
+        cacheSource = 'memory';
+      }
     }
 
-    // Fetch fresh HF daily papers (recent 2 days so we still have results if today is not published yet)
-    const papers = await hfTracker.getNewPapers({ lookbackDays: 2, minUpvotes: 0 });
+    if (!snapshot && !debug) {
+      const persisted = await loadPersistedFeedSnapshot();
+      if (persisted?.data?.length) {
+        snapshot = persisted;
+        cacheSource = 'persisted';
+        feedCache = {
+          data: persisted.data,
+          fetchedAt: persisted.fetchedAt,
+          perSource: persisted.perSource || [],
+          sourceCount: persisted.sourceCount || 0,
+        };
+        const persistedAge = now - persisted.fetchedAt;
+        if (config.tracker?.enabled && persistedAge >= FEED_CACHE_TTL_MS && !feedRefreshRunning) {
+          refreshFeedSnapshot('stale_persisted').catch(() => {});
+        }
+      }
+    }
 
-    // Sort by upvotes descending
-    papers.sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
-
-    // Check which are already saved in the library
-    const db = getDb();
-    const annotated = await Promise.all(
-      papers.map(async (p) => {
-        const r = await db.execute({
-          sql: `SELECT 1 FROM documents WHERE original_url LIKE ? LIMIT 1`,
-          args: [`%arxiv.org%${p.arxivId}%`],
+    if (!snapshot) {
+      if (!debug) {
+        if (!feedRefreshRunning) {
+          refreshFeedSnapshot('http_warmup').catch(() => {});
+        }
+        return res.json({
+          data: [],
+          cached: false,
+          cacheSource: 'warming',
+          fetchedAt: null,
+          offset,
+          limit,
+          hasMore: false,
+          total: 0,
+          perSource: [],
+          sourceCount: 0,
+          refreshInProgress: true,
+          warming: true,
+          message: 'Tracker feed is warming up. Please retry in a few seconds.',
         });
-        return { ...p, saved: r.rows.length > 0 };
-      })
-    );
+      }
+      try {
+        const liveSnapshot = await refreshFeedSnapshot('http_debug', { debug: true });
+        if (!liveSnapshot) throw new Error('feed_refresh_busy');
+        snapshot = liveSnapshot;
+        cacheSource = 'live';
+      } catch (liveError) {
+        const persistedFallback = await loadPersistedFeedSnapshot();
+        if (persistedFallback?.data?.length) {
+          snapshot = persistedFallback;
+          cacheSource = 'persisted-fallback';
+          feedCache = {
+            data: persistedFallback.data,
+            fetchedAt: persistedFallback.fetchedAt,
+            perSource: persistedFallback.perSource || [],
+            sourceCount: persistedFallback.sourceCount || 0,
+          };
+        } else {
+          throw liveError;
+        }
+      }
+    }
 
-    feedCache = { data: annotated, fetchedAt: now };
-    const pageData = annotated.slice(offset, offset + limit);
+    const sourceData = Array.isArray(snapshot.data) ? snapshot.data : [];
+    const rawPageData = sourceData.slice(offset, offset + limit);
+    const pageData = await annotateSavedStatus(rawPageData);
+    const fetchedAtIso = snapshot.fetchedAt
+      ? new Date(snapshot.fetchedAt).toISOString()
+      : new Date(now).toISOString();
+
     res.json({
       data: pageData,
-      cached: false,
-      fetchedAt: new Date(now).toISOString(),
+      cached: cacheSource !== 'live' && !debug,
+      cacheSource,
+      fetchedAt: fetchedAtIso,
       offset,
       limit,
-      hasMore: offset + pageData.length < annotated.length,
-      total: annotated.length,
+      hasMore: offset + rawPageData.length < sourceData.length,
+      total: sourceData.length,
+      perSource: Array.isArray(snapshot.perSource) ? snapshot.perSource : [],
+      sourceCount: Number(snapshot.sourceCount || 0) || 0,
+      refreshInProgress: feedRefreshRunning,
     });
   } catch (e) {
     console.error('[tracker] GET /feed error:', e);
@@ -78,21 +806,26 @@ router.get('/feed', async (req, res) => {
 
 // POST /api/tracker/feed/invalidate — force feed cache refresh (auth required)
 router.post('/feed/invalidate', requireAuth, (req, res) => {
-  feedCache = { data: [], fetchedAt: null };
-  res.json({ ok: true });
+  (async () => {
+    feedCache = { data: [], fetchedAt: null, perSource: [], sourceCount: 0 };
+    await clearPersistedFeedSnapshot();
+    if (config.tracker?.enabled) {
+      refreshFeedSnapshot('invalidate').catch(() => {});
+    }
+  })()
+    .then(() => res.json({ ok: true }))
+    .catch((error) => res.status(500).json({ error: error.message || 'Failed to invalidate feed cache' }));
 });
 
 // GET /api/tracker/sources — list all sources
 router.get('/sources', async (req, res) => {
   try {
     const sources = await paperTracker.getSources();
-    // Redact sensitive config fields (passwords) for non-auth callers
+    // Redact sensitive config fields for non-auth callers.
+    // Scholar credentials are env-managed and never returned from API responses.
     const authHeader = req.headers.authorization;
     const isAuth = !!authHeader;
-    const safeSources = sources.map((s) => ({
-      ...s,
-      config: isAuth ? s.config : redactConfig(s.config),
-    }));
+    const safeSources = sources.map((s) => sanitizeSourceForResponse(s, isAuth));
     res.json(safeSources);
   } catch (e) {
     console.error('[tracker] GET /sources error:', e);
@@ -107,13 +840,14 @@ router.post('/sources', requireAuth, async (req, res) => {
     if (!type || !name) {
       return res.status(400).json({ error: 'type and name are required' });
     }
-    const validTypes = ['hf', 'twitter', 'scholar'];
-    if (!validTypes.includes(type)) {
+    const normalizedType = String(type || '').toLowerCase();
+    const validTypes = FEED_SUPPORTED_SOURCE_TYPES;
+    if (!validTypes.includes(normalizedType)) {
       return res.status(400).json({ error: `type must be one of: ${validTypes.join(', ')}` });
     }
-    const normalizedConfig = normalizeSourceConfig(type, config || {});
-    const id = await paperTracker.addSource(type, name, normalizedConfig);
-    res.status(201).json({ id, type, name, config: normalizedConfig, enabled: true });
+    const normalizedConfig = normalizeSourceConfig(normalizedType, config || {});
+    const id = await paperTracker.addSource(normalizedType, name, normalizedConfig);
+    res.status(201).json({ id, type: normalizedType, name, config: normalizedConfig, enabled: true });
   } catch (e) {
     console.error('[tracker] POST /sources error:', e);
     res.status(500).json({ error: e.message });
@@ -136,7 +870,7 @@ router.put('/sources/:id', requireAuth, async (req, res) => {
       if (!sourceType) {
         return res.status(404).json({ error: 'Source not found' });
       }
-      normalizedConfig = normalizeSourceConfig(sourceType, config);
+      normalizedConfig = normalizeSourceConfig(String(sourceType || '').toLowerCase(), config);
     }
     await paperTracker.updateSource(Number(id), { name, config: normalizedConfig, enabled });
     res.json({ ok: true });
@@ -266,9 +1000,31 @@ function redactConfig(config) {
   return safe;
 }
 
+function sanitizeSourceForResponse(source, isAuth) {
+  return {
+    ...source,
+    config: isAuth ? (source?.config || {}) : redactConfig(source?.config || {}),
+  };
+}
+
 function normalizeSourceConfig(type, config) {
   if (type === 'twitter') return normalizeTwitterConfig(config);
+  if (type === 'finance') return normalizeFinanceConfig(config);
+  if (type === 'arxiv_authors') return normalizeArxivAuthorsConfig(config);
   return config || {};
+}
+
+function normalizeArxivAuthorsConfig(config = {}) {
+  const authors = Array.isArray(config.authors)
+    ? config.authors.map((a) => String(a || '').trim()).filter(Boolean)
+    : [];
+  const maxPerAuthorRaw = parseInt(config.maxPerAuthor || '5', 10);
+  const lookbackDaysRaw = parseInt(config.lookbackDays || '30', 10);
+  return {
+    authors,
+    maxPerAuthor: Number.isFinite(maxPerAuthorRaw) ? Math.max(1, Math.min(maxPerAuthorRaw, 20)) : 5,
+    lookbackDays: Number.isFinite(lookbackDaysRaw) ? Math.max(1, Math.min(lookbackDaysRaw, 90)) : 30,
+  };
 }
 
 function normalizeTwitterConfig(config = {}) {
@@ -334,5 +1090,59 @@ function normalizeTwitterConfig(config = {}) {
     nitterInstance: config.nitterInstance || '',
   };
 }
+
+function normalizeFinanceConfig(config = {}) {
+  return financeTracker.normalizeConfig(config);
+}
+
+// POST /api/tracker/parse-author-names — use Claude to parse a free-text list of scholar names
+// Returns: { authors: string[] }
+router.post('/parse-author-names', requireAuth, async (req, res) => {
+  try {
+    const rawText = String(req.body?.text || '').trim();
+    if (!rawText) return res.status(400).json({ error: 'text is required' });
+
+    // Simple heuristic fallback: split by newlines or commas
+    const simpleParse = (text) => text
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 1 && s.length < 120 && /[a-zA-Z]/.test(s));
+
+    const apiKey = config.llm?.anthropic?.apiKey;
+    if (!apiKey) {
+      // No LLM — return simple parse
+      return res.json({ authors: simpleParse(rawText), parsed: false });
+    }
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic.default({ apiKey });
+
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: `Extract a clean list of researcher/scholar names from the following text. Return ONLY a JSON array of strings, one name per element, with proper capitalization. Remove duplicates, affiliation info, and titles (Dr., Prof., etc.). Do not add any explanation.\n\nInput:\n${rawText}`,
+      }],
+    });
+
+    const responseText = message.content?.[0]?.text || '';
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) {
+        const authors = parsed.map((s) => String(s || '').trim()).filter((s) => s.length > 1);
+        return res.json({ authors, parsed: true });
+      }
+    }
+    // LLM response not parseable — fall back to simple
+    return res.json({ authors: simpleParse(rawText), parsed: false });
+  } catch (e) {
+    console.error('[tracker] POST /parse-author-names error:', e);
+    // Fall back gracefully
+    const fallback = String(req.body?.text || '').split(/[\n,;]+/).map((s) => s.trim()).filter((s) => s.length > 1);
+    return res.json({ authors: fallback, parsed: false });
+  }
+});
 
 module.exports = router;

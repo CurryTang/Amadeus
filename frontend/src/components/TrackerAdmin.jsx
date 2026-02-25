@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const SOURCE_TYPES = ['hf', 'alphaxiv', 'twitter', 'scholar'];
+const SOURCE_TYPES = ['twitter', 'arxiv_authors', 'hf', 'alphaxiv', 'finance'];
 const SOURCE_TYPE_LABELS = {
-  hf: 'HuggingFace Daily',
-  alphaxiv: 'arXiv Categories',
+  alphaxiv: 'Research Domain (arXiv)',
   twitter: 'Twitter/X',
-  scholar: 'Google Scholar',
+  finance: 'Finance',
+  hf: 'HuggingFace Daily',
+  arxiv_authors: 'Scholar Authors (arXiv)',
 };
 
 const POPULAR_ARXIV_CATEGORIES = [
@@ -36,12 +37,40 @@ const CONFIG_FIELDS = {
   ],
   twitter: [
     {
+      key: 'mode',
+      label: 'Source Mode',
+      type: 'select',
+      options: [
+        { value: 'nitter', label: 'Username (Nitter RSS)' },
+        { value: 'playwright', label: 'Playwright Browser' },
+      ],
+      placeholder: 'nitter',
+      hint: 'Use username mode for lightweight tracking. Playwright mode is heavier but supports richer extraction.',
+    },
+    {
+      key: 'username',
+      label: 'Twitter Username',
+      type: 'text',
+      placeholder: 'karpathy',
+      hint: 'Handle only, with or without @.',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'nitter',
+    },
+    {
+      key: 'nitterInstance',
+      label: 'Nitter Instance (optional)',
+      type: 'text',
+      placeholder: 'https://nitter.privacydev.net',
+      hint: 'Leave empty to use built-in fallback instances.',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'nitter',
+    },
+    {
       key: 'trackingMode',
       label: 'Tracking Mode',
       type: 'select',
       options: [{ value: 'paper', label: 'Paper Mode' }],
       placeholder: 'paper',
       hint: 'Current mode detects paper-related links/arXiv IDs. Additional modes (finance/web3/etc.) can be added later.',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
     },
     {
       key: 'profileLinksText',
@@ -49,6 +78,7 @@ const CONFIG_FIELDS = {
       type: 'textarea',
       placeholder: 'karpathy\nylecun\nhttps://x.com/AndrewYNg',
       hint: 'One handle or x.com/twitter.com URL per line.',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
     },
     {
       key: 'storageStatePath',
@@ -56,6 +86,7 @@ const CONFIG_FIELDS = {
       type: 'text',
       placeholder: '/home/user/.playwright/x-session.json',
       hint: 'Path to Playwright storage state JSON (saved login session for X/Twitter).',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
     },
     {
       key: 'maxPostsPerProfile',
@@ -63,6 +94,7 @@ const CONFIG_FIELDS = {
       type: 'number',
       placeholder: '15',
       hint: 'How many recent posts to scan per user.',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
     },
     {
       key: 'crawlIntervalHours',
@@ -70,6 +102,7 @@ const CONFIG_FIELDS = {
       type: 'number',
       placeholder: '24',
       hint: 'Minimum hours between runs (default: 24). Playwright scraping is slow — daily is recommended.',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
     },
     {
       key: 'onlyWithModeMatches',
@@ -77,12 +110,92 @@ const CONFIG_FIELDS = {
       type: 'checkbox',
       defaultChecked: false,
       hint: 'In paper mode, skip posts without detected arXiv/paper links.',
+      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
     },
   ],
-  scholar: [
-    { key: 'email', label: 'Gmail Address', type: 'email', placeholder: 'you@gmail.com', hint: 'Gmail account that receives Scholar alerts' },
-    { key: 'password', label: 'App Password', type: 'password', placeholder: '16-char app password', hint: 'Gmail App Password (not your main password). Create at myaccount.google.com/apppasswords' },
-    { key: 'markRead', label: 'Mark emails as read', type: 'checkbox', hint: 'Mark Scholar alert emails as read after processing' },
+  finance: [
+    {
+      key: 'provider',
+      label: 'Source',
+      type: 'select',
+      options: [
+        { value: 'yahoo_rss', label: 'Yahoo Finance RSS (Free)' },
+        { value: 'finnhub', label: 'Finnhub (Free Tier API Key)' },
+        { value: 'alpha_vantage', label: 'Alpha Vantage (Free Tier API Key)' },
+        { value: 'polygon', label: 'Polygon (Free Tier API Key)' },
+        { value: 'eastmoney_cn', label: 'Eastmoney China Market (Free)' },
+        { value: 'cryptocompare_crypto', label: 'CryptoCompare Crypto News (Free)' },
+      ],
+      placeholder: 'yahoo_rss',
+      hint: 'Select provider. Finnhub/Alpha Vantage/Polygon require API keys on free plans.',
+    },
+    {
+      key: 'symbolsText',
+      label: 'Symbols',
+      type: 'textarea',
+      placeholder: 'AAPL\nTSLA\nNVDA\nSPY',
+      hint: 'One symbol per line.',
+      showWhen: (config) => ['yahoo_rss', 'finnhub', 'alpha_vantage', 'polygon'].includes(String(config.provider || 'yahoo_rss').toLowerCase()),
+    },
+    {
+      key: 'apiKey',
+      label: 'API Key',
+      type: 'password',
+      placeholder: 'Enter provider API key',
+      hint: 'Required for Finnhub / Alpha Vantage / Polygon. You can also set env keys on backend.',
+      showWhen: (config) => ['finnhub', 'alpha_vantage', 'polygon'].includes(String(config.provider || 'yahoo_rss').toLowerCase()),
+    },
+    {
+      key: 'lookbackDays',
+      label: 'Lookback Days',
+      type: 'number',
+      placeholder: '7',
+      hint: 'For Finnhub company news, how many days of history to query.',
+      showWhen: (config) => String(config.provider || 'yahoo_rss').toLowerCase() === 'finnhub',
+    },
+    {
+      key: 'cnSecidsText',
+      label: 'China Market IDs',
+      type: 'textarea',
+      placeholder: '1.000001\n0.399001\n0.399006',
+      hint: 'Eastmoney secid list. Format: market.code (1=SH, 0=SZ), e.g. 1.000001.',
+      showWhen: (config) => String(config.provider || 'yahoo_rss').toLowerCase() === 'eastmoney_cn',
+    },
+    {
+      key: 'categoriesText',
+      label: 'Crypto Categories',
+      type: 'text',
+      placeholder: 'BTC,ETH,DeFi,Exchange',
+      hint: 'Optional for CryptoCompare. Comma-separated category filters.',
+      showWhen: (config) => String(config.provider || 'yahoo_rss').toLowerCase() === 'cryptocompare_crypto',
+    },
+    {
+      key: 'maxItemsPerSymbol',
+      label: 'Max Headlines / Symbol',
+      type: 'number',
+      placeholder: '8',
+      hint: 'How many latest items to fetch each run.',
+    },
+    {
+      key: 'region',
+      label: 'Region',
+      type: 'text',
+      placeholder: 'US',
+      hint: 'Yahoo region code (default: US).',
+      showWhen: (config) => String(config.provider || 'yahoo_rss').toLowerCase() === 'yahoo_rss',
+    },
+    {
+      key: 'lang',
+      label: 'Language',
+      type: 'text',
+      placeholder: 'en-US',
+      hint: 'Language code (Yahoo default: en-US; CryptoCompare uses EN).',
+      showWhen: (config) => ['yahoo_rss', 'cryptocompare_crypto'].includes(String(config.provider || 'yahoo_rss').toLowerCase()),
+    },
+  ],
+  arxiv_authors: [
+    { key: 'maxPerAuthor', label: 'Max papers per author', type: 'number', placeholder: '5', hint: 'How many recent papers to fetch per scholar per run (1–20).' },
+    { key: 'lookbackDays', label: 'Lookback days', type: 'number', placeholder: '30', hint: 'Only include papers published within this many days (1–90).' },
   ],
 };
 
@@ -199,18 +312,34 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
+  const [feedPerSource, setFeedPerSource] = useState([]);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  // Scholar import modal
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importParsed, setImportParsed] = useState(null); // string[] after parse
+  const [importParsing, setImportParsing] = useState(false);
+  const [importError, setImportError] = useState('');
+
   const [runningId, setRunningId] = useState(null); // source id being run
   const [runningAll, setRunningAll] = useState(false);
+  const lastRunErrors = Array.isArray(status?.lastRunResult)
+    ? status.lastRunResult.filter((entry) => {
+      if (!entry) return false;
+      if (String(entry.error || '').trim()) return true;
+      return Number(entry.failed || 0) > 0;
+    })
+    : [];
 
   useEffect(() => {
     fetchSources();
     fetchStatus();
+    fetchFeedSummary();
   }, []);
 
   const fetchSources = async () => {
@@ -229,19 +358,56 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     try {
       const res = await axios.get(`${apiUrl}/tracker/status`, { headers: getAuthHeaders() });
       setStatus(res.data);
-    } catch (_) {}
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to load tracker status');
+    }
+  };
+
+  const fetchFeedSummary = async () => {
+    try {
+      const res = await axios.get(`${apiUrl}/tracker/feed`, {
+        params: { limit: 1, offset: 0 },
+        headers: getAuthHeaders(),
+      });
+      setFeedPerSource(Array.isArray(res.data?.perSource) ? res.data.perSource : []);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to load tracker feed summary');
+    }
   };
 
   const handleEdit = (source) => {
     const config = { ...source.config };
     if (source.type === 'twitter') {
-      config.mode = 'playwright';
-      if (!config.trackingMode) config.trackingMode = 'paper';
-      config.profileLinksText = (config.profileLinks || []).join('\n');
-      if (config.onlyWithModeMatches === undefined) {
-        config.onlyWithModeMatches = config.onlyWithPaperLinks === true;
+      const mode = String(config.mode || (config.username ? 'nitter' : 'playwright')).toLowerCase();
+      config.mode = mode;
+      if (mode === 'playwright') {
+        if (!config.trackingMode) config.trackingMode = 'paper';
+        config.profileLinksText = (config.profileLinks || []).join('\n');
+        if (config.onlyWithModeMatches === undefined) {
+          config.onlyWithModeMatches = config.onlyWithPaperLinks === true;
+        }
+        if (config.crawlIntervalHours === undefined) config.crawlIntervalHours = 24;
+      } else {
+        config.username = config.username || '';
+        config.nitterInstance = config.nitterInstance || '';
       }
-      if (config.crawlIntervalHours === undefined) config.crawlIntervalHours = 24;
+    }
+    if (source.type === 'finance') {
+      config.provider = config.provider || 'yahoo_rss';
+      config.symbolsText = Array.isArray(config.symbols) ? config.symbols.join('\n') : '';
+      config.cnSecidsText = Array.isArray(config.cnSecids) ? config.cnSecids.join('\n') : '';
+      config.categoriesText = Array.isArray(config.categories) ? config.categories.join(', ') : (config.categoriesText || '');
+      if (config.maxItemsPerSymbol === undefined) config.maxItemsPerSymbol = 8;
+      if (config.lookbackDays === undefined) config.lookbackDays = 7;
+      if (!config.region) config.region = 'US';
+      if (!config.lang) config.lang = 'en-US';
+      if (!config.apiKey) config.apiKey = '';
+    }
+    if (source.type === 'arxiv_authors') {
+      // authorsText is the editable textarea; authors is the stored array
+      config.authorsText = Array.isArray(config.authors) ? config.authors.join('\n') : '';
+      if (config.maxPerAuthor === undefined) config.maxPerAuthor = 5;
+      if (config.lookbackDays === undefined) config.lookbackDays = 30;
     }
     setForm({ type: source.type, name: source.name, config });
     setEditingId(source.id);
@@ -299,8 +465,51 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     setForm({
       type,
       name: '',
-      config: type === 'twitter' ? { mode: 'playwright', trackingMode: 'paper' } : {},
+      config: (
+        type === 'twitter'
+          ? { mode: 'nitter' }
+          : type === 'finance'
+            ? { provider: 'yahoo_rss', region: 'US', lang: 'en-US', maxItemsPerSymbol: 8, lookbackDays: 7 }
+            : type === 'arxiv_authors'
+              ? { authorsText: '', maxPerAuthor: 5, lookbackDays: 30 }
+              : {}
+      ),
     });
+  };
+
+  const handleParseAuthorNames = async () => {
+    if (!importText.trim()) return;
+    setImportParsing(true);
+    setImportError('');
+    try {
+      const res = await axios.post(
+        `${apiUrl}/tracker/parse-author-names`,
+        { text: importText },
+        { headers: getAuthHeaders() },
+      );
+      setImportParsed(Array.isArray(res.data?.authors) ? res.data.authors : []);
+    } catch (e) {
+      setImportError(e.response?.data?.error || 'Parse failed');
+    } finally {
+      setImportParsing(false);
+    }
+  };
+
+  const handleImportAuthors = () => {
+    const names = Array.isArray(importParsed) ? importParsed : [];
+    if (names.length === 0) return;
+    // Merge into current form's authorsText (if editing) or start a new arxiv_authors form
+    const existing = String(form.config.authorsText || '').split('\n').map((s) => s.trim()).filter(Boolean);
+    const merged = [...new Set([...existing, ...names])];
+    setForm((f) => ({
+      ...f,
+      type: 'arxiv_authors',
+      config: { ...f.config, authorsText: merged.join('\n') },
+    }));
+    setShowImportModal(false);
+    setImportParsed(null);
+    setImportText('');
+    setShowForm(true);
   };
 
   const handleSubmit = async (e) => {
@@ -328,6 +537,28 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const getSourceLastError = (source) => {
+    const sourceType = String(source?.type || '').toLowerCase();
+    const sourceName = String(source?.name || '').trim();
+    if (Array.isArray(status?.lastRunResult)) {
+      const match = status.lastRunResult.find((entry) => (
+        String(entry?.type || '').toLowerCase() === sourceType
+        && String(entry?.source || '').trim() === sourceName
+        && (String(entry?.error || '').trim() || Number(entry?.failed || 0) > 0)
+      ));
+      if (match) {
+        if (String(match.error || '').trim()) return String(match.error).trim();
+        return 'Last run failed';
+      }
+    }
+    const feedMatch = feedPerSource.find((entry) => (
+      String(entry?.type || '').toLowerCase() === sourceType
+      && String(entry?.source || '').trim() === sourceName
+      && entry?.reason
+    ));
+    return feedMatch?.reason ? String(feedMatch.reason) : '';
   };
 
   const handleCancelForm = () => {
@@ -374,9 +605,19 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
             </div>
           )}
 
+          {lastRunErrors.length > 0 && (
+            <div className="tracker-info" style={{ marginTop: 8 }}>
+              {lastRunErrors.map((entry, idx) => (
+                <p key={`tracker-run-error-${idx}`} className="admin-error" style={{ margin: '2px 0' }}>
+                  {entry.source || entry.type || 'tracker source'}: {entry.error || 'Last run failed'}
+                </p>
+              ))}
+            </div>
+          )}
+
           {/* Source list */}
           <div className="tracker-info">
-            <p>All tracker sources are discovery-only and won&apos;t auto-add papers to your library. Papers are saved only when you click save. Tracker checks run every 6 hours.</p>
+            <p>All tracker sources are discovery-only and won&apos;t auto-add papers to your library. Papers are saved only when you click save. Server-side metadata refresh runs daily by default.</p>
           </div>
 
           {loading ? (
@@ -389,16 +630,28 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
 
               {sources.length > 0 && (
                 <div className="tracker-source-list">
-                  {sources.map((source) => (
+                  {sources.map((source) => {
+                    const sourceError = getSourceLastError(source);
+                    return (
                     <div key={source.id} className={`tracker-source-item ${source.enabled ? '' : 'disabled'}`}>
                       <div className="tracker-source-info">
                         <span className={`tracker-type-badge tracker-type-${source.type}`}>
                           {SOURCE_TYPE_LABELS[source.type] || source.type}
                         </span>
                         <span className="tracker-source-name">{source.name}</span>
+                        {source.type === 'arxiv_authors' && Array.isArray(source.config?.authors) && (
+                          <span className="tracker-source-last-check">
+                            {source.config.authors.length} scholar{source.config.authors.length !== 1 ? 's' : ''}
+                          </span>
+                        )}
                         {source.lastCheckedAt && (
                           <span className="tracker-source-last-check">
                             checked {new Date(source.lastCheckedAt).toLocaleDateString()}
+                          </span>
+                        )}
+                        {sourceError && (
+                          <span className="tracker-source-last-check" style={{ color: '#b91c1c' }}>
+                            error: {sourceError}
                           </span>
                         )}
                       </div>
@@ -421,13 +674,15 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
                         <button className="ssh-btn-delete" onClick={() => handleDelete(source.id)}>Delete</button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
               {/* Add / Edit form */}
               {showForm ? (
                 <form className="ssh-server-form" onSubmit={handleSubmit}>
+
                   <h4>{editingId ? 'Edit Source' : 'Add Source'}</h4>
 
                   {!editingId && (
@@ -449,9 +704,11 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
                       onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                       placeholder={
                         form.type === 'hf' ? 'HuggingFace Daily Papers' :
-                        form.type === 'alphaxiv' ? 'arXiv cs.LG + cs.AI' :
+                        form.type === 'alphaxiv' ? 'Research Domain: cs.LG + cs.AI' :
                         form.type === 'twitter' ? '@karpathy' :
-                        'My Scholar Alerts'
+                        form.type === 'finance' ? 'Finance: AAPL + NVDA' :
+                        form.type === 'arxiv_authors' ? 'My Research Group' :
+                        'Source name'
                       }
                       required
                     />
@@ -476,18 +733,40 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
                     </div>
                   )}
 
-                  {form.type === 'scholar' && (
+                  {form.type === 'arxiv_authors' && (
                     <div className="ssh-form-row">
-                      <p className="ssh-form-hint" style={{ color: '#f59e0b' }}>
-                        Gmail App Password required. Create one at{' '}
-                        <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">
-                          myaccount.google.com/apppasswords
-                        </a>
+                      <label>Scholar Names</label>
+                      <textarea
+                        value={form.config.authorsText || ''}
+                        onChange={(e) => handleConfigChange('authorsText', e.target.value)}
+                        placeholder={'Yann LeCun\nAndrej Karpathy\nGeoffrey Hinton'}
+                        rows={6}
+                      />
+                      <p className="ssh-form-hint">One scholar name per line. Used to search arXiv author field.</p>
+                      <button
+                        type="button"
+                        className="ssh-btn-test"
+                        style={{ marginTop: 6 }}
+                        onClick={() => {
+                          setImportText(form.config.authorsText || '');
+                          setImportParsed(null);
+                          setShowImportModal(true);
+                        }}
+                      >
+                        Parse &amp; Clean Names with AI
+                      </button>
+                    </div>
+                  )}
+
+                  {form.type === 'finance' && (
+                    <div className="ssh-form-row">
+                      <p className="ssh-form-hint">
+                        Free market providers now include <strong>Finnhub</strong>, <strong>Alpha Vantage</strong>, <strong>Polygon</strong>, plus free no-key sources for <strong>China market</strong> (Eastmoney) and <strong>crypto-specific</strong> news (CryptoCompare).
                       </p>
                     </div>
                   )}
 
-                  {form.type === 'twitter' && (
+                  {form.type === 'twitter' && String(form.config.mode || 'nitter').toLowerCase() === 'playwright' && (
                     <div className="ssh-form-row">
                       <div className="tracker-requirement-note">
                         <strong>Requirements:</strong>
@@ -507,20 +786,153 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
                   </div>
                 </form>
               ) : (
-                <button className="ssh-btn-add" onClick={() => setShowForm(true)}>
-                  + Add Source
-                </button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button className="ssh-btn-add" onClick={() => setShowForm(true)}>
+                    + Add Source
+                  </button>
+                  <button
+                    className="ssh-btn-test"
+                    onClick={() => {
+                      setImportText('');
+                      setImportParsed(null);
+                      setImportError('');
+                      setShowImportModal(true);
+                    }}
+                  >
+                    Import Scholar List
+                  </button>
+                </div>
               )}
             </>
           )}
         </div>
       </div>
+
+      {/* Scholar import modal */}
+      {showImportModal && (
+        <div className="admin-panel-overlay" style={{ zIndex: 1100 }} onClick={(e) => e.target === e.currentTarget && setShowImportModal(false)}>
+          <div className="admin-panel" style={{ maxWidth: 520 }}>
+            <div className="admin-panel-header">
+              <h3>Import Scholar Names</h3>
+              <button className="close-btn" onClick={() => setShowImportModal(false)}>×</button>
+            </div>
+            <div className="admin-panel-body">
+              <p style={{ marginBottom: 10, fontSize: '0.85rem', color: '#555' }}>
+                Paste a list of researcher names — one per line, comma-separated, or mixed formats.
+                Click &ldquo;Parse with AI&rdquo; to clean and normalize the list.
+              </p>
+              <textarea
+                style={{ width: '100%', minHeight: 140, fontFamily: 'inherit', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                value={importText}
+                onChange={(e) => { setImportText(e.target.value); setImportParsed(null); }}
+                placeholder={'Yann LeCun\nAndrej Karpathy, Geoffrey Hinton\nProf. Yoshua Bengio (Mila)'}
+              />
+              {importError && <p className="admin-error">{importError}</p>}
+              <div className="ssh-form-actions" style={{ marginTop: 8 }}>
+                <button type="button" className="ssh-btn-cancel" onClick={() => setShowImportModal(false)}>Cancel</button>
+                <button
+                  type="button"
+                  className="ssh-btn-test"
+                  onClick={handleParseAuthorNames}
+                  disabled={importParsing || !importText.trim()}
+                >
+                  {importParsing ? 'Parsing…' : 'Parse with AI'}
+                </button>
+              </div>
+              {Array.isArray(importParsed) && (
+                <div style={{ marginTop: 16 }}>
+                  <p style={{ fontSize: '0.8rem', color: '#374151', marginBottom: 6 }}>
+                    <strong>{importParsed.length}</strong> names parsed — review and confirm:
+                  </p>
+                  <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '8px 12px', maxHeight: 200, overflowY: 'auto' }}>
+                    {importParsed.map((name, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 0', borderBottom: i < importParsed.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                        <span style={{ fontSize: '0.85rem' }}>{name}</span>
+                        <button
+                          type="button"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: '0.8rem' }}
+                          onClick={() => setImportParsed((prev) => prev.filter((_, j) => j !== i))}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="ssh-form-actions" style={{ marginTop: 10 }}>
+                    <button type="button" className="ssh-btn-cancel" onClick={() => setImportParsed(null)}>Re-parse</button>
+                    <button
+                      type="button"
+                      className="ssh-btn-save"
+                      onClick={handleImportAuthors}
+                      disabled={importParsed.length === 0}
+                    >
+                      Add to Source ({importParsed.length})
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function normalizeFormConfig(type, config) {
+  if (type === 'arxiv_authors') {
+    const authors = String(config.authorsText || '')
+      .split(/[\n;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const maxPerAuthorRaw = parseInt(config.maxPerAuthor || '5', 10);
+    const lookbackDaysRaw = parseInt(config.lookbackDays || '30', 10);
+    return {
+      authors,
+      maxPerAuthor: Number.isFinite(maxPerAuthorRaw) ? Math.max(1, Math.min(maxPerAuthorRaw, 20)) : 5,
+      lookbackDays: Number.isFinite(lookbackDaysRaw) ? Math.max(1, Math.min(lookbackDaysRaw, 90)) : 30,
+    };
+  }
+
+  if (type === 'finance') {
+    const provider = String(config.provider || 'yahoo_rss').toLowerCase();
+    const symbols = String(config.symbolsText || '')
+      .split(/[\n,\s]+/)
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    const cnSecids = String(config.cnSecidsText || '')
+      .split(/[\n,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const categories = String(config.categoriesText || '')
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const maxRaw = parseInt(config.maxItemsPerSymbol || '8', 10);
+    const lookbackRaw = parseInt(config.lookbackDays || '7', 10);
+    return {
+      provider,
+      symbols,
+      cnSecids,
+      categories,
+      apiKey: String(config.apiKey || '').trim(),
+      maxItemsPerSymbol: Number.isFinite(maxRaw) ? maxRaw : 8,
+      lookbackDays: Number.isFinite(lookbackRaw) ? lookbackRaw : 7,
+      region: String(config.region || 'US').trim() || 'US',
+      lang: String(config.lang || 'en-US').trim() || 'en-US',
+    };
+  }
+
   if (type !== 'twitter') return config;
+
+  const mode = String(config.mode || 'nitter').toLowerCase();
+  if (mode === 'nitter') {
+    return {
+      mode: 'nitter',
+      username: String(config.username || '').trim().replace(/^@/, ''),
+      nitterInstance: String(config.nitterInstance || '').trim(),
+    };
+  }
 
   const profileLinks = String(config.profileLinksText || '')
     .split(/[\n,]/)

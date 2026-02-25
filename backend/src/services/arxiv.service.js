@@ -62,10 +62,14 @@ function getAbsUrl(paperId) {
  * @returns {Promise<{title: string, authors: string[], abstract: string, categories: string[], published: string}>}
  */
 async function fetchMetadata(paperId) {
-  const apiUrl = `http://export.arxiv.org/api/query?id_list=${paperId}`;
+  const apiUrl = `https://export.arxiv.org/api/query?id_list=${paperId}`;
 
   return new Promise((resolve, reject) => {
-    http.get(apiUrl, (response) => {
+    const request = https.get(apiUrl, (response) => {
+      if (response.statusCode && response.statusCode >= 400) {
+        reject(new Error(`arXiv metadata request failed: HTTP ${response.statusCode}`));
+        return;
+      }
       let data = '';
 
       response.on('data', (chunk) => {
@@ -118,7 +122,12 @@ async function fetchMetadata(paperId) {
       });
 
       response.on('error', reject);
-    }).on('error', reject);
+    });
+
+    request.on('error', reject);
+    request.setTimeout(15000, () => {
+      request.destroy(new Error('arXiv metadata request timeout'));
+    });
   });
 }
 
@@ -284,6 +293,77 @@ async function findCodeUrl(paperId, abstract = '') {
   return null;
 }
 
+/**
+ * Search arXiv for papers by author name.
+ * Uses the arXiv Atom API with the `au:` field prefix.
+ * Results are filtered to the given lookback window.
+ *
+ * @param {string} authorName - Full name (e.g. "Yann LeCun") or LastName_FirstInitial
+ * @param {{ maxResults?: number, lookbackDays?: number }} options
+ * @returns {Promise<Array<{arxivId, title, authors, abstract, published, publishedAt}>>}
+ */
+async function searchByAuthor(authorName, { maxResults = 10, lookbackDays = 30 } = {}) {
+  const trimmed = String(authorName || '').trim();
+  if (!trimmed) return [];
+
+  // Quoted full-name search is more precise than the LastName_Initial format
+  const query = `au:"${trimmed}"`;
+  const safeMax = Math.min(Math.max(1, maxResults), 50);
+  const apiUrl = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(query)}&sortBy=submittedDate&sortOrder=descending&max_results=${safeMax}&start=0`;
+  const cutoffMs = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
+
+  return new Promise((resolve, reject) => {
+    const request = https.get(apiUrl, (response) => {
+      if (response.statusCode && response.statusCode >= 400) {
+        reject(new Error(`arXiv author search failed: HTTP ${response.statusCode}`));
+        return;
+      }
+      let data = '';
+      response.on('data', (chunk) => { data += chunk; });
+      response.on('end', () => {
+        try {
+          const papers = [];
+          const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+          let match;
+          // eslint-disable-next-line no-cond-assign
+          while ((match = entryRegex.exec(data)) !== null) {
+            const xml = match[1];
+            const idMatch = xml.match(/<id>([\s\S]*?)<\/id>/);
+            const arxivId = idMatch ? parseArxivUrl(idMatch[1].trim()) : null;
+            if (!arxivId) continue;
+
+            const publishedMatch = xml.match(/<published>([\s\S]*?)<\/published>/);
+            const published = publishedMatch ? publishedMatch[1].trim() : '';
+            if (published && new Date(published).getTime() < cutoffMs) continue;
+
+            const titleMatch = xml.match(/<title>([\s\S]*?)<\/title>/);
+            const title = titleMatch ? titleMatch[1].trim().replace(/\s+/g, ' ') : '';
+
+            const authorsXml = xml.match(/<author>[\s\S]*?<name>([\s\S]*?)<\/name>[\s\S]*?<\/author>/g) || [];
+            const authors = authorsXml.map((a) => {
+              const nm = a.match(/<name>([\s\S]*?)<\/name>/);
+              return nm ? nm[1].trim() : '';
+            }).filter(Boolean);
+
+            const abstractMatch = xml.match(/<summary>([\s\S]*?)<\/summary>/);
+            const abstract = abstractMatch ? abstractMatch[1].trim().replace(/\s+/g, ' ') : '';
+
+            papers.push({ arxivId, title, authors, abstract, published, publishedAt: published });
+          }
+          resolve(papers);
+        } catch (error) {
+          reject(new Error('Failed to parse arXiv author search results'));
+        }
+      });
+      response.on('error', reject);
+    });
+    request.on('error', reject);
+    request.setTimeout(20000, () => {
+      request.destroy(new Error('arXiv author search timeout'));
+    });
+  });
+}
+
 module.exports = {
   parseArxivUrl,
   isArxivUrl,
@@ -292,4 +372,5 @@ module.exports = {
   fetchMetadata,
   fetchPdf,
   findCodeUrl,
+  searchByAuthor,
 };

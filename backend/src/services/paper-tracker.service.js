@@ -11,14 +11,19 @@ const s3Service = require('./s3.service');
 const documentService = require('./document.service');
 const arxivService = require('./arxiv.service');
 const hfTracker = require('./hf-tracker.service');
-const scholarTracker = require('./scholar-tracker.service');
 const twitterTracker = require('./twitter-tracker.service');
 const alphaxivTracker = require('./alphaxiv-tracker.service');
 const twitterPlaywrightTracker = require('./twitter-playwright-tracker.service');
+const financeTracker = require('./finance-tracker.service');
 
 const DEFAULT_USER_ID = 'czk';
-const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours (daily)
 const DEFAULT_TWITTER_PLAYWRIGHT_INTERVAL_HOURS = 24;
+const DEFAULT_SOURCE_TIMEOUT_MS = (() => {
+  const raw = parseInt(process.env.TRACKER_SOURCE_TIMEOUT_MS || String(90 * 1000), 10);
+  if (!Number.isFinite(raw)) return 90 * 1000;
+  return Math.max(5 * 1000, Math.min(raw, 15 * 60 * 1000));
+})();
 
 let _intervalHandle = null;
 let _lastRunAt = null;
@@ -26,7 +31,34 @@ let _lastRunResult = null;
 let _running = false;
 
 function isDiscoveryOnlySource(type) {
-  return ['hf', 'scholar', 'alphaxiv', 'twitter'].includes(String(type || '').toLowerCase());
+  return ['hf', 'arxiv_authors', 'alphaxiv', 'twitter', 'finance'].includes(String(type || '').toLowerCase());
+}
+
+function withTimeout(task, timeoutMs, label) {
+  const safeMs = Number.isFinite(timeoutMs) ? Math.max(5000, Math.min(timeoutMs, 15 * 60 * 1000)) : DEFAULT_SOURCE_TIMEOUT_MS;
+  let timeoutHandle = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error(`${label}_timeout_${safeMs}ms`)), safeMs);
+  });
+  return Promise.race([
+    Promise.resolve().then(task),
+    timeoutPromise,
+  ]).finally(() => {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  });
+}
+
+function getSourceTimeoutMs(sourceType, sourceConfig = {}) {
+  const configTimeout = parseInt(sourceConfig?.timeoutMs, 10);
+  if (Number.isFinite(configTimeout)) {
+    return Math.max(5000, Math.min(configTimeout, 15 * 60 * 1000));
+  }
+  const envKey = `TRACKER_${String(sourceType || '').toUpperCase()}_TIMEOUT_MS`;
+  const envTimeout = parseInt(process.env[envKey] || '', 10);
+  if (Number.isFinite(envTimeout)) {
+    return Math.max(5000, Math.min(envTimeout, 15 * 60 * 1000));
+  }
+  return DEFAULT_SOURCE_TIMEOUT_MS;
 }
 
 // ─── DB Helpers ────────────────────────────────────────────────────────────
@@ -333,17 +365,53 @@ async function importArxivPaper(arxivId, tags = [], notes = '') {
 
 async function runSource(source) {
   let papers = [];
+  let discoveredCount = 0;
   const sourceTag = `tracker:${source.type}`;
   let archived = 0;
+  const sourceTimeoutMs = getSourceTimeoutMs(source.type, source.config || {});
 
   try {
     switch (source.type) {
       case 'hf':
-        papers = await hfTracker.getNewPapers(source.config);
+        papers = await withTimeout(
+          () => hfTracker.getNewPapers(source.config),
+          sourceTimeoutMs,
+          `${source.type}:${source.name || 'source'}`
+        );
+        discoveredCount = papers.length;
         break;
-      case 'scholar':
-        papers = await scholarTracker.getNewPapers(source.config);
+      case 'arxiv_authors': {
+        const authors = Array.isArray(source.config?.authors) ? source.config.authors : [];
+        const maxPerAuthor = Math.min(Math.max(1, parseInt(source.config?.maxPerAuthor || '5', 10)), 20);
+        const lookbackDays = Math.min(Math.max(1, parseInt(source.config?.lookbackDays || '30', 10)), 90);
+        const seen = new Set();
+        const allPapers = [];
+        for (const authorName of authors) {
+          const name = String(authorName || '').trim();
+          if (!name) continue;
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const results = await withTimeout(
+              () => arxivService.searchByAuthor(name, { maxResults: maxPerAuthor, lookbackDays }),
+              sourceTimeoutMs,
+              `arxiv_authors:${name}`
+            );
+            for (const paper of results) {
+              if (!paper.arxivId || seen.has(paper.arxivId)) continue;
+              seen.add(paper.arxivId);
+              allPapers.push({
+                ...paper,
+                notes: `Author tracked: ${name}`,
+              });
+            }
+          } catch (e) {
+            console.warn(`[PaperTracker] arxiv_authors search failed for "${name}": ${e.message}`);
+          }
+        }
+        papers = allPapers;
+        discoveredCount = papers.length;
         break;
+      }
       case 'twitter': {
         const mode = String(source.config?.mode || 'nitter').toLowerCase();
         if (mode === 'playwright') {
@@ -365,14 +433,18 @@ async function runSource(source) {
             return { imported: 0, skipped: 0, failed: 0, archived: 0, checked: false };
           }
 
-          const scrapeResult = await twitterPlaywrightTracker.extractLatestPosts({
-            ...source.config,
-            trackingMode,
-            // Archive latest posts by default, not only mode-matching posts.
-            onlyWithModeMatches,
-            // Backward compatibility for paper mode.
-            onlyWithPaperLinks: trackingMode === 'paper' ? onlyWithModeMatches : false,
-          });
+          const scrapeResult = await withTimeout(
+            () => twitterPlaywrightTracker.extractLatestPosts({
+              ...source.config,
+              trackingMode,
+              // Archive latest posts by default, not only mode-matching posts.
+              onlyWithModeMatches,
+              // Backward compatibility for paper mode.
+              onlyWithPaperLinks: trackingMode === 'paper' ? onlyWithModeMatches : false,
+            }),
+            sourceTimeoutMs,
+            `${source.type}:${source.name || 'source'}`
+          );
 
           const archiveResult = await archiveTwitterPosts(source, scrapeResult.posts || []);
           archived = archiveResult.archived;
@@ -381,12 +453,17 @@ async function runSource(source) {
           } else {
             papers = [];
           }
+          discoveredCount = papers.length;
           console.log(
             `[PaperTracker] Source "${source.name}" (${trackingMode} mode): ` +
             `archived ${archived} new post(s), mapped ${papers.length} arXiv candidate(s)`
           );
         } else {
-          const rawPapers = await twitterTracker.getNewPapers(source.config);
+          const rawPapers = await withTimeout(
+            () => twitterTracker.getNewPapers(source.config),
+            sourceTimeoutMs,
+            `${source.type}:${source.name || 'source'}`
+          );
           // Twitter tracker returns { arxivId, tweetUrl, tweetText }
           // — map to standard shape
           papers = rawPapers.map((p) => ({
@@ -396,15 +473,33 @@ async function runSource(source) {
               ? `From ${p.influencerHandle ? `@${p.influencerHandle} ` : ''}tweet: ${p.tweetUrl}`
               : '',
           }));
+          discoveredCount = papers.length;
         }
         break;
       }
       case 'alphaxiv': {
-        const raw = await alphaxivTracker.getNewPapers(source.config);
+        const raw = await withTimeout(
+          () => alphaxivTracker.getNewPapers(source.config),
+          sourceTimeoutMs,
+          `${source.type}:${source.name || 'source'}`
+        );
         papers = raw.map((p) => ({
           ...p,
           notes: p.views ? `AlphaXiv views: ${p.views}` : '',
         }));
+        discoveredCount = papers.length;
+        break;
+      }
+      case 'finance': {
+        const raw = await withTimeout(
+          () => financeTracker.getLatestItems(source.config),
+          sourceTimeoutMs,
+          `${source.type}:${source.name || 'source'}`
+        );
+        discoveredCount = raw.length;
+        console.log(
+          `[PaperTracker] Source "${source.name}" (finance): discovered ${discoveredCount} headline(s)`
+        );
         break;
       }
       default:
@@ -416,21 +511,26 @@ async function runSource(source) {
     return { imported: 0, skipped: 0, failed: 1, archived: 0, error: e.message, checked: false };
   }
 
-  console.log(`[PaperTracker] Source "${source.name}": found ${papers.length} paper(s)`);
+  if (source.type === 'finance') {
+    console.log(`[PaperTracker] Source "${source.name}": found ${discoveredCount} item(s)`);
+  } else {
+    console.log(`[PaperTracker] Source "${source.name}": found ${papers.length} paper(s)`);
+  }
 
   if (isDiscoveryOnlySource(source.type)) {
     console.log(
       `[PaperTracker] Source "${source.name}" (${source.type}) is discovery-only; ` +
       'skipping automatic import to library'
     );
+    const discovered = source.type === 'finance' ? discoveredCount : papers.length;
     return {
       imported: 0,
-      skipped: papers.length,
+      skipped: discovered,
       failed: 0,
       archived,
       checked: true,
       discoveryOnly: true,
-      discovered: papers.length,
+      discovered,
     };
   }
 

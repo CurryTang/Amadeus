@@ -1,9 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const CACHE_KEY = 'latest_papers_cache';
+const CACHE_KEY = 'latest_papers_cache_v2';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h client-side guard
 const PAGE_SIZE = 5;
+const SOURCE_LABELS = {
+  hf: 'HF Daily',
+  alphaxiv: 'AlphaXiv',
+  twitter: 'Twitter/X',
+  finance: 'Finance',
+  arxiv_authors: 'Authors',
+  arxiv: 'arXiv',
+};
+
+function getFeedItemKey(item) {
+  if (!item) return '';
+  if (item.itemType === 'finance') {
+    return String(item.externalId || item.url || item.title || '').trim();
+  }
+  return String(item.arxivId || '').trim();
+}
 
 function readClientCache() {
   try {
@@ -29,17 +45,36 @@ function writeClientCache(data, fetchedAt, extra = {}) {
 }
 
 function PaperCard({ paper, onSave, saving, isAuthenticated }) {
-  const abstract = paper.abstract || '';
+  const abstract = paper.summary || paper.abstract || '';
   const shortAbstract = abstract.length > 140 ? abstract.slice(0, 140) + '…' : abstract;
+  const sourceNames = Array.isArray(paper.sourceNames) ? paper.sourceNames.filter(Boolean) : [];
+  const sourceTypes = Array.isArray(paper.sourceTypes) ? paper.sourceTypes.filter(Boolean) : [];
+  const sourceType = String(paper.sourceType || sourceTypes[0] || '').toLowerCase();
+  const primarySourceName = paper.sourceName || sourceNames[0] || SOURCE_LABELS[sourceType] || 'Tracker';
+  const extraSourceCount = Math.max(0, sourceNames.length - 1);
+  const upvotes = Number(paper.upvotes || 0) || 0;
+  const views = Number(paper.views || 0) || 0;
+  const isPaperItem = (paper.itemType || 'paper') !== 'finance' && !!paper.arxivId;
+  const titleHref = isPaperItem
+    ? `https://arxiv.org/abs/${paper.arxivId}`
+    : (paper.url || '');
 
   return (
     <div className={`latest-paper-card ${paper.saved ? 'already-saved' : ''}`}>
       <div className="latest-paper-header">
         <div className="latest-paper-meta">
-          <span className="latest-paper-source">HF Daily</span>
-          {paper.upvotes > 0 && (
-            <span className="latest-paper-upvotes" title="HuggingFace upvotes">
-              ▲ {paper.upvotes}
+          <span className="latest-paper-source">
+            {primarySourceName}
+            {extraSourceCount > 0 ? ` +${extraSourceCount}` : ''}
+          </span>
+          {upvotes > 0 && (
+            <span className="latest-paper-upvotes" title="Source upvotes">
+              ▲ {upvotes}
+            </span>
+          )}
+          {upvotes <= 0 && views > 0 && (
+            <span className="latest-paper-upvotes" title="AlphaXiv views">
+              Views {views}
             </span>
           )}
           {paper.publishedAt && (
@@ -49,9 +84,9 @@ function PaperCard({ paper, onSave, saving, isAuthenticated }) {
           )}
         </div>
         <div className="latest-paper-actions">
-          {paper.saved ? (
+          {isPaperItem && paper.saved ? (
             <span className="latest-paper-saved-badge">Saved</span>
-          ) : isAuthenticated ? (
+          ) : isPaperItem && isAuthenticated ? (
             <button
               className="latest-paper-save-btn"
               onClick={() => onSave(paper)}
@@ -64,14 +99,18 @@ function PaperCard({ paper, onSave, saving, isAuthenticated }) {
         </div>
       </div>
 
-      <a
-        className="latest-paper-title"
-        href={`https://arxiv.org/abs/${paper.arxivId}`}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {paper.title}
-      </a>
+      {titleHref ? (
+        <a
+          className="latest-paper-title"
+          href={titleHref}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {paper.title}
+        </a>
+      ) : (
+        <span className="latest-paper-title">{paper.title}</span>
+      )}
 
       {paper.authors && paper.authors.length > 0 && (
         <p className="latest-paper-authors">
@@ -133,16 +172,29 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         cached: isCached,
         hasMore: apiHasMore,
         total: apiTotal,
+        warming,
+        message,
       } = res.data;
       const nextPage = data || [];
 
+      if (warming) {
+        setPapers([]);
+        setFetchedAt(null);
+        setHasMore(false);
+        setTotal(0);
+        setCached(false);
+        setError(message || 'Tracker feed is warming up. Please retry in a few seconds.');
+        return;
+      }
+
       if (append) {
         setPapers((prev) => {
-          const existing = new Set(prev.map((p) => p.arxivId));
+          const existing = new Set(prev.map((p) => getFeedItemKey(p)).filter(Boolean));
           const merged = [...prev];
           for (const paper of nextPage) {
-            if (paper?.arxivId && !existing.has(paper.arxivId)) {
-              existing.add(paper.arxivId);
+            const key = getFeedItemKey(paper);
+            if (key && !existing.has(key)) {
+              existing.add(key);
               merged.push(paper);
             }
           }
@@ -173,7 +225,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   }, [fetchFeed]);
 
   const handleSave = async (paper) => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !paper?.arxivId) return;
     setSavingIds((prev) => new Set([...prev, paper.arxivId]));
     try {
       await axios.post(
@@ -265,15 +317,15 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
 
       {!loading && papers.length === 0 && !error && (
         <div className="empty-state">
-          <p>No papers found</p>
-          <p className="hint">HuggingFace daily papers not available yet.</p>
+          <p>No tracker items found</p>
+          <p className="hint">Add tracker sources to start seeing research, Twitter, or finance updates.</p>
         </div>
       )}
 
       <div className="latest-papers-list">
-        {papers.map((paper) => (
+        {papers.map((paper, idx) => (
           <PaperCard
-            key={paper.arxivId}
+            key={getFeedItemKey(paper) || `${paper.title || 'item'}-${idx}`}
             paper={paper}
             onSave={handleSave}
             saving={savingIds.has(paper.arxivId)}
