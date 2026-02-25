@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { spawnSync } = require('child_process');
 
 const HOME = os.homedir();
 const CLAUDE_DIR = path.join(HOME, '.claude', 'projects');
@@ -23,6 +24,40 @@ const SCAN_INTERVAL_MS = 60 * 1000;           // scan every 60s
 // id → session object
 const sessionCache = new Map();
 let scanTimer = null;
+
+// cwd → resolved git root (persistent across scans; small, bounded by number of unique cwds)
+const gitRootCache = new Map();
+
+// ─── Git root resolution (check-in mechanism) ─────────────────────────────────
+
+/**
+ * Resolve the canonical git repository root for a directory.
+ * This is used to precisely match sessions to registered projects:
+ * a session whose cwd is a subdirectory of the project (e.g. /project/src)
+ * resolves to the same root as the project itself (/project).
+ *
+ * Result is cached so repeated sessions from the same project only shell out once.
+ * Falls back to the raw cwd if git is unavailable or the path is not a repo.
+ */
+function resolveGitRoot(dirPath) {
+  if (!dirPath) return dirPath;
+  if (gitRootCache.has(dirPath)) return gitRootCache.get(dirPath);
+
+  let root = dirPath; // fallback
+  try {
+    const result = spawnSync('git', ['-C', dirPath, 'rev-parse', '--show-toplevel'], {
+      timeout: 4000,
+      encoding: 'utf8',
+    });
+    if (result.status === 0) {
+      const resolved = String(result.stdout || '').trim();
+      if (resolved) root = resolved;
+    }
+  } catch (_) { /* git unavailable — use cwd as-is */ }
+
+  gitRootCache.set(dirPath, root);
+  return root;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +125,7 @@ function parseClaudeSession(filepath) {
   let stat;
   try { stat = fs.statSync(filepath); } catch (_) { return null; }
   const isActive = (Date.now() - stat.mtimeMs) < ACTIVE_WINDOW_MS;
+  const gitRoot = resolveGitRoot(cwd);
 
   return {
     id: `claude-${sessionId}`,
@@ -97,6 +133,7 @@ function parseClaudeSession(filepath) {
     agentType: 'claude_code',
     provider: 'claude_code',
     cwd,
+    gitRoot,
     gitBranch: gitBranch || null,
     title: slug || firstPrompt.slice(0, 80),
     prompt: firstPrompt,
@@ -160,6 +197,7 @@ function parseCodexSession(filepath) {
   let stat;
   try { stat = fs.statSync(filepath); } catch (_) { return null; }
   const isActive = (Date.now() - stat.mtimeMs) < ACTIVE_WINDOW_MS;
+  const gitRoot = resolveGitRoot(cwd);
 
   return {
     id: `codex-${sessionId}`,
@@ -167,6 +205,7 @@ function parseCodexSession(filepath) {
     agentType: 'codex',
     provider: 'codex',
     cwd,
+    gitRoot,
     title: summary || (firstUserMessage || '').slice(0, 80),
     prompt: firstUserMessage || summary || '',
     model: model || 'openai',
@@ -251,7 +290,9 @@ function stop() {
 }
 
 /**
- * Returns sessions whose cwd matches the given projectPath.
+ * Returns sessions whose resolved git root exactly matches the given projectPath.
+ * Using gitRoot (not raw cwd) guarantees we only return sessions that genuinely
+ * belong to this project, even when the agent was launched from a subdirectory.
  * Sorted newest-first.
  */
 function getSessionsByPath(projectPath) {
@@ -259,8 +300,8 @@ function getSessionsByPath(projectPath) {
   if (!normalized) return [];
   return [...sessionCache.values()]
     .filter((s) => {
-      const cwd = String(s.cwd || '').replace(/\/+$/, '');
-      return cwd === normalized || cwd.startsWith(`${normalized}/`);
+      const root = String(s.gitRoot || s.cwd || '').replace(/\/+$/, '');
+      return root === normalized;
     })
     .sort((a, b) => String(b.startedAt || '').localeCompare(String(a.startedAt || '')));
 }

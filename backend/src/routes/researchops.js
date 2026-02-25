@@ -1947,12 +1947,13 @@ async function writeAgentSessionCache(sessions) {
   const now = new Date().toISOString();
   for (const s of sessions) {
     const id = String(s.id || '').trim();
-    const cwd = String(s.cwd || '').trim();
-    if (!id || !cwd) continue;
+    // Use gitRoot as the canonical key — same value the live filter uses
+    const projectPath = String(s.gitRoot || s.cwd || '').replace(/\/+$/, '').trim();
+    if (!id || !projectPath) continue;
     try {
       await db.execute({
         sql: `INSERT OR REPLACE INTO agent_session_cache (session_id, project_path, data, cached_at) VALUES (?, ?, ?, ?)`,
-        args: [id, cwd, JSON.stringify(s), now],
+        args: [id, projectPath, JSON.stringify(s), now],
       });
     } catch (_) { /* best-effort */ }
   }
@@ -1961,13 +1962,14 @@ async function writeAgentSessionCache(sessions) {
 async function readAgentSessionCache(projectPath) {
   const db = getDb();
   const cutoff = new Date(Date.now() - AGENT_SESSION_CACHE_MAX_AGE_MS).toISOString();
+  // Exact match on gitRoot — no LIKE needed since gitRoot is already the canonical repo root
   const normalized = String(projectPath || '').replace(/\/+$/, '');
   const result = await db.execute({
     sql: `SELECT data FROM agent_session_cache
-          WHERE (project_path = ? OR project_path LIKE ?)
+          WHERE project_path = ?
             AND cached_at > ?
           ORDER BY cached_at DESC LIMIT 60`,
-    args: [normalized, `${normalized}/%`, cutoff],
+    args: [normalized, cutoff],
   });
   return result.rows
     .map((row) => { try { return JSON.parse(row.data); } catch (_) { return null; } })
