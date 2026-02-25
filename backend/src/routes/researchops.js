@@ -1937,9 +1937,48 @@ router.get('/projects/:projectId/changed-files', async (req, res) => {
   }
 });
 
+// ── Agent session cache helpers ───────────────────────────────────────────────
+
+const AGENT_SESSION_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function writeAgentSessionCache(sessions) {
+  if (!Array.isArray(sessions) || sessions.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  for (const s of sessions) {
+    const id = String(s.id || '').trim();
+    const cwd = String(s.cwd || '').trim();
+    if (!id || !cwd) continue;
+    try {
+      await db.execute({
+        sql: `INSERT OR REPLACE INTO agent_session_cache (session_id, project_path, data, cached_at) VALUES (?, ?, ?, ?)`,
+        args: [id, cwd, JSON.stringify(s), now],
+      });
+    } catch (_) { /* best-effort */ }
+  }
+}
+
+async function readAgentSessionCache(projectPath) {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - AGENT_SESSION_CACHE_MAX_AGE_MS).toISOString();
+  const normalized = String(projectPath || '').replace(/\/+$/, '');
+  const result = await db.execute({
+    sql: `SELECT data FROM agent_session_cache
+          WHERE (project_path = ? OR project_path LIKE ?)
+            AND cached_at > ?
+          ORDER BY cached_at DESC LIMIT 60`,
+    args: [normalized, `${normalized}/%`, cutoff],
+  });
+  return result.rows
+    .map((row) => { try { return JSON.parse(row.data); } catch (_) { return null; } })
+    .filter(Boolean);
+}
+
+// ── Observed agent sessions route ─────────────────────────────────────────────
+
 /**
  * Observed agent sessions from local Claude Code / Codex filesystem logs.
- * Proxied from the processing server which watches ~/.claude and ~/.codex.
+ * Live from processing server when available; falls back to DB cache when offline.
  * GET /agent-sessions?projectPath=...
  */
 router.get('/agent-sessions', async (req, res) => {
@@ -1947,12 +1986,22 @@ router.get('/agent-sessions', async (req, res) => {
   if (config.projectInsights?.proxyHeavyOps === true) {
     try {
       const result = await projectInsightsProxy.getAgentSessions({ projectPath });
-      return res.json(result);
+      const items = Array.isArray(result?.items) ? result.items : [];
+      // Persist to DB cache in background so it survives processing server restarts
+      writeAgentSessionCache(items).catch(() => {});
+      return res.json({ items, cached: false });
     } catch (proxyError) {
-      console.warn('[ResearchOps] agent-sessions proxy failed:', proxyError.message);
+      console.warn('[ResearchOps] agent-sessions proxy offline, serving from cache:', proxyError.message);
     }
   }
-  return res.json({ items: [] });
+  // Fallback: read from DB cache
+  try {
+    const items = await readAgentSessionCache(projectPath);
+    return res.json({ items, cached: true });
+  } catch (cacheError) {
+    console.warn('[ResearchOps] agent-sessions cache read failed:', cacheError.message);
+    return res.json({ items: [], cached: true });
+  }
 });
 
 router.get('/projects/:projectId', async (req, res) => {

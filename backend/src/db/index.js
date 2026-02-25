@@ -287,9 +287,23 @@ Why this paper might be important for researchers.`
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      tracker_onboarding_seen INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migration: add tracker onboarding flag and mark existing users as seen.
+  try {
+    const userCols = await db.execute(`PRAGMA table_info(users)`);
+    const hasOnboardingSeen = (userCols.rows || []).some((c) => c.name === 'tracker_onboarding_seen');
+    if (!hasOnboardingSeen) {
+      await db.execute(`ALTER TABLE users ADD COLUMN tracker_onboarding_seen INTEGER DEFAULT 0`);
+      await db.execute(`UPDATE users SET tracker_onboarding_seen = 1`);
+      console.log('[Migration] Added users.tracker_onboarding_seen and marked existing users as seen');
+    }
+  } catch (err) {
+    console.warn('[Migration] Could not verify/add users.tracker_onboarding_seen:', err.message);
+  }
 
   // Seed users from environment variables (idempotent — INSERT OR IGNORE)
   const userSeeds = [
@@ -300,7 +314,7 @@ Why this paper might be important for researchers.`
     if (!password) continue; // skip if env var not set
     const hash = await bcrypt.hash(password, 12);
     await db.execute({
-      sql: `INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)`,
+      sql: `INSERT OR IGNORE INTO users (username, password_hash, tracker_onboarding_seen) VALUES (?, ?, 1)`,
       args: [username, hash],
     });
   }
@@ -319,16 +333,63 @@ Why this paper might be important for researchers.`
       user TEXT NOT NULL,
       port INTEGER DEFAULT 22,
       ssh_key_path TEXT DEFAULT '~/.ssh/id_rsa',
+      proxy_jump TEXT DEFAULT '',
+      shared_fs_enabled INTEGER DEFAULT 0,
+      shared_fs_group TEXT DEFAULT '',
+      shared_fs_local_path TEXT DEFAULT '',
+      shared_fs_remote_path TEXT DEFAULT '',
+      shared_fs_peers TEXT DEFAULT '[]',
+      shared_fs_verified_peers TEXT DEFAULT '[]',
+      shared_fs_verified INTEGER DEFAULT 0,
+      shared_fs_last_checked_at DATETIME,
+      shared_fs_last_status TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
+  // Migration: add proxy_jump column for SSH ProxyJump support.
+  try {
+    const sshCols = await db.execute(`PRAGMA table_info(ssh_servers)`);
+    const hasProxyJump = (sshCols.rows || []).some((c) => c.name === 'proxy_jump');
+    if (!hasProxyJump) {
+      await db.execute(`ALTER TABLE ssh_servers ADD COLUMN proxy_jump TEXT DEFAULT ''`);
+      console.log('[Migration] Added ssh_servers.proxy_jump');
+    }
+  } catch (err) {
+    console.warn('[Migration] Could not verify/add ssh_servers.proxy_jump:', err.message);
+  }
+
+  // Migration: add shared filesystem config/status columns for cross-server execution.
+  try {
+    const sshCols = await db.execute(`PRAGMA table_info(ssh_servers)`);
+    const colNames = new Set((sshCols.rows || []).map((c) => c.name));
+    const sharedFsColumns = [
+      { name: 'shared_fs_enabled', definition: 'INTEGER DEFAULT 0' },
+      { name: 'shared_fs_group', definition: "TEXT DEFAULT ''" },
+      { name: 'shared_fs_local_path', definition: "TEXT DEFAULT ''" },
+      { name: 'shared_fs_remote_path', definition: "TEXT DEFAULT ''" },
+      { name: 'shared_fs_peers', definition: "TEXT DEFAULT '[]'" },
+      { name: 'shared_fs_verified_peers', definition: "TEXT DEFAULT '[]'" },
+      { name: 'shared_fs_verified', definition: 'INTEGER DEFAULT 0' },
+      { name: 'shared_fs_last_checked_at', definition: 'DATETIME' },
+      { name: 'shared_fs_last_status', definition: "TEXT DEFAULT ''" },
+    ];
+    for (const col of sharedFsColumns) {
+      if (colNames.has(col.name)) continue;
+      // eslint-disable-next-line no-await-in-loop
+      await db.execute(`ALTER TABLE ssh_servers ADD COLUMN ${col.name} ${col.definition}`);
+      console.log(`[Migration] Added ssh_servers.${col.name}`);
+    }
+  } catch (err) {
+    console.warn('[Migration] Could not verify/add ssh_servers shared_fs columns:', err.message);
+  }
+
   // Create tracker sources table for paper tracking
   await db.execute(`
     CREATE TABLE IF NOT EXISTS tracker_sources (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL CHECK(type IN ('hf', 'twitter', 'scholar', 'alphaxiv')),
+      type TEXT NOT NULL CHECK(type IN ('hf', 'twitter', 'scholar', 'alphaxiv', 'finance')),
       name TEXT NOT NULL,
       config TEXT DEFAULT '{}',
       enabled INTEGER DEFAULT 1,
@@ -337,22 +398,21 @@ Why this paper might be important for researchers.`
     )
   `);
 
-  // Migration: add 'alphaxiv' to tracker_sources type CHECK constraint
-  // (existing DBs have the old CHECK without alphaxiv — recreate the table)
+  // Migration: ensure tracker_sources type CHECK includes all supported types.
   try {
     await db.execute({
-      sql: `INSERT INTO tracker_sources (type, name) VALUES ('alphaxiv', '__migration_test__')`,
+      sql: `INSERT INTO tracker_sources (type, name) VALUES ('finance', '__migration_test__')`,
       args: [],
     });
     await db.execute({ sql: `DELETE FROM tracker_sources WHERE name = '__migration_test__'`, args: [] });
   } catch (migErr) {
     if (migErr.message?.toLowerCase().includes('check') || migErr.message?.toLowerCase().includes('constraint')) {
-      console.log('[Migration] Updating tracker_sources to add alphaxiv type...');
+      console.log('[Migration] Updating tracker_sources type CHECK constraint...');
       await db.execute(`ALTER TABLE tracker_sources RENAME TO tracker_sources_bak`);
       await db.execute(`
         CREATE TABLE tracker_sources (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          type TEXT NOT NULL CHECK(type IN ('hf', 'twitter', 'scholar', 'alphaxiv')),
+          type TEXT NOT NULL CHECK(type IN ('hf', 'twitter', 'scholar', 'alphaxiv', 'finance')),
           name TEXT NOT NULL,
           config TEXT DEFAULT '{}',
           enabled INTEGER DEFAULT 1,
@@ -406,6 +466,207 @@ Why this paper might be important for researchers.`
   await db.execute(`
     CREATE INDEX IF NOT EXISTS idx_tracker_archived_handle_crawled
     ON tracker_archived_posts(influencer_handle, crawled_at DESC)
+  `);
+
+  // Persisted tracker feed snapshot (metadata only; no PDFs) for fast pagination.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS tracker_feed_cache (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      fetched_at DATETIME NOT NULL,
+      data_json TEXT NOT NULL,
+      per_source_json TEXT DEFAULT '[]',
+      source_count INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Knowledge groups for research mode / vibe workspace KB
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      user_id TEXT NOT NULL DEFAULT 'czk',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_groups_user_updated
+    ON knowledge_groups(user_id, updated_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_group_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_id INTEGER NOT NULL,
+      document_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (group_id) REFERENCES knowledge_groups(id) ON DELETE CASCADE,
+      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+      UNIQUE(group_id, document_id)
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_group_documents_group
+    ON knowledge_group_documents(group_id, created_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_group_documents_document
+    ON knowledge_group_documents(document_id)
+  `);
+
+  // Knowledge assets (documents + external insights/files/notes/reports)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL DEFAULT 'czk',
+      asset_type TEXT NOT NULL CHECK(asset_type IN ('document', 'insight', 'file', 'note', 'report')),
+      title TEXT NOT NULL,
+      summary TEXT,
+      body_md TEXT,
+      external_document_id INTEGER,
+      source_provider TEXT,
+      source_session_id TEXT,
+      source_message_id TEXT,
+      source_url TEXT,
+      object_key TEXT,
+      mime_type TEXT,
+      size_bytes INTEGER,
+      content_sha256 TEXT,
+      tags TEXT DEFAULT '[]',
+      metadata_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (external_document_id) REFERENCES documents(id) ON DELETE SET NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_assets_user_updated
+    ON knowledge_assets(user_id, updated_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_assets_type_updated
+    ON knowledge_assets(user_id, asset_type, updated_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_assets_external_document
+    ON knowledge_assets(external_document_id)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_group_assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_id INTEGER NOT NULL,
+      asset_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (group_id) REFERENCES knowledge_groups(id) ON DELETE CASCADE,
+      FOREIGN KEY (asset_id) REFERENCES knowledge_assets(id) ON DELETE CASCADE,
+      UNIQUE(group_id, asset_id)
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_group_assets_group
+    ON knowledge_group_assets(group_id, created_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_group_assets_asset
+    ON knowledge_group_assets(asset_id)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_asset_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      asset_id INTEGER NOT NULL,
+      version INTEGER NOT NULL,
+      body_md TEXT,
+      metadata_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (asset_id) REFERENCES knowledge_assets(id) ON DELETE CASCADE,
+      UNIQUE(asset_id, version)
+    )
+  `);
+
+  // Backfill document-backed knowledge assets.
+  await db.execute(`
+    INSERT INTO knowledge_assets (
+      user_id,
+      asset_type,
+      title,
+      summary,
+      body_md,
+      external_document_id,
+      source_provider,
+      source_session_id,
+      source_message_id,
+      source_url,
+      object_key,
+      mime_type,
+      size_bytes,
+      content_sha256,
+      tags,
+      metadata_json
+    )
+    SELECT
+      COALESCE(d.user_id, 'czk') AS user_id,
+      'document' AS asset_type,
+      d.title AS title,
+      NULL AS summary,
+      NULL AS body_md,
+      d.id AS external_document_id,
+      'documents' AS source_provider,
+      NULL AS source_session_id,
+      NULL AS source_message_id,
+      d.original_url AS source_url,
+      d.s3_key AS object_key,
+      d.mime_type AS mime_type,
+      d.file_size AS size_bytes,
+      NULL AS content_sha256,
+      COALESCE(d.tags, '[]') AS tags,
+      '{}' AS metadata_json
+    FROM documents d
+    LEFT JOIN knowledge_assets ka
+      ON ka.external_document_id = d.id
+      AND ka.asset_type = 'document'
+      AND ka.user_id = COALESCE(d.user_id, 'czk')
+    WHERE ka.id IS NULL
+  `);
+
+  // Backfill legacy knowledge_group_documents links into knowledge_group_assets.
+  await db.execute(`
+    INSERT OR IGNORE INTO knowledge_group_assets (group_id, asset_id)
+    SELECT
+      kgd.group_id,
+      ka.id
+    FROM knowledge_group_documents kgd
+    JOIN knowledge_groups kg ON kg.id = kgd.group_id
+    JOIN documents d ON d.id = kgd.document_id
+    JOIN knowledge_assets ka
+      ON ka.external_document_id = d.id
+      AND ka.asset_type = 'document'
+      AND ka.user_id = kg.user_id
+  `);
+
+  // Agent session cache: persists observed Claude Code / Codex sessions across processing server restarts
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS agent_session_cache (
+      session_id TEXT PRIMARY KEY,
+      project_path TEXT NOT NULL,
+      data TEXT NOT NULL,
+      cached_at TEXT NOT NULL
+    )
+  `);
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_agent_session_cache_path_cached
+    ON agent_session_cache(project_path, cached_at DESC)
   `);
 
   // Migration: reset stuck queued/pending papers to idle (on-demand generation)
