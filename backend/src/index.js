@@ -48,6 +48,11 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    const path = String(req.path || '');
+    if (req.method === 'OPTIONS') return true;
+    return path === '/api/auth/login' || path === '/api/auth/verify';
+  },
 });
 
 // Paper/document analysis rate limit
@@ -158,7 +163,7 @@ async function startServer() {
 
     // Start paper tracker scheduler (only when enabled on this node)
     if (isPrimaryWorker && config.tracker?.enabled) {
-      const trackerIntervalMs = parseInt(process.env.TRACKER_INTERVAL_MS || String(6 * 60 * 60 * 1000), 10);
+      const trackerIntervalMs = parseInt(process.env.TRACKER_INTERVAL_MS || String(24 * 60 * 60 * 1000), 10);
       paperTrackerService.start(trackerIntervalMs);
       console.log('Paper tracker scheduler started');
     } else if (isPrimaryWorker) {

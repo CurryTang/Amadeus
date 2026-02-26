@@ -69,8 +69,37 @@ router.post('/logout', (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', requireAuth, (req, res) => {
-  res.json({ username: req.userId });
+router.get('/me', requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `SELECT username, tracker_onboarding_seen FROM users WHERE username = ?`,
+      args: [req.userId],
+    });
+    const user = result.rows[0];
+    res.json({
+      username: req.userId,
+      trackerOnboardingSeen: Number(user?.tracker_onboarding_seen) === 1,
+    });
+  } catch (err) {
+    console.error('Auth /me error:', err);
+    res.status(500).json({ error: 'Failed to load current user' });
+  }
+});
+
+// POST /api/auth/tracker-onboarding/seen
+router.post('/tracker-onboarding/seen', requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `UPDATE users SET tracker_onboarding_seen = 1 WHERE username = ?`,
+      args: [req.userId],
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Auth tracker onboarding seen error:', err);
+    res.status(500).json({ error: 'Failed to update onboarding status' });
+  }
 });
 
 // GET /api/auth/verify  (kept for frontend AuthContext compatibility)

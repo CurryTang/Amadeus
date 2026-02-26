@@ -15,6 +15,22 @@ const MAX_FILE_CHARS = 8000;
 // Maximum total characters for all source files
 const MAX_TOTAL_SOURCE_CHARS = 60000;
 
+const TOP_PRIORITY_FILE_REMOVAL_RULE = [
+  'TOP-PRIORITY RULE (apply before all other instructions):',
+  'If you want to perform any file removal operation (rm, unlink, git rm, delete/move-to-trash), you must:',
+  '1) Decompose the removal into explicit sub-steps.',
+  '2) Explicitly list every target path and the reason for removing it.',
+  '3) Request manual approval.',
+  '4) Wait for explicit manual approval before executing any removal.',
+].join('\n');
+
+function applyTopPriorityFileRemovalRule(prompt = '') {
+  const text = String(prompt || '').trim();
+  if (!text) return TOP_PRIORITY_FILE_REMOVAL_RULE;
+  if (text.includes('TOP-PRIORITY RULE (apply before all other instructions):')) return text;
+  return `${TOP_PRIORITY_FILE_REMOVAL_RULE}\n\n${text}`;
+}
+
 /**
  * Check if Gemini CLI is available
  * @returns {Promise<boolean>}
@@ -52,7 +68,8 @@ async function readDocument(filePath, prompt, options = {}) {
   return new Promise((resolve, reject) => {
     // Build the full prompt with file reference using @ syntax
     // Gemini CLI uses @filepath to attach files to the prompt
-    const fullPrompt = `${prompt}\n\n@${filePath}`;
+    const guardedPrompt = applyTopPriorityFileRemovalRule(prompt);
+    const fullPrompt = `${guardedPrompt}\n\n@${filePath}`;
 
     // Use positional prompt with model flag
     const args = ['-m', model, fullPrompt];
@@ -151,7 +168,8 @@ async function readMarkdown(markdownContent, prompt, options = {}) {
   const model = config.geminiCli?.model || 'gemini-3-flash-preview';
 
   return new Promise((resolve, reject) => {
-    const fullPrompt = `${prompt}\n\n---\n\nDocument content:\n\n${markdownContent}`;
+    const guardedPrompt = applyTopPriorityFileRemovalRule(prompt);
+    const fullPrompt = `${guardedPrompt}\n\n---\n\nDocument content:\n\n${markdownContent}`;
 
     const args = ['-m', model, fullPrompt];
 
@@ -361,7 +379,8 @@ async function analyzeRepository(repoDir, prompt, options = {}) {
   const directoryTree = await getDirectoryTree(repoDir);
 
   // Build full prompt with file contents
-  const fullPrompt = `${prompt}
+  const guardedPrompt = applyTopPriorityFileRemovalRule(prompt);
+  const fullPrompt = `${guardedPrompt}
 
 ## 仓库目录结构
 \`\`\`
@@ -444,11 +463,12 @@ async function runWithPromptFile(promptFilePath, options = {}) {
 
   // Read prompt from file
   const prompt = await fs.readFile(promptFilePath, 'utf-8');
+  const guardedPrompt = applyTopPriorityFileRemovalRule(prompt);
 
   return new Promise((resolve, reject) => {
-    const args = ['-m', model, prompt];
+    const args = ['-m', model, guardedPrompt];
 
-    console.log(`[Gemini CLI] Running prompt file: ${promptFilePath} (${prompt.length} chars)`);
+    console.log(`[Gemini CLI] Running prompt file: ${promptFilePath} (${guardedPrompt.length} chars)`);
 
     const proc = spawn(geminiPath, args, {
       timeout: timeoutMs,

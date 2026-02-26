@@ -10,6 +10,7 @@ const sshServersRouter = require('./ssh-servers');
 const authRouter = require('./auth-users');
 const trackerRouter = require('./tracker');
 const researchOpsRouter = require('./researchops');
+const importRouter = require('./import');
 
 router.use('/documents', documentsRouter);
 router.use('/upload', uploadRouter);
@@ -20,6 +21,7 @@ router.use('/ssh-servers', sshServersRouter);
 router.use('/auth', authRouter);
 router.use('/tracker', trackerRouter);
 router.use('/researchops', researchOpsRouter);
+router.use('/import', importRouter);
 
 // Health check endpoint
 router.get('/health', (req, res) => {

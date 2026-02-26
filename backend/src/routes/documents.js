@@ -211,7 +211,10 @@ router.post('/research-pack/rsync', requireAuth, async (req, res) => {
 
     // Expand ~ in ssh_key_path
     const keyPath = (server.ssh_key_path || '~/.ssh/id_rsa').replace(/^~/, os.homedir());
-    const sshOpts = `ssh -i "${keyPath}" -p ${server.port || 22} -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30`;
+    const proxyJumpOpt = String(server.proxy_jump || '').trim()
+      ? ` -o ProxyJump=${JSON.stringify(String(server.proxy_jump).trim())}`
+      : '';
+    const sshOpts = `ssh -i "${keyPath}" -p ${server.port || 22} -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30${proxyJumpOpt}`;
     const dest = `${server.user}@${server.host}:${remotePath}/`;
 
     await new Promise((resolve, reject) => {
@@ -238,9 +241,14 @@ router.post('/research-pack/rsync', requireAuth, async (req, res) => {
         '-p', String(server.port || 22),
         '-o', 'StrictHostKeyChecking=accept-new',
         '-o', 'ConnectTimeout=15',
+      ];
+      if (String(server.proxy_jump || '').trim()) {
+        sshArgs.push('-o', `ProxyJump=${String(server.proxy_jump).trim()}`);
+      }
+      sshArgs.push(
         `${server.user}@${server.host}`,
         `ln -sfn '${remotePath}/${sentFilename}' '${remotePath}/${linkName}'`,
-      ];
+      );
       await new Promise((resolve, reject) => {
         const proc = spawn('ssh', sshArgs);
         let stderr = '';

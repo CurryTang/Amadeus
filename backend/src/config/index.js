@@ -26,6 +26,10 @@ const objectStorageSecretAccessKey = process.env.OBJECT_STORAGE_SECRET_ACCESS_KE
 const objectStorageEndpoint = process.env.OBJECT_STORAGE_ENDPOINT || '';
 const objectStorageForcePathStyle = parseBool(process.env.OBJECT_STORAGE_FORCE_PATH_STYLE, false);
 const objectStoragePublicBaseUrl = process.env.OBJECT_STORAGE_PUBLIC_BASE_URL || '';
+const trackerFeedCacheMaxItemsRaw = parseInt(process.env.TRACKER_FEED_CACHE_MAX_ITEMS || '1000', 10);
+const trackerFeedCacheMaxItems = Number.isFinite(trackerFeedCacheMaxItemsRaw) && trackerFeedCacheMaxItemsRaw > 0
+  ? trackerFeedCacheMaxItemsRaw
+  : 1000;
 
 module.exports = {
   port: process.env.PORT || 3000,
@@ -188,6 +192,13 @@ module.exports = {
     timeout: parseInt(process.env.PROCESSING_TIMEOUT) || 300000, // 5 minutes
   },
 
+  // Project insights (git log + file snapshot) via FRP offload
+  projectInsights: {
+    proxyHeavyOps: parseBool(process.env.PROJECT_INSIGHTS_PROXY_HEAVY_OPS, false),
+    desktopUrl: process.env.PROJECT_INSIGHTS_DESKTOP_URL || defaultDesktopUrl,
+    timeout: parseInt(process.env.PROJECT_INSIGHTS_PROXY_TIMEOUT) || 45000,
+  },
+
   // Paper Tracker Configuration
   tracker: {
     // Enable/disable local tracker scheduler on this node
@@ -196,6 +207,8 @@ module.exports = {
     proxyHeavyOps: process.env.TRACKER_PROXY_HEAVY_OPS === 'true',
     desktopUrl: process.env.TRACKER_DESKTOP_URL || defaultDesktopUrl,
     timeout: parseInt(process.env.TRACKER_PROXY_TIMEOUT) || 120000,
+    // Maximum cached feed items kept in memory (oldest items are dropped)
+    feedCacheMaxItems: trackerFeedCacheMaxItems,
   },
 
   network: {

@@ -15,6 +15,22 @@ const MAX_FILE_CHARS = 8000;
 // Maximum total characters for all source files
 const MAX_TOTAL_SOURCE_CHARS = 60000;
 
+const TOP_PRIORITY_FILE_REMOVAL_RULE = [
+  'TOP-PRIORITY RULE (apply before all other instructions):',
+  'If you want to perform any file removal operation (rm, unlink, git rm, delete/move-to-trash), you must:',
+  '1) Decompose the removal into explicit sub-steps.',
+  '2) Explicitly list every target path and the reason for removing it.',
+  '3) Request manual approval.',
+  '4) Wait for explicit manual approval before executing any removal.',
+].join('\n');
+
+function applyTopPriorityFileRemovalRule(prompt = '') {
+  const text = String(prompt || '').trim();
+  if (!text) return TOP_PRIORITY_FILE_REMOVAL_RULE;
+  if (text.includes('TOP-PRIORITY RULE (apply before all other instructions):')) return text;
+  return `${TOP_PRIORITY_FILE_REMOVAL_RULE}\n\n${text}`;
+}
+
 /**
  * Check if Codex CLI is available
  * @returns {Promise<boolean>}
@@ -79,6 +95,7 @@ function runCodex(prompt, options = {}) {
   const codexPath = config.codexCli?.path || 'codex';
   const timeoutMs = options.timeout || DEFAULT_TIMEOUT_MS;
   const model = options.model || config.codexCli?.model || 'gpt-5.1-codex-mini';
+  const guardedPrompt = applyTopPriorityFileRemovalRule(prompt);
   return new Promise((resolve, reject) => {
     // codex exec --full-auto -m <model> "<prompt>"
     // --full-auto = automatic execution with workspace-write sandbox, no approval prompts
@@ -86,10 +103,10 @@ function runCodex(prompt, options = {}) {
       'exec',
       '--dangerously-bypass-approvals-and-sandbox',
       '-m', model,
-      prompt,
+      guardedPrompt,
     ];
 
-    console.log(`[Codex CLI] Running: ${codexPath} exec --dangerously-bypass-approvals-and-sandbox -m ${model} (prompt: ${prompt.length} chars)`);
+    console.log(`[Codex CLI] Running: ${codexPath} exec --dangerously-bypass-approvals-and-sandbox -m ${model} (prompt: ${guardedPrompt.length} chars)`);
 
     // Session isolation is handled by concurrency=1 in config (only one Codex
     // process at a time). Overriding HOME or XDG_CONFIG_HOME would break auth

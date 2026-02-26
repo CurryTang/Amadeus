@@ -1021,17 +1021,36 @@ async function isLocalDirectory(targetPath) {
 async function resolveLocalProjectBrowseRoot(projectPath, kbFolderPath = '') {
   const projectCandidate = String(projectPath || '').trim();
   const kbCandidate = String(kbFolderPath || '').trim();
+  const projectResolved = projectCandidate
+    ? path.resolve(expandHome(projectCandidate))
+    : '';
+  const kbResolved = kbCandidate
+    ? path.resolve(expandHome(kbCandidate))
+    : '';
   const candidates = [];
 
-  if (projectCandidate) {
+  if (projectResolved) {
+    const looksLikeKbResourcePath = (
+      kbResolved
+      && projectResolved === kbResolved
+      && path.basename(projectResolved).toLowerCase() === 'resource'
+    );
+    if (looksLikeKbResourcePath) {
+      const projectParent = path.dirname(projectResolved);
+      if (projectParent && projectParent !== projectResolved) {
+        candidates.push({
+          mode: 'project-parent',
+          resolvedPath: projectParent,
+        });
+      }
+    }
     candidates.push({
       mode: 'project',
-      resolvedPath: path.resolve(expandHome(projectCandidate)),
+      resolvedPath: projectResolved,
     });
   }
 
-  if (kbCandidate) {
-    const kbResolved = path.resolve(expandHome(kbCandidate));
+  if (kbResolved) {
     const kbParent = path.dirname(kbResolved);
     if (kbParent && kbParent !== kbResolved) {
       candidates.push({
@@ -1069,6 +1088,16 @@ async function resolveSshProjectBrowseRoot(server, projectPath, kbFolderPath = '
   const script = [
     'primary="$1"',
     'kb="$2"',
+    'if [ -n "$primary" ] && [ -n "$kb" ] && [ "$primary" = "$kb" ]; then',
+    '  base="$(basename "$primary")"',
+    '  if [ "$base" = "resource" ]; then',
+    '    parent="$(dirname "$primary")"',
+    '    if [ -d "$parent" ]; then',
+    '      echo "__ROOT__:project-parent:$parent"',
+    '      exit 0',
+    '    fi',
+    '  fi',
+    'fi',
     'if [ -n "$primary" ] && [ -d "$primary" ]; then',
     '  echo "__ROOT__:project:$primary"',
     '  exit 0',
@@ -1834,6 +1863,96 @@ router.patch('/projects/:projectId', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] updateProject failed:', error);
     res.status(400).json({ error: sanitizeError(error, 'Failed to update project') });
+  }
+});
+
+/**
+ * Batch workspace snapshot — replaces 4 separate requests with 1.
+ * Returns git-log, changed-files, file-tree (project root), and KB entries
+ * all in a single round-trip. Each section is independent; failures are
+ * captured per-section so a broken git repo doesn't hide the file tree.
+ *
+ * GET /projects/:projectId/workspace?gitLimit=10&treeLimit=240&kbLimit=300
+ */
+router.get('/projects/:projectId/workspace', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const gitLimit = parseLimit(req.query.gitLimit, 10, 120);
+    const treeLimit = parseLimit(req.query.treeLimit, 240, 500);
+
+    // Helper: run an async fn and return { ok, value, error } instead of throwing
+    const settle = (fn) => fn().then((v) => ({ ok: true, value: v })).catch((e) => ({ ok: false, error: e.message }));
+
+    // ── git-log ──────────────────────────────────────────────────────────────
+    const gitTask = settle(async () => {
+      if (config.projectInsights?.proxyHeavyOps === true && project.locationType === 'local') {
+        try {
+          return await projectInsightsProxy.getGitLog({
+            projectPath: project.projectPath,
+            branch: project.gitBranch || '',
+            limit: gitLimit,
+          });
+        } catch (_) { /* fall through to direct */ }
+      }
+      return loadProjectGitProgress(project, server, gitLimit);
+    });
+
+    // ── changed-files ────────────────────────────────────────────────────────
+    const changedTask = settle(async () => {
+      if (config.projectInsights?.proxyHeavyOps === true && project.locationType === 'local') {
+        try {
+          return await projectInsightsProxy.getChangedFiles({ projectPath: project.projectPath, limit: 200 });
+        } catch (_) { /* fall through */ }
+      }
+      return loadProjectChangedFiles(project, server, 200);
+    });
+
+    // ── file-tree (project root, depth 1) ───────────────────────────────────
+    const treeTask = settle(async () => {
+      const browseRoot = await resolveProjectBrowseRoot(project, server);
+      if (!browseRoot.rootPath) throw new Error('No accessible root path');
+      const tree = project.locationType === 'ssh'
+        ? await listSshProjectDirectory(server, browseRoot.rootPath, '', treeLimit)
+        : await listLocalProjectDirectory(browseRoot.rootPath, '', treeLimit);
+      return { rootMode: browseRoot.rootMode, ...tree };
+    });
+
+    // ── KB top-level entries (all at once, no pagination) ───────────────────
+    const kbTask = settle(async () => {
+      const kbRoot = String(project.kbFolderPath || '').trim()
+        || `${String(project.projectPath || '').replace(/\/+$/, '')}/resource`;
+      const result = project.locationType === 'ssh'
+        ? await listSshKnowledgeBaseFiles(server, kbRoot, { offset: 0, limit: 500 })
+        : await listLocalKnowledgeBaseFiles(kbRoot, { offset: 0, limit: 500 });
+      return result;
+    });
+
+    // Run all four in parallel — one network round-trip
+    const [git, changed, tree, kb] = await Promise.all([gitTask, changedTask, treeTask, kbTask]);
+
+    return res.json({
+      projectId: project.id,
+      projectPath: project.projectPath,
+      gitBranch: project.gitBranch || null,
+      locationType: project.locationType,
+      refreshedAt: new Date().toISOString(),
+      gitProgress: git.ok ? git.value : null,
+      gitError: git.ok ? null : git.error,
+      changedFiles: changed.ok ? changed.value : null,
+      changedFilesError: changed.ok ? null : changed.error,
+      fileTree: tree.ok ? tree.value : null,
+      fileTreeError: tree.ok ? null : tree.error,
+      kbEntries: kb.ok ? kb.value : null,
+      kbError: kb.ok ? null : kb.error,
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'PROJECT_PATH_MISSING') return res.status(400).json({ error: 'Project path is not configured' });
+    console.error('[ResearchOps] workspace batch failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to load project workspace') });
   }
 });
 
