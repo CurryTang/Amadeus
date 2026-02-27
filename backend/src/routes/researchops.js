@@ -2556,6 +2556,59 @@ async function parseProposalTodosWithAgent({ text = '', project = null }) {
     .slice(0, 6);
 }
 
+async function parseProposalTodosWithDesign({ text = '', project = null }) {
+  const proposalText = String(text || '').trim();
+  if (!proposalText) return [];
+  const content = proposalText.slice(0, 180000);
+  const projectName = String(project?.name || '').trim();
+  const prompt = [
+    'You are a software research planning assistant.',
+    'Read the proposal and decompose it into a categorized task list.',
+    'Return ONLY a JSON array, no markdown and no explanation.',
+    'Each item must be:',
+    '{"title":"...", "details":"...", "category":"short-term|long-term|design", "priority":"high|medium|low"}',
+    'Categories:',
+    '- short-term: concrete implementation tasks completable within days/weeks',
+    '- long-term: larger goals or milestones spanning weeks/months',
+    '- design: architecture, research, or design decisions that must be made',
+    'Rules:',
+    '- 6 to 12 tasks total across all categories',
+    '- keep title short and concrete (<= 90 chars)',
+    '- details should mention expected outcome',
+    '- include at least one task from each category',
+    projectName ? `Project: ${projectName}` : '',
+  ].filter(Boolean).join('\n');
+
+  let modelText = '';
+  try {
+    if (await codexCliService.isAvailable()) {
+      const result = await codexCliService.readMarkdown(content, prompt, { timeout: 180000 });
+      modelText = String(result?.text || '').trim();
+    } else if (await geminiCliService.isAvailable()) {
+      const result = await geminiCliService.readMarkdown(content, prompt, { timeout: 180000 });
+      modelText = String(result?.text || '').trim();
+    } else {
+      const result = await llmService.generateWithFallback(content, prompt);
+      modelText = String(result?.text || '').trim();
+    }
+  } catch (error) {
+    console.warn('[ResearchOps] design proposal parse via agent failed:', error.message);
+    modelText = '';
+  }
+
+  const parsed = parseJsonArrayFromModelOutput(modelText);
+  return parsed
+    .map((item, index) => {
+      const base = normalizeTodoCandidate(item, index);
+      if (!base) return null;
+      const categoryRaw = String(item.category || '').trim().toLowerCase();
+      const category = ['short-term', 'long-term', 'design'].includes(categoryRaw) ? categoryRaw : 'short-term';
+      return { ...base, category };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
 async function executeKbGroupSyncJob(jobId, { userId, project, server, group }) {
   patchKbSyncJob(jobId, {
     status: 'RUNNING',
@@ -4277,10 +4330,10 @@ router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('f
       return res.status(400).json({ error: 'No extractable text found in proposal file' });
     }
 
-    const todoCandidates = await parseProposalTodosWithAgent({
-      text: extractedText,
-      project,
-    });
+    const designMode = req.query.design === 'true';
+    const todoCandidates = designMode
+      ? await parseProposalTodosWithDesign({ text: extractedText, project })
+      : await parseProposalTodosWithAgent({ text: extractedText, project });
     if (todoCandidates.length === 0) {
       return res.status(400).json({ error: 'Failed to extract TODOs from the proposal' });
     }
@@ -4288,15 +4341,16 @@ router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('f
     const createdIdeas = [];
     const createdAtIso = new Date().toISOString();
     for (const candidate of todoCandidates) {
+      const categoryTag = candidate.category ? ` [${candidate.category}]` : '';
       // eslint-disable-next-line no-await-in-loop
       const idea = await researchOpsStore.createIdea(userId, {
         projectId: project.id,
         title: candidate.title,
         hypothesis: candidate.hypothesis,
-        summary: `LLM-generated TODO from proposal (${createdAtIso}, ${saved.relativePath})`,
+        summary: `LLM-generated TODO from proposal (${createdAtIso}, ${saved.relativePath})${categoryTag}`,
         status: 'OPEN',
       });
-      createdIdeas.push(idea);
+      createdIdeas.push({ ...idea, category: candidate.category || null });
     }
 
     return res.status(201).json({
@@ -4307,6 +4361,7 @@ router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('f
         savedPath: saved.savedPath,
         relativePath: saved.relativePath,
       },
+      designMode,
       createdCount: createdIdeas.length,
       ideas: createdIdeas,
     });
