@@ -15,6 +15,7 @@ const geminiCliService = require('../services/gemini-cli.service');
 const llmService = require('../services/llm.service');
 const researchOpsStore = require('../services/researchops/store');
 const researchOpsRunner = require('../services/researchops/runner');
+const autopilotService = require('../services/researchops/autopilot.service');
 const knowledgeGroupsService = require('../services/knowledge-groups.service');
 const knowledgeAssetsService = require('../services/researchops/knowledge-assets.service');
 const contextPackService = require('../services/researchops/context-pack.service');
@@ -4368,6 +4369,62 @@ router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('f
   } catch (error) {
     console.error('[ResearchOps] generate todos from proposal failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to generate TODOs from proposal') });
+  }
+});
+
+// Autopilot
+router.post('/projects/:projectId/autopilot/start', requireAuth, async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const proposal = String(req.body?.proposal || '').trim();
+    if (!proposal) return res.status(400).json({ error: 'proposal is required' });
+    const maxIterations = Math.min(Math.max(1, Number(req.body?.maxIterations) || 10), 50);
+    const serverId = String(req.body?.serverId || 'local-default').trim();
+    const skill = String(req.body?.skill || 'implement').trim();
+    const userId = getUserId(req);
+    const session = await autopilotService.startSession(userId, projectId, {
+      proposal, maxIterations, serverId, skill,
+    });
+    return res.status(201).json({ session });
+  } catch (error) {
+    console.error('[Autopilot] start failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to start autopilot session') });
+  }
+});
+
+router.get('/projects/:projectId/autopilot/sessions', requireAuth, async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const userId = getUserId(req);
+    const sessions = autopilotService.listProjectSessions(userId, projectId);
+    return res.json({ sessions });
+  } catch (error) {
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to list autopilot sessions') });
+  }
+});
+
+router.post('/autopilot/:sessionId/stop', requireAuth, async (req, res) => {
+  try {
+    const sessionId = String(req.params.sessionId || '').trim();
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+    const session = await autopilotService.stopSession(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    return res.json({ session });
+  } catch (error) {
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to stop autopilot session') });
+  }
+});
+
+router.get('/autopilot/:sessionId', requireAuth, async (req, res) => {
+  try {
+    const sessionId = String(req.params.sessionId || '').trim();
+    const session = autopilotService.getSession(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    return res.json({ session });
+  } catch (error) {
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to get autopilot session') });
   }
 });
 

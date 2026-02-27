@@ -87,6 +87,18 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [aiEditBusy, setAiEditBusy] = useState(false);
   const [fileMentionOptions, setFileMentionOptions] = useState([]);
   const [fileMentionLoading, setFileMentionLoading] = useState(false);
+  const [proposalUploadBusy, setProposalUploadBusy] = useState(false);
+  const [showKickoffPromptGenerate, setShowKickoffPromptGenerate] = useState(false);
+  const [kickoffAiPrompt, setKickoffAiPrompt] = useState('');
+  const kickoffProposalFileInputRef = useRef(null);
+  const [showAutopilotModal, setShowAutopilotModal] = useState(false);
+  const [autopilotProposal, setAutopilotProposal] = useState('');
+  const [autopilotMaxIter, setAutopilotMaxIter] = useState(10);
+  const [autopilotServerId, setAutopilotServerId] = useState('local-default');
+  const [autopilotSkill, setAutopilotSkill] = useState('implement');
+  const [autopilotBusy, setAutopilotBusy] = useState(false);
+  const [autopilotSession, setAutopilotSession] = useState(null);
+  const autopilotPollRef = useRef(null);
 
   const headers = useMemo(() => getAuthHeaders?.() || {}, [getAuthHeaders]);
   const loadAll = useCallback(async ({ silent = false } = {}) => {
@@ -608,6 +620,154 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     setTodoDetails('');
     setTodoPrompt('');
   }, [todoBusy]);
+
+  const handleUploadProposalAndGenerateTodos = useCallback(async (file, { designMode = false } = {}) => {
+    if (!file || !selectedProjectId || proposalUploadBusy) return;
+    setProposalUploadBusy(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const url = designMode
+        ? `${apiUrl}/researchops/projects/${selectedProjectId}/todos/from-proposal?design=true`
+        : `${apiUrl}/researchops/projects/${selectedProjectId}/todos/from-proposal`;
+      await axios.post(url, formData, {
+        headers: { ...headers, 'Content-Type': 'multipart/form-data' },
+        timeout: 180000,
+      });
+      await loadAll({ silent: true });
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to generate TODOs from proposal');
+    } finally {
+      setProposalUploadBusy(false);
+    }
+  }, [apiUrl, headers, loadAll, proposalUploadBusy, selectedProjectId]);
+
+  const handleChooseProposalFileDesign = useCallback(() => {
+    if (todoBusy || proposalUploadBusy || !selectedProjectId) return;
+    kickoffProposalFileInputRef.current?.click();
+  }, [proposalUploadBusy, selectedProjectId, todoBusy]);
+
+  const handleKickoffProposalFileChange = useCallback((event) => {
+    const file = event?.target?.files?.[0] || null;
+    if (!file) return;
+    setShowKickoffPromptGenerate(false);
+    handleUploadProposalAndGenerateTodos(file, { designMode: true });
+    if (kickoffProposalFileInputRef.current) kickoffProposalFileInputRef.current.value = '';
+  }, [handleUploadProposalAndGenerateTodos]);
+
+  const handleKickoffGenerateTodos = useCallback(async () => {
+    const instruction = kickoffAiPrompt.trim();
+    if (!selectedProjectId || !instruction) {
+      setError('Enter a description before generating tasks.');
+      return;
+    }
+    setTodoBusy(true);
+    try {
+      const response = await axios.post(`${apiUrl}/researchops/plan/generate`, { instruction }, { headers });
+      const plan = response.data?.plan || {};
+      const rawNodes = Array.isArray(plan.nodes) ? plan.nodes : [];
+      const suggestions = rawNodes
+        .map((node, index) => {
+          const label = String(node?.label || '').trim() || `Planned step ${index + 1}`;
+          const detail = String(node?.description || node?.goal || label).trim();
+          return {
+            title: label.length > 120 ? `${label.slice(0, 117)}...` : label,
+            hypothesis: detail,
+          };
+        })
+        .slice(0, 5);
+      if (suggestions.length === 0) {
+        throw new Error('No tasks were generated from the description');
+      }
+      const createdAtIso = new Date().toISOString();
+      await Promise.all(suggestions.map((suggestion) => axios.post(
+        `${apiUrl}/researchops/ideas`,
+        {
+          projectId: selectedProjectId,
+          title: suggestion.title,
+          hypothesis: suggestion.hypothesis,
+          summary: `LLM-generated TODO from prompt (${createdAtIso})`,
+          status: 'OPEN',
+        },
+        { headers }
+      )));
+      setKickoffAiPrompt('');
+      setShowKickoffPromptGenerate(false);
+      await loadAll({ silent: true });
+      setError('');
+    } catch (err) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to generate tasks');
+    } finally {
+      setTodoBusy(false);
+    }
+  }, [apiUrl, headers, kickoffAiPrompt, loadAll, selectedProjectId]);
+
+  const startAutopilotPoll = useCallback((sessionId) => {
+    if (autopilotPollRef.current) clearInterval(autopilotPollRef.current);
+    autopilotPollRef.current = setInterval(async () => {
+      try {
+        const resp = await axios.get(`${apiUrl}/researchops/autopilot/${sessionId}`, { headers });
+        const s = resp.data?.session;
+        if (s) {
+          setAutopilotSession(s);
+          if (['completed', 'stopped', 'failed'].includes(s.status)) {
+            clearInterval(autopilotPollRef.current);
+            autopilotPollRef.current = null;
+          }
+        }
+      } catch {
+        // ignore transient poll errors
+      }
+    }, 5000);
+  }, [apiUrl, headers]);
+
+  const handleStartAutopilot = useCallback(async () => {
+    if (!selectedProjectId || !autopilotProposal.trim()) {
+      setError('Project and proposal are required to start autopilot.');
+      return;
+    }
+    setAutopilotBusy(true);
+    setError('');
+    try {
+      const resp = await axios.post(
+        `${apiUrl}/researchops/projects/${selectedProjectId}/autopilot/start`,
+        {
+          proposal: autopilotProposal.trim(),
+          maxIterations: autopilotMaxIter,
+          serverId: autopilotServerId,
+          skill: autopilotSkill,
+        },
+        { headers }
+      );
+      const session = resp.data?.session;
+      setAutopilotSession(session);
+      setShowAutopilotModal(false);
+      startAutopilotPoll(session.id);
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to start autopilot');
+    } finally {
+      setAutopilotBusy(false);
+    }
+  }, [apiUrl, autopilotMaxIter, autopilotProposal, autopilotServerId, autopilotSkill, headers, selectedProjectId, startAutopilotPoll]);
+
+  const handleStopAutopilot = useCallback(async () => {
+    if (!autopilotSession?.id) return;
+    try {
+      const resp = await axios.post(
+        `${apiUrl}/researchops/autopilot/${autopilotSession.id}/stop`,
+        {},
+        { headers }
+      );
+      setAutopilotSession(resp.data?.session || { ...autopilotSession, status: 'stopped' });
+      if (autopilotPollRef.current) {
+        clearInterval(autopilotPollRef.current);
+        autopilotPollRef.current = null;
+      }
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to stop autopilot');
+    }
+  }, [apiUrl, autopilotSession, headers]);
 
   const handleSetKnowledgeBaseFolder = useCallback(() => {
     if (!selectedProjectId || submitting) return;
@@ -1799,10 +1959,113 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
               <div className="vibe-card-head">
                 <h3>Project Management</h3>
                 <span className="vibe-card-note">Tasks & Next Steps</span>
+                <button
+                  type="button"
+                  className={`vibe-autopilot-btn ${autopilotSession?.status === 'running' ? 'is-active' : ''}`}
+                  onClick={() => setShowAutopilotModal(true)}
+                  disabled={!selectedProjectId}
+                  title="Start fully automated research loop"
+                >
+                  &#9654; Autopilot
+                </button>
               </div>
+              {autopilotSession && (
+                <div className={`vibe-autopilot-status vibe-autopilot-status--${autopilotSession.status}`}>
+                  <div className="vibe-autopilot-status-row">
+                    <span className="vibe-autopilot-label">
+                      {autopilotSession.status === 'running' ? (
+                        <>&#9654; Running — iter {autopilotSession.currentIteration}/{autopilotSession.maxIterations} — {autopilotSession.currentPhase}</>
+                      ) : autopilotSession.status === 'completed' ? (
+                        <>{autopilotSession.goalAchieved ? '&#10003; Goal achieved' : '&#10003; Completed'} ({autopilotSession.currentIteration} iterations)</>
+                      ) : autopilotSession.status === 'stopped' ? (
+                        <>&#9632; Stopped at iter {autopilotSession.currentIteration}</>
+                      ) : (
+                        <>&#9888; {autopilotSession.status}</>
+                      )}
+                    </span>
+                    {autopilotSession.currentTask && autopilotSession.status === 'running' && (
+                      <span className="vibe-autopilot-task">{autopilotSession.currentTask}</span>
+                    )}
+                    {autopilotSession.status === 'running' && (
+                      <button
+                        type="button"
+                        className="vibe-secondary-btn vibe-autopilot-stop-btn"
+                        onClick={handleStopAutopilot}
+                      >
+                        Stop
+                      </button>
+                    )}
+                  </div>
+                  {autopilotSession.history?.length > 0 && (
+                    <div className="vibe-autopilot-history">
+                      {autopilotSession.history.slice(-3).map((h) => (
+                        <div key={h.iteration} className="vibe-autopilot-history-item">
+                          <span className="vibe-autopilot-iter">#{h.iteration}</span>
+                          <span>{h.task}: {h.summary}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="vibe-list vibe-project-todo-list">
                 {selectedProjectTodos.length === 0 ? (
-                  <p className="vibe-empty">No TODOs yet. Click New TODO below.</p>
+                  <div className="vibe-kickoff-panel">
+                    <p className="vibe-kickoff-intro">How would you like to get started?</p>
+                    <div className="vibe-kickoff-options">
+                      <button type="button" className="vibe-kickoff-option" onClick={openTodoModal} disabled={todoBusy}>
+                        <span className="vibe-kickoff-icon">&#9999;&#65039;</span>
+                        <span>Write a task</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="vibe-kickoff-option"
+                        onClick={() => setShowKickoffPromptGenerate((v) => !v)}
+                        disabled={todoBusy}
+                      >
+                        <span className="vibe-kickoff-icon">&#10024;</span>
+                        <span>Let AI plan</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="vibe-kickoff-option"
+                        onClick={handleChooseProposalFileDesign}
+                        disabled={proposalUploadBusy || todoBusy || !selectedProjectId}
+                      >
+                        <span className="vibe-kickoff-icon">&#128196;</span>
+                        <span>Upload proposal</span>
+                      </button>
+                    </div>
+                    {showKickoffPromptGenerate && (
+                      <div className="vibe-kickoff-generate">
+                        <textarea
+                          className="vibe-kickoff-textarea"
+                          placeholder="Describe your research goal or project..."
+                          value={kickoffAiPrompt}
+                          onChange={(e) => setKickoffAiPrompt(e.target.value)}
+                          rows={3}
+                        />
+                        <button
+                          type="button"
+                          className="vibe-primary-btn"
+                          onClick={handleKickoffGenerateTodos}
+                          disabled={todoBusy || !kickoffAiPrompt.trim()}
+                        >
+                          {todoBusy ? 'Generating...' : 'Generate Tasks'}
+                        </button>
+                      </div>
+                    )}
+                    {proposalUploadBusy && (
+                      <p className="vibe-kickoff-busy">Analyzing proposal and creating tasks...</p>
+                    )}
+                    <input
+                      type="file"
+                      ref={kickoffProposalFileInputRef}
+                      style={{ display: 'none' }}
+                      accept=".pdf,.md,.txt,.docx,.doc"
+                      onChange={handleKickoffProposalFileChange}
+                    />
+                  </div>
                 ) : (
                   selectedProjectTodos.map((idea) => {
                     const status = String(idea.status || '').trim().toUpperCase();
@@ -2214,6 +2477,76 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
         pinnedAssetIds={pinnedAssetIds}
         onPinnedAssetIdsChange={setPinnedAssetIds}
       />
+
+      {showAutopilotModal && (
+        <div className="vibe-modal-backdrop" onClick={() => !autopilotBusy && setShowAutopilotModal(false)}>
+          <article className="vibe-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="vibe-modal-header">
+              <h3>&#9654; Autopilot Mode</h3>
+              <button type="button" className="vibe-modal-close" onClick={() => !autopilotBusy && setShowAutopilotModal(false)}>&times;</button>
+            </div>
+            <div className="vibe-modal-body">
+              <p className="vibe-modal-desc">
+                Autopilot runs a fully automatic research loop: it designs tasks, implements them, runs experiments, analyzes results, and repeats — stopping when the goal is achieved or max iterations is reached.
+              </p>
+              <label className="vibe-modal-label">
+                Research goal / proposal
+                <textarea
+                  className="vibe-kickoff-textarea"
+                  placeholder="Describe the research goal or paste a proposal..."
+                  value={autopilotProposal}
+                  onChange={(e) => setAutopilotProposal(e.target.value)}
+                  rows={5}
+                />
+              </label>
+              <div className="vibe-modal-row">
+                <label className="vibe-modal-label">
+                  Max iterations
+                  <input
+                    type="number"
+                    className="vibe-modal-input"
+                    min={1}
+                    max={50}
+                    value={autopilotMaxIter}
+                    onChange={(e) => setAutopilotMaxIter(Number(e.target.value) || 10)}
+                  />
+                </label>
+                <label className="vibe-modal-label">
+                  Server
+                  <select
+                    className="vibe-modal-select"
+                    value={autopilotServerId}
+                    onChange={(e) => setAutopilotServerId(e.target.value)}
+                  >
+                    <option value="local-default">Local</option>
+                    {sshServers.map((srv) => (
+                      <option key={srv.id} value={srv.id}>{srv.name || srv.host}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div className="vibe-modal-footer">
+              <button
+                type="button"
+                className="vibe-secondary-btn"
+                onClick={() => setShowAutopilotModal(false)}
+                disabled={autopilotBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="vibe-primary-btn"
+                onClick={handleStartAutopilot}
+                disabled={autopilotBusy || !autopilotProposal.trim()}
+              >
+                {autopilotBusy ? 'Starting...' : 'Start Autopilot'}
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
 
       {showCreateProjectModal && (
         <div className="vibe-modal-backdrop" onClick={closeCreateProjectModal}>
