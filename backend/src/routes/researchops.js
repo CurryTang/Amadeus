@@ -5,10 +5,14 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const multer = require('multer');
+const pdfParse = require('pdf-parse');
 const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
 const { getDb } = require('../db');
 const s3Service = require('../services/s3.service');
+const codexCliService = require('../services/codex-cli.service');
+const geminiCliService = require('../services/gemini-cli.service');
+const llmService = require('../services/llm.service');
 const researchOpsStore = require('../services/researchops/store');
 const researchOpsRunner = require('../services/researchops/runner');
 const knowledgeGroupsService = require('../services/knowledge-groups.service');
@@ -26,6 +30,13 @@ const knowledgeAssetUpload = multer({
   },
 });
 
+const proposalUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+  },
+});
+
 function parseLimit(raw, fallback = 50, max = 300) {
   const num = Number(raw);
   if (!Number.isFinite(num)) return fallback;
@@ -38,12 +49,40 @@ function parseOffset(raw, fallback = 0, max = 100000) {
   return Math.min(Math.max(Math.floor(num), 0), max);
 }
 
+function parseBoolean(raw, fallback = false) {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw === 'number') return raw !== 0;
+  const normalized = String(raw).trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
 function getUserId(req) {
   return req.userId || 'czk';
 }
 
 function sanitizeError(error, fallback) {
   return error?.message || fallback;
+}
+
+function buildArtifactDownloadPath(runId = '', artifactId = '') {
+  const rid = encodeURIComponent(String(runId || '').trim());
+  const aid = encodeURIComponent(String(artifactId || '').trim());
+  if (!rid || !aid) return null;
+  return `/api/researchops/runs/${rid}/artifacts/${aid}/download`;
+}
+
+function withArtifactDownloadUrl(artifact = null, runId = '') {
+  if (!artifact || typeof artifact !== 'object') return artifact;
+  const downloadPath = buildArtifactDownloadPath(runId, artifact.id);
+  if (!downloadPath) return artifact;
+  return {
+    ...artifact,
+    objectUrl: artifact.objectKey ? downloadPath : (artifact.objectUrl || downloadPath),
+  };
 }
 
 function asObject(value) {
@@ -85,6 +124,21 @@ async function withTimeout(promiseFactory, timeoutMs = 10000) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function promiseWithTimeout(promise, timeoutMs = 30000, label = 'Operation') {
+  const limit = Number(timeoutMs);
+  if (!Number.isFinite(limit) || limit <= 0) return promise;
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${limit}ms`));
+    }, limit);
+    if (typeof timer?.unref === 'function') timer.unref();
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function runCommand(command, args = [], { timeoutMs = 15000, input = '' } = {}) {
@@ -151,6 +205,9 @@ const TEXT_FILE_EXTENSIONS = new Set([
 ]);
 const KB_SYNC_JOBS = new Map();
 const KB_SYNC_JOB_TTL_MS = 6 * 60 * 60 * 1000;
+const CHATDSE_ENFORCED_HOST = 'compute.example.edu';
+const CHATDSE_PROJECT_ROOT = '/egr/research-dselab/testuser';
+const ACTIVE_PROJECT_RUN_STATUSES = ['PROVISIONING', 'RUNNING'];
 
 class GitLogEntry {
   constructor({
@@ -396,7 +453,9 @@ function buildProjectFileSummary({
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
   const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
   const args = [
+    '-F', '/dev/null',
     '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
     '-o', `ConnectTimeout=${connectTimeout}`,
     '-o', 'StrictHostKeyChecking=accept-new',
     '-i', keyPath,
@@ -417,6 +476,28 @@ async function getSshServerById(serverId) {
     args: [sid],
   });
   return result.rows?.[0] || null;
+}
+
+function normalizePosixPathForPolicy(inputPath = '') {
+  const raw = String(inputPath || '').trim();
+  if (!raw) return '';
+  const normalized = path.posix.normalize(raw.startsWith('/') ? raw : `/${raw}`);
+  return normalized === '/' ? normalized : normalized.replace(/\/+$/, '');
+}
+
+function isPathWithinBase(targetPath = '', basePath = '') {
+  const target = normalizePosixPathForPolicy(targetPath);
+  const base = normalizePosixPathForPolicy(basePath);
+  if (!target || !base) return false;
+  return target === base || target.startsWith(`${base}/`);
+}
+
+function enforceSshProjectPathPolicy(server = null, projectPath = '') {
+  const host = String(server?.host || '').trim().toLowerCase();
+  if (host !== CHATDSE_ENFORCED_HOST) return;
+  if (!isPathWithinBase(projectPath, CHATDSE_PROJECT_ROOT)) {
+    throw new Error(`For ${CHATDSE_ENFORCED_HOST}, projectPath must be under ${CHATDSE_PROJECT_ROOT}`);
+  }
 }
 
 async function resolveProjectContext(userId, projectId) {
@@ -445,8 +526,245 @@ async function resolveProjectContext(userId, projectId) {
   return { project, server: null };
 }
 
-async function loadLocalProjectGitProgress(projectPath, limit) {
-  return projectInsightsService.loadLocalProjectGitProgress(projectPath, limit);
+async function enforceExperimentProjectPathPolicy(userId, projectId, runType = '') {
+  if (String(runType || '').trim().toUpperCase() !== 'EXPERIMENT') return;
+  const { project, server } = await resolveProjectContext(userId, projectId);
+  if (String(project.locationType || '').toLowerCase() !== 'ssh') return;
+  enforceSshProjectPathPolicy(server, project.projectPath);
+}
+
+function resolveRecommendedVenvTool({
+  hasPixiDir = false,
+  hasUvDir = false,
+  hasPixiToml = false,
+  hasUvLock = false,
+} = {}) {
+  if (hasPixiDir) return 'pixi';
+  if (hasUvDir) return 'uv';
+  if (hasPixiToml) return 'pixi';
+  if (hasUvLock) return 'uv';
+  return 'pixi';
+}
+
+async function detectLocalProjectVenvStatus(projectPath) {
+  const rootPath = path.resolve(expandHome(String(projectPath || '').trim()));
+  const stat = await fs.stat(rootPath).catch(() => null);
+  if (!stat || !stat.isDirectory()) {
+    throw new Error(`Project path is not a directory: ${rootPath}`);
+  }
+
+  const pixiDirStat = await fs.stat(path.join(rootPath, '.pixi')).catch(() => null);
+  const uvDirStat = await fs.stat(path.join(rootPath, '.uv')).catch(() => null);
+  const pixiTomlStat = await fs.stat(path.join(rootPath, 'pixi.toml')).catch(() => null);
+  const uvLockStat = await fs.stat(path.join(rootPath, 'uv.lock')).catch(() => null);
+  const hasPixiDir = Boolean(pixiDirStat?.isDirectory());
+  const hasUvDir = Boolean(uvDirStat?.isDirectory());
+  const hasPixiToml = Boolean(pixiTomlStat?.isFile());
+  const hasUvLock = Boolean(uvLockStat?.isFile());
+
+  const availabilityRaw = await runCommand(
+    'bash',
+    [
+      '-lc',
+      'command -v pixi >/dev/null 2>&1 && echo "__PIXIBIN__:1" || echo "__PIXIBIN__:0"; command -v uv >/dev/null 2>&1 && echo "__UVBIN__:1" || echo "__UVBIN__:0"',
+    ],
+    { timeoutMs: 8000 }
+  ).catch(() => ({ stdout: '__PIXIBIN__:0\n__UVBIN__:0\n' }));
+  const lines = String(availabilityRaw.stdout || '').split(/\r?\n/);
+  const pixiAvailable = lines.some((line) => line.trim() === '__PIXIBIN__:1');
+  const uvAvailable = lines.some((line) => line.trim() === '__UVBIN__:1');
+  const activeTool = hasPixiDir ? 'pixi' : (hasUvDir ? 'uv' : null);
+
+  return {
+    rootPath,
+    configured: Boolean(activeTool),
+    activeTool,
+    recommendedTool: resolveRecommendedVenvTool({
+      hasPixiDir,
+      hasUvDir,
+      hasPixiToml,
+      hasUvLock,
+    }),
+    markers: {
+      pixiDir: hasPixiDir,
+      uvDir: hasUvDir,
+      pixiToml: hasPixiToml,
+      uvLock: hasUvLock,
+    },
+    toolAvailability: {
+      pixi: pixiAvailable,
+      uv: uvAvailable,
+    },
+  };
+}
+
+async function detectSshProjectVenvStatus(server, projectPath) {
+  const rootPath = String(projectPath || '').trim();
+  const script = [
+    'root="$1"',
+    'if [ ! -d "$root" ]; then',
+    '  echo "__NOT_DIR__:$root"',
+    '  exit 0',
+    'fi',
+    'echo "__ROOT__:$root"',
+    '[ -d "$root/.pixi" ] && echo "__PIXIDIR__:1" || echo "__PIXIDIR__:0"',
+    '[ -d "$root/.uv" ] && echo "__UVDIR__:1" || echo "__UVDIR__:0"',
+    '[ -f "$root/pixi.toml" ] && echo "__PIXITOML__:1" || echo "__PIXITOML__:0"',
+    '[ -f "$root/uv.lock" ] && echo "__UVLOCK__:1" || echo "__UVLOCK__:0"',
+    'command -v pixi >/dev/null 2>&1 && echo "__PIXIBIN__:1" || echo "__PIXIBIN__:0"',
+    'command -v uv >/dev/null 2>&1 && echo "__UVBIN__:1" || echo "__UVBIN__:0"',
+  ].join('\n');
+  const { stdout } = await runSshScript(server, script, [rootPath], 20000);
+  const lines = String(stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const notDirLine = lines.find((line) => line.startsWith('__NOT_DIR__:'));
+  if (notDirLine) {
+    throw new Error(`Project path is not a directory: ${notDirLine.slice('__NOT_DIR__:'.length)}`);
+  }
+  const hasPixiDir = lines.some((line) => line === '__PIXIDIR__:1');
+  const hasUvDir = lines.some((line) => line === '__UVDIR__:1');
+  const hasPixiToml = lines.some((line) => line === '__PIXITOML__:1');
+  const hasUvLock = lines.some((line) => line === '__UVLOCK__:1');
+  const pixiAvailable = lines.some((line) => line === '__PIXIBIN__:1');
+  const uvAvailable = lines.some((line) => line === '__UVBIN__:1');
+  const activeTool = hasPixiDir ? 'pixi' : (hasUvDir ? 'uv' : null);
+
+  return {
+    rootPath,
+    configured: Boolean(activeTool),
+    activeTool,
+    recommendedTool: resolveRecommendedVenvTool({
+      hasPixiDir,
+      hasUvDir,
+      hasPixiToml,
+      hasUvLock,
+    }),
+    markers: {
+      pixiDir: hasPixiDir,
+      uvDir: hasUvDir,
+      pixiToml: hasPixiToml,
+      uvLock: hasUvLock,
+    },
+    toolAvailability: {
+      pixi: pixiAvailable,
+      uv: uvAvailable,
+    },
+  };
+}
+
+async function detectProjectVenvStatus(project, server) {
+  if (project.locationType === 'ssh') {
+    return detectSshProjectVenvStatus(server, project.projectPath);
+  }
+  return detectLocalProjectVenvStatus(project.projectPath);
+}
+
+async function setupLocalProjectVenv(projectPath, tool = 'pixi') {
+  const selectedTool = String(tool || '').trim().toLowerCase() === 'uv' ? 'uv' : 'pixi';
+  const rootPath = path.resolve(expandHome(String(projectPath || '').trim()));
+  const stat = await fs.stat(rootPath).catch(() => null);
+  if (!stat || !stat.isDirectory()) {
+    throw new Error(`Project path is not a directory: ${rootPath}`);
+  }
+
+  const script = selectedTool === 'uv'
+    ? [
+      'set -e',
+      'root="$1"',
+      'cd "$root"',
+      'if ! command -v uv >/dev/null 2>&1; then',
+      '  echo "__ERROR__:uv is not installed on this host"',
+      '  exit 0',
+      'fi',
+      'if [ ! -d ".uv" ]; then',
+      '  uv venv .uv',
+      'fi',
+      '[ -d ".uv" ] && echo "__OK__:uv" || echo "__ERROR__:failed to create .uv"',
+    ].join('\n')
+    : [
+      'set -e',
+      'root="$1"',
+      'cd "$root"',
+      'if ! command -v pixi >/dev/null 2>&1; then',
+      '  echo "__ERROR__:pixi is not installed on this host"',
+      '  exit 0',
+      'fi',
+      'if [ ! -f "pixi.toml" ]; then',
+      '  pixi init',
+      'fi',
+      'pixi install',
+      '[ -d ".pixi" ] && echo "__OK__:pixi" || echo "__ERROR__:failed to create .pixi"',
+    ].join('\n');
+
+  const { stdout } = await runCommand('bash', ['-s', '--', rootPath], {
+    timeoutMs: 240000,
+    input: `${script}\n`,
+  });
+  const lines = String(stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const errorLine = lines.find((line) => line.startsWith('__ERROR__:'));
+  if (errorLine) {
+    throw new Error(errorLine.slice('__ERROR__:'.length) || 'Failed to set up virtual environment');
+  }
+  return { tool: selectedTool, rootPath };
+}
+
+async function setupSshProjectVenv(server, projectPath, tool = 'pixi') {
+  const selectedTool = String(tool || '').trim().toLowerCase() === 'uv' ? 'uv' : 'pixi';
+  const rootPath = String(projectPath || '').trim();
+  const script = selectedTool === 'uv'
+    ? [
+      'set -e',
+      'root="$1"',
+      'if [ ! -d "$root" ]; then',
+      '  echo "__ERROR__:project path is not a directory"',
+      '  exit 0',
+      'fi',
+      'cd "$root"',
+      'if ! command -v uv >/dev/null 2>&1; then',
+      '  echo "__ERROR__:uv is not installed on remote host"',
+      '  exit 0',
+      'fi',
+      'if [ ! -d ".uv" ]; then',
+      '  uv venv .uv',
+      'fi',
+      '[ -d ".uv" ] && echo "__OK__:uv" || echo "__ERROR__:failed to create .uv"',
+    ].join('\n')
+    : [
+      'set -e',
+      'root="$1"',
+      'if [ ! -d "$root" ]; then',
+      '  echo "__ERROR__:project path is not a directory"',
+      '  exit 0',
+      'fi',
+      'cd "$root"',
+      'if ! command -v pixi >/dev/null 2>&1; then',
+      '  echo "__ERROR__:pixi is not installed on remote host"',
+      '  exit 0',
+      'fi',
+      'if [ ! -f "pixi.toml" ]; then',
+      '  pixi init',
+      'fi',
+      'pixi install',
+      '[ -d ".pixi" ] && echo "__OK__:pixi" || echo "__ERROR__:failed to create .pixi"',
+    ].join('\n');
+
+  const { stdout } = await runSshScript(server, script, [rootPath], 300000);
+  const lines = String(stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const errorLine = lines.find((line) => line.startsWith('__ERROR__:'));
+  if (errorLine) {
+    throw new Error(errorLine.slice('__ERROR__:'.length) || 'Failed to set up virtual environment');
+  }
+  return { tool: selectedTool, rootPath };
+}
+
+async function setupProjectVenv(project, server, tool = 'pixi') {
+  if (project.locationType === 'ssh') {
+    return setupSshProjectVenv(server, project.projectPath, tool);
+  }
+  return setupLocalProjectVenv(project.projectPath, tool);
+}
+
+async function loadLocalProjectGitProgress(projectPath, limit, { branch = '' } = {}) {
+  return projectInsightsService.loadLocalProjectGitProgress(projectPath, limit, { branch });
 }
 
 async function loadSshProjectGitProgress(server, projectPath, limit, { branch: branchOverride = '' } = {}) {
@@ -467,6 +785,11 @@ async function loadSshProjectGitProgress(server, projectPath, limit, { branch: b
     branchInit,
     'if [ -z "$branch" ]; then branch="HEAD"; fi',
     'echo "__BRANCH__:$branch"',
+    'if ! git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1; then',
+    '  echo "__NO_COMMITS__"',
+    '  echo "__TOTAL__:0"',
+    '  exit 0',
+    'fi',
     'log_range="$branch"',
     'if [ "$branch" != "HEAD" ] && [ "$branch" != "main" ] && [ "$branch" != "master" ]; then',
     '  for base_ref in origin/main origin/master main master; do',
@@ -520,6 +843,15 @@ async function loadSshProjectGitProgress(server, projectPath, limit, { branch: b
 
   const branchLine = lines.find((line) => line.startsWith('__BRANCH__:')) || '';
   const totalLine = lines.find((line) => line.startsWith('__TOTAL__:')) || '';
+  if (lines.some((line) => line.trim() === '__NO_COMMITS__')) {
+    return {
+      rootPath,
+      isGitRepo: true,
+      branch: branchLine.slice('__BRANCH__:'.length).trim() || 'HEAD',
+      totalCommits: 0,
+      commits: [],
+    };
+  }
   const commits = parseGitLogOutput(stdout);
   return {
     rootPath,
@@ -531,6 +863,9 @@ async function loadSshProjectGitProgress(server, projectPath, limit, { branch: b
 }
 
 async function loadProjectGitProgress(project, server, limit) {
+  await ensureProjectGitRepository(project, server).catch((error) => {
+    console.warn('[ResearchOps] ensure git before git-log failed:', error.message);
+  });
   const branchOpts = { branch: project.gitBranch || '' };
   if (project.locationType === 'ssh') {
     return loadSshProjectGitProgress(server, project.projectPath, limit, branchOpts);
@@ -680,6 +1015,9 @@ async function loadSshProjectChangedFiles(server, projectPath, limit) {
 }
 
 async function loadProjectChangedFiles(project, server, limit) {
+  await ensureProjectGitRepository(project, server).catch((error) => {
+    console.warn('[ResearchOps] ensure git before changed-files failed:', error.message);
+  });
   if (project.locationType === 'ssh') {
     return loadSshProjectChangedFiles(server, project.projectPath, limit);
   }
@@ -696,7 +1034,9 @@ async function checkSshPath(server, projectPath) {
   if (!target) throw new Error('projectPath is required');
 
   const args = [
+    '-F', '/dev/null',
     '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
     '-o', 'ConnectTimeout=12',
     '-o', 'StrictHostKeyChecking=accept-new',
     '-i', keyPath,
@@ -728,13 +1068,28 @@ async function ensureLocalPath(projectPath) {
   return projectInsightsService.ensureLocalProjectPath(projectPath);
 }
 
+async function ensureLocalGitRepository(projectPath) {
+  if (config.projectInsights?.proxyHeavyOps === true) {
+    const result = await projectInsightsProxy.ensureGitRepo({ projectPath });
+    const rootPath = String(result?.rootPath || '').trim() || path.resolve(expandHome(projectPath));
+    return {
+      rootPath,
+      isGitRepo: result?.isGitRepo !== false,
+      initialized: result?.initialized === true,
+    };
+  }
+  return projectInsightsService.ensureLocalGitRepository(projectPath);
+}
+
 async function ensureSshPath(server, projectPath) {
   const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
   const target = String(projectPath || '').trim();
   if (!target) throw new Error('projectPath is required');
 
   const args = [
+    '-F', '/dev/null',
     '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
     '-o', 'ConnectTimeout=15',
     '-o', 'StrictHostKeyChecking=accept-new',
     '-i', keyPath,
@@ -759,6 +1114,78 @@ async function ensureSshPath(server, projectPath) {
     throw new Error(`Failed to create project path on remote server: ${target}`);
   }
   return { normalizedPath };
+}
+
+async function ensureSshGitRepository(server, projectPath) {
+  const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
+  const target = String(projectPath || '').trim();
+  if (!target) throw new Error('projectPath is required');
+
+  const args = [
+    '-F', '/dev/null',
+    '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
+    '-o', 'ConnectTimeout=15',
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-i', keyPath,
+    '-p', String(server.port || 22),
+  ];
+  if (String(server.proxy_jump || '').trim()) {
+    args.push('-J', String(server.proxy_jump).trim());
+  }
+
+  const script = buildRemotePathResolverScript([
+    'if [ ! -d "$target" ]; then echo "__NOT_DIR__:$target"; exit 0; fi',
+    'if ! command -v git >/dev/null 2>&1; then echo "__NO_GIT__"; exit 0; fi',
+    'if git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then',
+    '  echo "__GIT_READY__:$target"',
+    '  echo "__GIT_INITIALIZED__:0"',
+    '  exit 0',
+    'fi',
+    'if git -C "$target" init >/dev/null 2>&1; then',
+    '  echo "__GIT_READY__:$target"',
+    '  echo "__GIT_INITIALIZED__:1"',
+    'else',
+    '  echo "__GIT_FAIL__:$target"',
+    'fi',
+  ].join('\n'));
+  args.push(
+    `${server.user}@${server.host}`,
+    'bash', '-s', '--', target,
+  );
+
+  const { stdout } = await runCommand('ssh', args, { timeoutMs: 30000, input: `${script}\n` });
+  const lines = String(stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const notDirLine = lines.find((line) => line.startsWith('__NOT_DIR__:'));
+  if (notDirLine) {
+    throw new Error(`Remote project path is not a directory: ${notDirLine.slice('__NOT_DIR__:'.length) || target}`);
+  }
+  if (lines.includes('__NO_GIT__')) {
+    throw new Error(`git is not installed on remote host ${server.host}`);
+  }
+  const failLine = lines.find((line) => line.startsWith('__GIT_FAIL__:'));
+  if (failLine) {
+    throw new Error(`Failed to initialize git repository at ${failLine.slice('__GIT_FAIL__:'.length) || target}`);
+  }
+  const readyLine = lines.find((line) => line.startsWith('__GIT_READY__:'));
+  const rootPath = readyLine ? readyLine.slice('__GIT_READY__:'.length) : target;
+  const initialized = lines.includes('__GIT_INITIALIZED__:1');
+  return {
+    rootPath,
+    isGitRepo: Boolean(readyLine),
+    initialized,
+  };
+}
+
+async function ensureProjectGitRepository(project, server) {
+  const projectPath = String(project?.projectPath || '').trim();
+  if (!projectPath) {
+    throw new Error('Project path is missing');
+  }
+  if (String(project?.locationType || '').toLowerCase() === 'ssh') {
+    return ensureSshGitRepository(server, projectPath);
+  }
+  return ensureLocalGitRepository(projectPath);
 }
 
 function cleanupKbSyncJobs() {
@@ -833,7 +1260,8 @@ function buildRsyncSshCommand(server) {
 
 function buildRsyncRemoteDest(server, remotePath) {
   const normalizedPath = String(remotePath || '').replace(/\/+$/, '');
-  return `${server.user}@${server.host}:${shellEscape(normalizedPath)}/`;
+  const escapedPath = normalizedPath.replace(/([ \t\n\r\f\v\\'"`$])/g, '\\$1');
+  return `${server.user}@${server.host}:${escapedPath}/`;
 }
 
 async function runSshScript(server, scriptBody, args = [], timeoutMs = 30000) {
@@ -887,17 +1315,24 @@ function isLikelyTextFile(relativePath = '') {
   return TEXT_FILE_EXTENSIONS.has(ext);
 }
 
-function evaluatePaperResourceSignals({ paperLikeFileCount = 0, directoryCount = 0, readmeCount = 0 } = {}) {
+function evaluatePaperResourceSignals({
+  paperLikeFileCount = 0,
+  directoryCount = 0,
+  readmeCount = 0,
+  totalFileCount = 0,
+} = {}) {
   const paperLike = Number(paperLikeFileCount) || 0;
   const dirs = Number(directoryCount) || 0;
   const readme = Number(readmeCount) || 0;
-  const score = (paperLike * 2) + readme + Math.min(dirs, 5) * 0.25;
+  const totalFiles = Number(totalFileCount) || 0;
+  const score = (paperLike * 2) + readme + Math.min(dirs, 5) * 0.25 + Math.min(totalFiles, 12) * 0.2;
   return {
-    valid: paperLike >= 2 || score >= 5,
+    valid: paperLike >= 2 || totalFiles >= 3 || score >= 5,
     score,
     paperLikeFileCount: paperLike,
     directoryCount: dirs,
     readmeCount: readme,
+    totalFileCount: totalFiles,
   };
 }
 
@@ -913,39 +1348,58 @@ async function inspectLocalResourceFolder(projectPath) {
     };
   }
 
-  const { stdout } = await runCommand(
-    'find',
-    [
-      absolutePath,
-      '-maxdepth', '4',
-      '(',
-      '-type', 'f',
-      '-o',
-      '-type', 'd',
-      ')',
-    ],
-    { timeoutMs: 30000 }
-  );
-  const lines = String(stdout || '')
+  const [filesResult, dirsResult, readmeResult] = await Promise.all([
+    runCommand(
+      'find',
+      [absolutePath, '-maxdepth', '4', '-type', 'f'],
+      { timeoutMs: 30000 }
+    ),
+    runCommand(
+      'find',
+      [absolutePath, '-maxdepth', '4', '-type', 'd'],
+      { timeoutMs: 30000 }
+    ),
+    runCommand(
+      'find',
+      [
+        absolutePath,
+        '-maxdepth', '4',
+        '-type', 'f',
+        '(',
+        '-iname', 'readme',
+        '-o',
+        '-iname', 'readme.md',
+        ')',
+      ],
+      { timeoutMs: 30000 }
+    ),
+  ]);
+
+  const fileLines = String(filesResult?.stdout || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(0, 800);
+    .slice(0, 2000);
+  const dirLines = String(dirsResult?.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const readmeLines = String(readmeResult?.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
   let paperLikeFileCount = 0;
-  let directoryCount = 0;
-  let readmeCount = 0;
-  for (const item of lines) {
+  for (const item of fileLines) {
     const rel = item.startsWith(absolutePath) ? item.slice(absolutePath.length).replace(/^\/+/, '') : item;
     if (!rel) continue;
     const lower = rel.toLowerCase();
-    if (lower.includes('/')) directoryCount += 1;
-    if (lower.endsWith('/readme') || lower.endsWith('/readme.md') || lower === 'readme' || lower === 'readme.md') {
-      readmeCount += 1;
-    }
     const ext = path.extname(lower);
     if (PAPER_RESOURCE_EXTENSIONS.has(ext)) paperLikeFileCount += 1;
   }
+  const totalFileCount = fileLines.length;
+  const directoryCount = Math.max(dirLines.length - 1, 0);
+  const readmeCount = readmeLines.length;
 
   return {
     exists: true,
@@ -955,6 +1409,7 @@ async function inspectLocalResourceFolder(projectPath) {
       paperLikeFileCount,
       directoryCount,
       readmeCount,
+      totalFileCount,
     }),
   };
 }
@@ -974,7 +1429,8 @@ async function inspectSshResourceFolder(server, projectPath) {
     'paper_count="$(find "$target" -maxdepth 4 -type f \\( -iname "*.pdf" -o -iname "*.md" -o -iname "*.markdown" -o -iname "*.txt" -o -iname "*.bib" -o -iname "*.tex" -o -iname "*.json" -o -iname "*.csv" \\) 2>/dev/null | wc -l | tr -d \' \')"',
     'dir_count="$(find "$target" -maxdepth 4 -type d 2>/dev/null | wc -l | tr -d \' \')"',
     'readme_count="$(find "$target" -maxdepth 4 -type f \\( -iname "readme" -o -iname "readme.md" \\) 2>/dev/null | wc -l | tr -d \' \')"',
-    'echo "__SIGNAL__:${paper_count}:${dir_count}:${readme_count}"',
+    'all_file_count="$(find "$target" -maxdepth 4 -type f 2>/dev/null | wc -l | tr -d \' \')"',
+    'echo "__SIGNAL__:${paper_count}:${dir_count}:${readme_count}:${all_file_count}"',
   ].join('\n');
   const { stdout } = await runSshScript(server, script, [resourcePath], 30000);
   const output = String(stdout || '');
@@ -995,7 +1451,13 @@ async function inspectSshResourceFolder(server, projectPath) {
     };
   }
   const line = output.split(/\r?\n/).find((item) => item.startsWith('__SIGNAL__:')) || '';
-  const [, paperCountRaw = '0', dirCountRaw = '0', readmeCountRaw = '0'] = line.replace('__SIGNAL__:', '').split(':');
+  const [
+    ,
+    paperCountRaw = '0',
+    dirCountRaw = '0',
+    readmeCountRaw = '0',
+    totalCountRaw = paperCountRaw,
+  ] = line.replace('__SIGNAL__:', '').split(':');
   return {
     exists: true,
     isDirectory: true,
@@ -1004,6 +1466,7 @@ async function inspectSshResourceFolder(server, projectPath) {
       paperLikeFileCount: normalizeCount(paperCountRaw, 0),
       directoryCount: normalizeCount(dirCountRaw, 0),
       readmeCount: normalizeCount(readmeCountRaw, 0),
+      totalFileCount: normalizeCount(totalCountRaw, normalizeCount(paperCountRaw, 0)),
     }),
   };
 }
@@ -1547,6 +2010,552 @@ async function syncDocumentsToSshResourceFolder(server, localResourceDir, target
   );
 }
 
+function parseJsonArrayFromModelOutput(rawText = '') {
+  const source = String(rawText || '').trim();
+  if (!source) return [];
+
+  try {
+    const parsed = JSON.parse(source);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {}
+
+  const fenceMatch = source.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    try {
+      const parsed = JSON.parse(String(fenceMatch[1] || '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {}
+  }
+
+  const arrayMatch = source.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    try {
+      const parsed = JSON.parse(arrayMatch[0]);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {}
+  }
+  return [];
+}
+
+function normalizeTodoCandidate(candidate = {}, index = 0) {
+  const titleRaw = String(
+    candidate.title
+    || candidate.task
+    || candidate.step
+    || candidate.name
+    || ''
+  ).trim();
+  if (!titleRaw) return null;
+
+  const title = titleRaw.length > 120 ? `${titleRaw.slice(0, 117)}...` : titleRaw;
+  const hypothesisRaw = String(
+    candidate.details
+    || candidate.description
+    || candidate.hypothesis
+    || candidate.rationale
+    || title
+  ).trim();
+
+  const priorityRaw = String(candidate.priority || '').trim().toLowerCase();
+  const priority = ['high', 'medium', 'low'].includes(priorityRaw) ? priorityRaw : 'medium';
+  const defaultHypothesis = `Priority: ${priority}. ${title}`;
+  return {
+    title,
+    hypothesis: hypothesisRaw || defaultHypothesis,
+    priority,
+    order: index + 1,
+  };
+}
+
+function extractHyphenatedTokens(text = '', { limit = 8 } = {}) {
+  const source = String(text || '');
+  if (!source) return [];
+  const matches = source.match(/\b[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+\b/g) || [];
+  const output = [];
+  const seen = new Set();
+  for (const token of matches) {
+    const cleaned = String(token || '').trim();
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(cleaned);
+    if (output.length >= limit) break;
+  }
+  return output;
+}
+
+function extractLikelyDatasets(text = '', { limit = 6 } = {}) {
+  const source = String(text || '');
+  const patterns = [
+    /\b(M4|M3|M5|ETTh1|ETTh2|ETTm1|ETTm2|Electricity|Traffic|Exchange|Weather|ILI|ECL|PEMS[0-9]+|Monash|Long Horizon)\b/gi,
+    /\b(dataset[s]?:?\s*)([A-Za-z0-9_\-/, ]{3,120})/gi,
+  ];
+  const output = [];
+  const seen = new Set();
+  for (const pattern of patterns) {
+    let match = pattern.exec(source);
+    while (match) {
+      const value = String(match[1] || match[2] || '').trim();
+      if (value) {
+        const fragments = value.split(/,|\/|;|\|/).map((item) => item.trim()).filter(Boolean);
+        for (const item of fragments) {
+          const normalized = item.replace(/\s+/g, ' ');
+          const key = normalized.toLowerCase();
+          if (normalized.length < 2 || seen.has(key)) continue;
+          seen.add(key);
+          output.push(normalized);
+          if (output.length >= limit) return output;
+        }
+      }
+      match = pattern.exec(source);
+    }
+  }
+  return output;
+}
+
+function fallbackTodoCandidatesFromInstruction(instruction = '', project = null) {
+  const text = String(instruction || '').trim();
+  const modelTokens = extractHyphenatedTokens(text, { limit: 5 });
+  const datasetTokens = extractLikelyDatasets(text, { limit: 4 });
+  const projectName = String(project?.name || '').trim();
+  const hasBenchmarkIntent = /benchmark|compare|evaluation|evaluate|ablation|forecast|timeseries|time series/i.test(text);
+  const tasks = [];
+
+  tasks.push({
+    title: 'Prepare project environment and dependencies',
+    details: `Create reproducible environment (${projectName || 'project'}) and lock package versions for all planned runs.`,
+    priority: 'high',
+  });
+
+  if (datasetTokens.length > 0) {
+    tasks.push({
+      title: `Prepare datasets: ${datasetTokens.slice(0, 3).join(', ')}`,
+      details: 'Download/verify splits, normalize schema, and add dataset-loading scripts with checksum logging.',
+      priority: 'high',
+    });
+  } else {
+    tasks.push({
+      title: 'Select and prepare 3 representative datasets',
+      details: 'Choose 3 datasets with different frequency/seasonality and define train/validation/test protocol.',
+      priority: 'high',
+    });
+  }
+
+  if (modelTokens.length > 0) {
+    tasks.push({
+      title: `Implement model runners for ${modelTokens.slice(0, 3).join(', ')}`,
+      details: 'Add unified evaluation interface so each model can run under the same metrics and seeds.',
+      priority: 'high',
+    });
+  } else {
+    tasks.push({
+      title: 'Implement baseline and foundation model runners',
+      details: 'Create scripts to run each model with unified CLI arguments and output schema.',
+      priority: 'high',
+    });
+  }
+
+  tasks.push({
+    title: hasBenchmarkIntent ? 'Run benchmark matrix across models and datasets' : 'Execute planned experiment matrix',
+    details: 'Run experiments with fixed seeds; capture MAE/MSE/sMAPE and runtime/cost metadata per run.',
+    priority: 'high',
+  });
+
+  tasks.push({
+    title: 'Aggregate results and generate comparison report',
+    details: 'Build result tables/figures and summarize strengths, limitations, and actionable follow-up experiments.',
+    priority: 'medium',
+  });
+
+  return tasks
+    .map((item, index) => normalizeTodoCandidate(item, index))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+async function generateTodoCandidatesFromInstruction({ instruction = '', project = null } = {}) {
+  const goal = String(instruction || '').trim();
+  if (!goal) return [];
+  const projectName = String(project?.name || '').trim();
+  const projectDescription = String(project?.description || '').trim();
+  const projectPath = String(project?.projectPath || '').trim();
+  const timeoutRaw = Number(process.env.RESEARCHOPS_TODO_GENERATION_TIMEOUT_MS || 45000);
+  const generationTimeoutMs = Number.isFinite(timeoutRaw)
+    ? Math.max(10000, Math.min(Math.floor(timeoutRaw), 120000))
+    : 45000;
+  const modelTimeoutMs = Math.max(8000, generationTimeoutMs - 5000);
+  const prompt = [
+    'You are a research project planner.',
+    'Generate an actionable TODO list from the instruction below.',
+    'Return ONLY a JSON array with no markdown.',
+    'Each item schema:',
+    '{"title":"...", "details":"...", "priority":"high|medium|low"}',
+    'Rules:',
+    '- 6 to 10 tasks',
+    '- concrete and domain-specific (no generic placeholders)',
+    '- each task should be executable in one run/session',
+    '- order tasks by dependency',
+    '- avoid tasks that require future conclusions before prerequisite runs exist',
+    projectName ? `Project: ${projectName}` : '',
+    projectDescription ? `Project description: ${projectDescription}` : '',
+    projectPath ? `Project path: ${projectPath}` : '',
+  ].filter(Boolean).join('\n');
+
+  let modelText = '';
+  try {
+    const modelTextRaw = await promiseWithTimeout((async () => {
+      if (await codexCliService.isAvailable()) {
+        const result = await codexCliService.readMarkdown(goal, prompt, { timeout: modelTimeoutMs });
+        return String(result?.text || '').trim();
+      }
+      if (await geminiCliService.isAvailable()) {
+        const result = await geminiCliService.readMarkdown(goal, prompt, { timeout: modelTimeoutMs });
+        return String(result?.text || '').trim();
+      }
+      const result = await promiseWithTimeout(
+        llmService.generateWithFallback(goal, prompt),
+        modelTimeoutMs,
+        'TODO generation fallback LLM'
+      );
+      return String(result?.text || '').trim();
+    })(), generationTimeoutMs, 'TODO generation');
+    modelText = String(modelTextRaw || '').trim();
+  } catch (error) {
+    console.warn('[ResearchOps] instruction todo generation via agent failed:', error.message);
+    modelText = '';
+  }
+
+  const parsed = parseJsonArrayFromModelOutput(modelText);
+  const normalized = parsed
+    .map((item, index) => normalizeTodoCandidate(item, index))
+    .filter(Boolean)
+    .slice(0, 10);
+  if (normalized.length > 0) return normalized;
+
+  return fallbackTodoCandidatesFromInstruction(goal, project);
+}
+
+function normalizeTodoStatus(status = '') {
+  return String(status || '').trim().toUpperCase();
+}
+
+function isTodoDone(status = '') {
+  const normalized = normalizeTodoStatus(status);
+  return normalized === 'DONE' || normalized === 'COMPLETED';
+}
+
+function parseIsoMs(value = '') {
+  const ts = Date.parse(String(value || ''));
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+const DEFAULT_TSFM_BENCHMARK_COMMAND = [
+  'bash -lc',
+  '\'set -euo pipefail;',
+  'mkdir -p results;',
+  'if [ -x scripts/run_tsfm_benchmark.sh ]; then',
+  '  bash scripts/run_tsfm_benchmark.sh --models chronos,timesfm,moirai --datasets ETTh1,Electricity,Traffic --output results/tsfm_benchmark;',
+  'elif [ -f scripts/run_tsfm_benchmark.py ]; then',
+  '  python scripts/run_tsfm_benchmark.py --models chronos,timesfm,moirai --datasets ETTh1,Electricity,Traffic --output results/tsfm_benchmark;',
+  'else',
+  '  echo "Missing scripts/run_tsfm_benchmark.sh or scripts/run_tsfm_benchmark.py for real TSFM benchmark." >&2;',
+  '  exit 1;',
+  'fi\'',
+].join(' ');
+
+function classifyTodoForNextRun(todo = {}, context = {}) {
+  const text = `${String(todo.title || '')} ${String(todo.hypothesis || '')}`.toLowerCase();
+  const mentionsKnowledge = /\b(knowledge|paper|literature|survey|scan knowledge base|collect references)\b/.test(text);
+  const mentionsExperiment = /\b(run|benchmark|evaluate|experiment|ablation|train|inference|metrics?)\b/.test(text);
+  const mentionsWriting = /\b(write|report|summar|discussion|insight|analysis|conclusion|compare)\b/.test(text);
+  const mentionsSetup = /\b(setup|prepare|environment|dependency|script|implement|scaffold|config)\b/.test(text);
+
+  let blockedReason = '';
+  if (mentionsKnowledge && !context.hasKnowledgeSource) {
+    blockedReason = 'Requires knowledge source setup first (KB folder or linked paper group).';
+  } else if (mentionsWriting && !context.hasSucceededExperimentRun) {
+    blockedReason = 'Requires at least one successful experiment run before writing/analysis.';
+  } else if (mentionsExperiment && !context.hasSucceededAgentRun && !context.hasAnyRun) {
+    blockedReason = 'Recommended to finish a setup/implementation run before experiment execution.';
+  }
+
+  const runType = mentionsExperiment ? 'EXPERIMENT' : 'AGENT';
+  const launcherSkill = mentionsWriting
+    ? 'write'
+    : (mentionsExperiment ? 'experiment' : 'implement');
+  const prompt = [
+    `Execute this TODO now: ${String(todo.title || '').trim() || 'Untitled TODO'}.`,
+    String(todo.hypothesis || '').trim(),
+    blockedReason ? '' : 'Focus only on work that can be completed in this single run.',
+  ].filter(Boolean).join('\n');
+  const suggestedCommand = runType === 'EXPERIMENT'
+    ? DEFAULT_TSFM_BENCHMARK_COMMAND
+    : null;
+
+  return {
+    ideaId: todo.id,
+    title: String(todo.title || '').trim(),
+    hypothesis: String(todo.hypothesis || '').trim(),
+    runType,
+    launcherSkill,
+    prompt,
+    suggestedCommand,
+    blocked: Boolean(blockedReason),
+    blockedReason,
+    whyNow: blockedReason || 'Runnable now with currently available project context.',
+  };
+}
+
+function buildTodoNextActions({ todos = [], runs = [], project = null } = {}) {
+  const openTodos = todos
+    .filter((item) => !isTodoDone(item?.status))
+    .sort((a, b) => {
+      const aUpdated = parseIsoMs(a?.updatedAt || a?.createdAt || '');
+      const bUpdated = parseIsoMs(b?.updatedAt || b?.createdAt || '');
+      if (aUpdated !== bUpdated) return bUpdated - aUpdated;
+      return String(a?.title || '').localeCompare(String(b?.title || ''));
+    });
+
+  const hasSucceededExperimentRun = runs.some(
+    (run) => String(run?.status || '').toUpperCase() === 'SUCCEEDED'
+      && String(run?.runType || '').toUpperCase() === 'EXPERIMENT'
+  );
+  const hasSucceededAgentRun = runs.some(
+    (run) => String(run?.status || '').toUpperCase() === 'SUCCEEDED'
+      && String(run?.runType || '').toUpperCase() === 'AGENT'
+  );
+  const hasAnyRun = runs.length > 0;
+  const hasKnowledgeSource = Boolean(String(project?.kbFolderPath || '').trim())
+    || (Array.isArray(project?.knowledgeGroupIds) && project.knowledgeGroupIds.length > 0);
+
+  const context = {
+    hasSucceededExperimentRun,
+    hasSucceededAgentRun,
+    hasAnyRun,
+    hasKnowledgeSource,
+  };
+
+  const candidates = openTodos.map((todo) => classifyTodoForNextRun(todo, context));
+  const actionable = candidates.filter((item) => !item.blocked).slice(0, 5);
+  const blocked = candidates.filter((item) => item.blocked).slice(0, 5);
+
+  // Fallback: ensure at least one suggestion exists whenever there are open TODOs.
+  if (actionable.length === 0 && openTodos.length > 0) {
+    const fallback = classifyTodoForNextRun(openTodos[0], {
+      ...context,
+      hasSucceededExperimentRun: true,
+      hasSucceededAgentRun: true,
+      hasAnyRun: true,
+      hasKnowledgeSource: true,
+    });
+    actionable.push({
+      ...fallback,
+      blocked: false,
+      blockedReason: '',
+      whyNow: 'Fallback suggestion: convert the top open TODO into a runnable step now.',
+    });
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    context: {
+      openTodoCount: openTodos.length,
+      totalRunCount: runs.length,
+      hasSucceededExperimentRun,
+      hasSucceededAgentRun,
+      hasKnowledgeSource,
+    },
+    actionable,
+    blocked,
+  };
+}
+
+function sanitizeProposalFilename(input = '', fallbackExt = '.md') {
+  const extRaw = path.extname(String(input || '').trim()).toLowerCase();
+  const ext = extRaw || fallbackExt;
+  const safeExt = ['.pdf', '.md', '.markdown', '.txt'].includes(ext) ? ext : fallbackExt;
+  return `proposal-latest${safeExt}`;
+}
+
+async function proposalFileToText(file) {
+  if (!file || !Buffer.isBuffer(file.buffer)) return '';
+  const mime = String(file.mimetype || '').toLowerCase();
+  const filename = String(file.originalname || '').toLowerCase();
+
+  const isPdf = mime.includes('pdf') || filename.endsWith('.pdf');
+  if (isPdf) {
+    const parsed = await pdfParse(file.buffer);
+    return String(parsed?.text || '');
+  }
+
+  return file.buffer.toString('utf8');
+}
+
+async function saveProposalToProjectDocs({ project, server, file }) {
+  const root = String(project?.projectPath || '').trim().replace(/\/+$/, '');
+  if (!root) throw new Error('Project path is required to save proposal');
+
+  const fallbackExt = String(file?.mimetype || '').toLowerCase().includes('pdf') ? '.pdf' : '.md';
+  const filename = sanitizeProposalFilename(file?.originalname || '', fallbackExt);
+  const relativePath = `docs/${filename}`;
+
+  if (project.locationType === 'ssh') {
+    const remoteDocsPath = `${root}/docs`;
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'proposal-upload-'));
+    try {
+      const localDocsDir = path.join(tmpRoot, 'docs');
+      await fs.mkdir(localDocsDir, { recursive: true });
+      await fs.writeFile(path.join(localDocsDir, filename), file.buffer);
+      await ensureSshPath(server, remoteDocsPath);
+      await runCommand(
+        'rsync',
+        ['-az', '-e', buildRsyncSshCommand(server), `${localDocsDir}/`, buildRsyncRemoteDest(server, remoteDocsPath)],
+        { timeoutMs: 180000 }
+      );
+    } finally {
+      await fs.rm(tmpRoot, { recursive: true, force: true }).catch(() => {});
+    }
+    return {
+      filename,
+      relativePath,
+      savedPath: `${remoteDocsPath}/${filename}`,
+      docsPath: remoteDocsPath,
+    };
+  }
+
+  const { absolutePath: docsDir } = resolveLocalProjectPath(root, 'docs');
+  await fs.mkdir(docsDir, { recursive: true });
+  const target = path.join(docsDir, filename);
+  await fs.writeFile(target, file.buffer);
+  return {
+    filename,
+    relativePath,
+    savedPath: target,
+    docsPath: docsDir,
+  };
+}
+
+function normalizeMarkdownCell(value = '') {
+  return String(value || '')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractTodoCandidatesFromIdeaTable(text = '') {
+  const source = String(text || '');
+  if (!source) return [];
+
+  const markerIdx = source.search(/Create the following Ideas/i);
+  if (markerIdx < 0) return [];
+
+  let section = source.slice(markerIdx);
+  const stopMarkers = [
+    /\n\*\*Expected output\*\*/i,
+    /\n###\s+/,
+    /\n##\s+/,
+  ];
+  let sectionEnd = section.length;
+  for (const marker of stopMarkers) {
+    const idx = section.search(marker);
+    if (idx > 0 && idx < sectionEnd) sectionEnd = idx;
+  }
+  section = section.slice(0, sectionEnd);
+
+  const lines = section.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const items = [];
+  for (const line of lines) {
+    if (!line.includes('|')) continue;
+    if (/^\|\s*:?-{2,}/.test(line)) continue;
+    const cells = line
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split('|')
+      .map((cell) => normalizeMarkdownCell(cell));
+    if (cells.length < 3) continue;
+
+    const firstCell = String(cells[0] || '').toLowerCase();
+    if (!firstCell || firstCell === '#' || firstCell === 'title') continue;
+    if (!/^\d+[.)]?$/.test(String(cells[0] || '').trim())) continue;
+
+    const title = String(cells[1] || '').trim();
+    const details = String(cells.slice(2).join(' | ') || '').trim();
+    if (!title || !details) continue;
+
+    const rank = items.length;
+    const priority = rank < 3 ? 'high' : (rank < 6 ? 'medium' : 'low');
+    const normalized = normalizeTodoCandidate({ title, details, priority }, rank);
+    if (!normalized) continue;
+    items.push(normalized);
+    if (items.length >= 12) break;
+  }
+
+  return items;
+}
+
+async function parseProposalTodosWithAgent({ text = '', project = null }) {
+  const proposalText = String(text || '').trim();
+  if (!proposalText) return [];
+  const content = proposalText.slice(0, 180000);
+  const tableExtracted = extractTodoCandidatesFromIdeaTable(content);
+  if (tableExtracted.length >= 4) {
+    return tableExtracted.slice(0, 10);
+  }
+  const projectName = String(project?.name || '').trim();
+  const prompt = [
+    'You are a software research planning assistant.',
+    'Read the proposal and extract an actionable TODO list.',
+    'Return ONLY a JSON array, no markdown and no explanation.',
+    'Each item must be:',
+    '{"title":"...", "details":"...", "priority":"high|medium|low"}',
+    'Rules:',
+    '- 5 to 10 tasks max',
+    '- keep title short and concrete (<= 90 chars)',
+    '- details should mention expected outcome',
+    '- order tasks by execution sequence',
+    projectName ? `Project: ${projectName}` : '',
+  ].filter(Boolean).join('\n');
+
+  let modelText = '';
+  try {
+    if (await codexCliService.isAvailable()) {
+      const result = await codexCliService.readMarkdown(content, prompt, { timeout: 180000 });
+      modelText = String(result?.text || '').trim();
+    } else if (await geminiCliService.isAvailable()) {
+      const result = await geminiCliService.readMarkdown(content, prompt, { timeout: 180000 });
+      modelText = String(result?.text || '').trim();
+    } else {
+      const result = await llmService.generateWithFallback(content, prompt);
+      modelText = String(result?.text || '').trim();
+    }
+  } catch (error) {
+    console.warn('[ResearchOps] proposal todo parse via agent failed:', error.message);
+    modelText = '';
+  }
+
+  const parsed = parseJsonArrayFromModelOutput(modelText);
+  const normalized = parsed
+    .map((item, index) => normalizeTodoCandidate(item, index))
+    .filter(Boolean)
+    .slice(0, 10);
+
+  if (normalized.length > 0) return normalized;
+
+  const fallbackPlan = planAgentService.generatePlan({
+    instruction: content.slice(0, 2000),
+    instructionType: 'composite',
+  });
+  return (Array.isArray(fallbackPlan?.nodes) ? fallbackPlan.nodes : [])
+    .map((node, index) => normalizeTodoCandidate({
+      title: node?.label || `Planned step ${index + 1}`,
+      details: node?.description || node?.label || '',
+      priority: index < 2 ? 'high' : 'medium',
+    }, index))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
 async function executeKbGroupSyncJob(jobId, { userId, project, server, group }) {
   patchKbSyncJob(jobId, {
     status: 'RUNNING',
@@ -1726,6 +2735,7 @@ router.post('/projects', async (req, res) => {
 
     let ensuredPath = projectPath;
     let ensuredServerId;
+    let gitInit = null;
     if (locationType === 'local') {
       if (config.projectInsights?.proxyHeavyOps === true) {
         try {
@@ -1740,22 +2750,29 @@ router.post('/projects', async (req, res) => {
         const result = await ensureLocalPath(projectPath);
         ensuredPath = result.normalizedPath;
       }
+      try {
+        gitInit = await ensureLocalGitRepository(ensuredPath);
+      } catch (gitError) {
+        if (config.projectInsights?.proxyHeavyOps === true) {
+          return res.status(502).json({
+            error: sanitizeError(gitError, 'Local executor unavailable for git initialization'),
+          });
+        }
+        throw gitError;
+      }
     } else {
       if (!serverId) {
         return res.status(400).json({ error: 'serverId is required when locationType=ssh' });
       }
-      const db = getDb();
-      const serverResult = await db.execute({
-        sql: `SELECT * FROM ssh_servers WHERE id = ?`,
-        args: [serverId],
-      });
-      if (!serverResult.rows.length) {
+      const server = await getSshServerById(serverId);
+      if (!server) {
         return res.status(404).json({ error: `SSH server ${serverId} not found` });
       }
-      const server = serverResult.rows[0];
+      enforceSshProjectPathPolicy(server, projectPath);
       const result = await ensureSshPath(server, projectPath);
       ensuredPath = result.normalizedPath;
       ensuredServerId = String(server.id);
+      gitInit = await ensureSshGitRepository(server, ensuredPath);
     }
 
     const project = await researchOpsStore.createProject(getUserId(req), {
@@ -1765,7 +2782,7 @@ router.post('/projects', async (req, res) => {
       serverId: locationType === 'ssh' ? ensuredServerId : undefined,
       projectPath: ensuredPath,
     });
-    res.status(201).json({ project });
+    res.status(201).json({ project, git: gitInit });
   } catch (error) {
     console.error('[ResearchOps] createProject failed:', error);
     res.status(400).json({ error: sanitizeError(error, 'Failed to create project') });
@@ -1813,15 +2830,11 @@ router.post('/projects/path-check', async (req, res) => {
     }
 
     if (!serverId) return res.status(400).json({ error: 'serverId is required for ssh location' });
-    const db = getDb();
-    const serverResult = await db.execute({
-      sql: `SELECT * FROM ssh_servers WHERE id = ?`,
-      args: [serverId],
-    });
-    if (!serverResult.rows.length) {
+    const server = await getSshServerById(serverId);
+    if (!server) {
       return res.status(404).json({ error: `SSH server ${serverId} not found` });
     }
-    const server = serverResult.rows[0];
+    enforceSshProjectPathPolicy(server, projectPath);
     const result = await checkSshPath(server, projectPath);
     return res.json({
       locationType,
@@ -1840,6 +2853,90 @@ router.post('/projects/path-check', async (req, res) => {
   }
 });
 
+async function deleteObjectStorageKeys(objectKeys = []) {
+  const keys = Array.from(new Set(
+    (Array.isArray(objectKeys) ? objectKeys : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+  ));
+  const summary = {
+    enabled: true,
+    attempted: keys.length,
+    deleted: 0,
+    failed: 0,
+    errors: [],
+  };
+  if (!keys.length) return summary;
+
+  for (const key of keys) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await s3Service.deleteObject(key);
+      summary.deleted += 1;
+    } catch (error) {
+      summary.failed += 1;
+      if (summary.errors.length < 25) {
+        summary.errors.push({
+          key,
+          error: sanitizeError(error, 'Failed to delete object from storage'),
+        });
+      }
+    }
+  }
+  return summary;
+}
+
+async function cancelProjectActiveRuns(userId, projectId) {
+  const relatedRuns = await researchOpsStore.listRuns(userId, { projectId, limit: 1000 });
+  const activeRuns = relatedRuns.filter((run) => ACTIVE_PROJECT_RUN_STATUSES.includes(String(run?.status || '').toUpperCase()));
+  await Promise.all(activeRuns.map((run) => researchOpsRunner.cancelRun(userId, run.id).catch(() => null)));
+  return activeRuns.map((run) => String(run.id || '').trim()).filter(Boolean);
+}
+
+async function deleteProjectWithStorageCleanup(userId, project, { force = false, deleteStorage = true } = {}) {
+  const projectId = String(project?.id || '').trim();
+  if (!projectId) throw new Error('projectId is required');
+
+  const cancelledActiveRunIds = force
+    ? await cancelProjectActiveRuns(userId, projectId)
+    : [];
+
+  let objectKeys = [];
+  let objectKeyLookupError = '';
+  if (deleteStorage) {
+    try {
+      objectKeys = await researchOpsStore.listProjectArtifactObjectKeys(userId, projectId, { limit: 100000 });
+    } catch (error) {
+      objectKeyLookupError = sanitizeError(error, 'Failed to collect storage keys for project deletion');
+    }
+  }
+
+  const summary = await researchOpsStore.deleteProject(userId, projectId, { force });
+  if (!summary) return null;
+
+  const storage = {
+    enabled: Boolean(deleteStorage),
+    attempted: 0,
+    deleted: 0,
+    failed: 0,
+    lookupError: objectKeyLookupError || null,
+    errors: [],
+  };
+  if (deleteStorage && !objectKeyLookupError) {
+    const deletedStorage = await deleteObjectStorageKeys(objectKeys);
+    storage.attempted = deletedStorage.attempted;
+    storage.deleted = deletedStorage.deleted;
+    storage.failed = deletedStorage.failed;
+    storage.errors = deletedStorage.errors;
+  }
+
+  return {
+    ...summary,
+    storage,
+    cancelledActiveRunIds,
+  };
+}
+
 router.patch('/projects/:projectId', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
@@ -1851,7 +2948,27 @@ router.patch('/projects/:projectId', async (req, res) => {
     if (req.body?.projectPath !== undefined) {
       const rawPath = String(req.body.projectPath || '').trim();
       if (!rawPath) return res.status(400).json({ error: 'projectPath cannot be empty' });
-      allowed.projectPath = rawPath;
+      const existingProject = await researchOpsStore.getProject(getUserId(req), projectId);
+      if (!existingProject) return res.status(404).json({ error: 'Project not found' });
+      if (String(existingProject.locationType || '').toLowerCase() === 'ssh') {
+        const server = await getSshServerById(existingProject.serverId);
+        if (!server) return res.status(404).json({ error: `SSH server ${existingProject.serverId} not found` });
+        enforceSshProjectPathPolicy(server, rawPath);
+        const ensured = await ensureSshPath(server, rawPath);
+        await ensureSshGitRepository(server, ensured.normalizedPath);
+        allowed.projectPath = ensured.normalizedPath;
+      } else {
+        let ensuredPath = rawPath;
+        if (config.projectInsights?.proxyHeavyOps === true) {
+          const ensured = await projectInsightsProxy.ensurePath({ projectPath: rawPath });
+          ensuredPath = String(ensured?.normalizedPath || '').trim() || path.resolve(expandHome(rawPath));
+        } else {
+          const ensured = await ensureLocalPath(rawPath);
+          ensuredPath = ensured.normalizedPath;
+        }
+        await ensureLocalGitRepository(ensuredPath);
+        allowed.projectPath = ensuredPath;
+      }
     }
     if (req.body?.gitBranch !== undefined) {
       allowed.gitBranch = String(req.body.gitBranch || '').trim() || null;
@@ -1863,6 +2980,38 @@ router.patch('/projects/:projectId', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] updateProject failed:', error);
     res.status(400).json({ error: sanitizeError(error, 'Failed to update project') });
+  }
+});
+
+router.delete('/projects/:projectId', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const userId = getUserId(req);
+
+    const force = parseBoolean(req.query?.force, parseBoolean(req.body?.force, false));
+    const deleteStorage = parseBoolean(req.query?.deleteStorage, parseBoolean(req.body?.deleteStorage, true));
+    const project = await researchOpsStore.getProject(userId, projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const summary = await deleteProjectWithStorageCleanup(userId, project, { force, deleteStorage });
+    if (!summary) return res.status(404).json({ error: 'Project not found' });
+    return res.json({
+      success: true,
+      projectId,
+      force,
+      deleteStorage,
+      summary,
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_HAS_ACTIVE_RUNS') {
+      return res.status(409).json({
+        error: 'Project has active runs. Stop/cancel them first or retry with force=true.',
+        activeRuns: Array.isArray(error.activeRuns) ? error.activeRuns : [],
+      });
+    }
+    console.error('[ResearchOps] deleteProject failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to delete project') });
   }
 });
 
@@ -1882,6 +3031,10 @@ router.get('/projects/:projectId/workspace', async (req, res) => {
     const { project, server } = await resolveProjectContext(getUserId(req), projectId);
     const gitLimit = parseLimit(req.query.gitLimit, 10, 120);
     const treeLimit = parseLimit(req.query.treeLimit, 240, 500);
+
+    await ensureProjectGitRepository(project, server).catch((error) => {
+      console.warn('[ResearchOps] workspace git initialization skipped:', error.message);
+    });
 
     // Helper: run an async fn and return { ok, value, error } instead of throwing
     const settle = (fn) => fn().then((v) => ({ ok: true, value: v })).catch((e) => ({ ok: false, error: e.message }));
@@ -1930,8 +3083,11 @@ router.get('/projects/:projectId/workspace', async (req, res) => {
       return result;
     });
 
-    // Run all four in parallel — one network round-trip
-    const [git, changed, tree, kb] = await Promise.all([gitTask, changedTask, treeTask, kbTask]);
+    // ── python venv status (.pixi / .uv) ─────────────────────────────────────
+    const venvTask = settle(async () => detectProjectVenvStatus(project, server));
+
+    // Run all sections in parallel — one network round-trip
+    const [git, changed, tree, kb, venv] = await Promise.all([gitTask, changedTask, treeTask, kbTask, venvTask]);
 
     return res.json({
       projectId: project.id,
@@ -1939,6 +3095,8 @@ router.get('/projects/:projectId/workspace', async (req, res) => {
       gitBranch: project.gitBranch || null,
       locationType: project.locationType,
       refreshedAt: new Date().toISOString(),
+      venvStatus: venv.ok ? venv.value : null,
+      venvError: venv.ok ? null : venv.error,
       gitProgress: git.ok ? git.value : null,
       gitError: git.ok ? null : git.error,
       changedFiles: changed.ok ? changed.value : null,
@@ -1956,6 +3114,51 @@ router.get('/projects/:projectId/workspace', async (req, res) => {
   }
 });
 
+router.get('/projects/:projectId/venv/status', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const status = await detectProjectVenvStatus(project, server);
+    return res.json({
+      projectId: project.id,
+      locationType: project.locationType,
+      status,
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'PROJECT_PATH_MISSING') return res.status(400).json({ error: 'Project path is not configured' });
+    console.error('[ResearchOps] project venv status failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to detect project virtual environment') });
+  }
+});
+
+router.post('/projects/:projectId/venv/setup', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const toolRaw = String(req.body?.tool || '').trim().toLowerCase();
+    const tool = toolRaw === 'uv' ? 'uv' : 'pixi';
+    const result = await setupProjectVenv(project, server, tool);
+    const status = await detectProjectVenvStatus(project, server);
+    return res.json({
+      success: true,
+      projectId: project.id,
+      locationType: project.locationType,
+      configuredTool: result.tool,
+      status,
+      message: `Virtual environment configured with ${result.tool}.`,
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'PROJECT_PATH_MISSING') return res.status(400).json({ error: 'Project path is not configured' });
+    console.error('[ResearchOps] project venv setup failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to set up project virtual environment') });
+  }
+});
+
 router.get('/projects/:projectId/git-log', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
@@ -1965,6 +3168,10 @@ router.get('/projects/:projectId/git-log', async (req, res) => {
     const gitLimit = parseLimit(req.query.limit, 25, 120);
     let proxied = false;
     let gitProgress = null;
+
+    await ensureProjectGitRepository(project, server).catch((error) => {
+      console.warn('[ResearchOps] git-log git initialization skipped:', error.message);
+    });
 
     if (config.projectInsights?.proxyHeavyOps === true && project.locationType === 'local') {
       try {
@@ -2060,6 +3267,10 @@ router.get('/projects/:projectId/changed-files', async (req, res) => {
     const limit = parseLimit(req.query.limit, 200, 1000);
     let proxied = false;
     let changed = null;
+
+    await ensureProjectGitRepository(project, server).catch((error) => {
+      console.warn('[ResearchOps] changed-files git initialization skipped:', error.message);
+    });
 
     if (config.projectInsights?.proxyHeavyOps === true && project.locationType === 'local') {
       try {
@@ -2314,6 +3525,178 @@ router.get('/projects/:projectId/kb/files', async (req, res) => {
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
     console.error('[ResearchOps] kb/files failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to load KB files') });
+  }
+});
+
+// POST /api/researchops/projects/:projectId/kb/add-paper
+// Download paper resources (PDF, LaTeX source, GitHub code) directly into project KB folder
+router.post('/projects/:projectId/kb/add-paper', requireAuth, async (req, res) => {
+  const documentService = require('../services/document.service');
+  const arxivService = require('../services/arxiv.service');
+  const { fetchArxivSource, fetchGitHubRepoZip } = require('../services/research-pack.service');
+
+  const projectId = String(req.params.projectId || '').trim();
+  if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+  const documentId = req.body?.documentId;
+  if (!documentId) return res.status(400).json({ error: 'documentId is required' });
+
+  const includePdf = parseBoolean(req.body?.includePdf, true);
+  const includeLatex = parseBoolean(req.body?.includeLatex, false);
+  const includeCode = parseBoolean(req.body?.includeCode, false);
+
+  try {
+    const [doc, { project, server }] = await Promise.all([
+      documentService.getDocumentById(documentId),
+      resolveProjectContext(getUserId(req), projectId),
+    ]);
+
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+    const kbFolder = String(project.kbFolderPath || '').trim()
+      || `${String(project.projectPath || '').replace(/\/+$/, '')}/resource`;
+
+    const sanitizedTitle = doc.title
+      .replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .substring(0, 60) || `paper_${doc.id}`;
+
+    const arxivId = doc.originalUrl ? arxivService.parseArxivUrl(doc.originalUrl) : null;
+    const results = {};
+    const filesToWrite = {};
+
+    // 1. PDF
+    if (includePdf) {
+      try {
+        let pdfBuffer;
+        if (doc.s3Key) {
+          pdfBuffer = await s3Service.downloadBuffer(doc.s3Key);
+        } else if (arxivId) {
+          pdfBuffer = await arxivService.fetchPdf(arxivId);
+        }
+        if (pdfBuffer) {
+          filesToWrite['paper.pdf'] = pdfBuffer;
+          results.pdf = { ok: true, bytes: pdfBuffer.length };
+        } else {
+          results.pdf = { ok: false, error: 'No PDF source available' };
+        }
+      } catch (err) {
+        results.pdf = { ok: false, error: err.message };
+      }
+    }
+
+    // 2. LaTeX source (arXiv only)
+    if (includeLatex) {
+      if (!arxivId) {
+        results.latex = { ok: false, error: 'Not an arXiv paper' };
+      } else {
+        try {
+          const latexBuffer = await fetchArxivSource(arxivId);
+          filesToWrite['latex_source.tar.gz'] = latexBuffer;
+          results.latex = { ok: true, bytes: latexBuffer.length };
+        } catch (err) {
+          results.latex = { ok: false, error: err.message };
+        }
+      }
+    }
+
+    // 3. GitHub code
+    if (includeCode) {
+      if (!doc.codeUrl) {
+        results.code = { ok: false, error: 'No code URL on this document' };
+      } else {
+        try {
+          const { buffer, repoName } = await fetchGitHubRepoZip(doc.codeUrl);
+          filesToWrite[`code_${repoName}.zip`] = buffer;
+          results.code = { ok: true, bytes: buffer.length, repoName };
+        } catch (err) {
+          results.code = { ok: false, error: err.message };
+        }
+      }
+    }
+
+    let paperFolder;
+
+    if (Object.keys(filesToWrite).length > 0) {
+      if (project.locationType === 'ssh') {
+        // Write to temp dir, then SCP to remote server
+        const tmpDir = path.join(os.tmpdir(), `kb_paper_${Date.now()}_${sanitizedTitle}`);
+        await fs.mkdir(tmpDir, { recursive: true });
+        try {
+          for (const [filename, buffer] of Object.entries(filesToWrite)) {
+            await fs.writeFile(path.join(tmpDir, filename), buffer);
+          }
+
+          const paperFolderRemote = `${kbFolder}/${sanitizedTitle}`;
+          const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
+          const sshBaseArgs = [
+            '-F', '/dev/null',
+            '-o', 'BatchMode=yes',
+            '-o', 'ClearAllForwardings=yes',
+            '-o', 'ConnectTimeout=15',
+            '-o', 'StrictHostKeyChecking=accept-new',
+            '-i', keyPath,
+            '-p', String(server.port || 22),
+          ];
+          if (String(server.proxy_jump || '').trim()) {
+            sshBaseArgs.push('-J', String(server.proxy_jump).trim());
+          }
+
+          // Create remote directory
+          await runCommand('ssh', [
+            ...sshBaseArgs,
+            `${server.user}@${server.host}`,
+            `mkdir -p -- ${JSON.stringify(paperFolderRemote)}`,
+          ], { timeoutMs: 20000 });
+
+          // SCP each file
+          const scpBaseArgs = [
+            '-F', '/dev/null',
+            '-o', 'BatchMode=yes',
+            '-o', 'ClearAllForwardings=yes',
+            '-o', 'ConnectTimeout=15',
+            '-o', 'StrictHostKeyChecking=accept-new',
+            '-i', keyPath,
+            '-P', String(server.port || 22),
+          ];
+          if (String(server.proxy_jump || '').trim()) {
+            scpBaseArgs.push('-J', String(server.proxy_jump).trim());
+          }
+          for (const filename of Object.keys(filesToWrite)) {
+            const localFile = path.join(tmpDir, filename);
+            const remoteFile = `${paperFolderRemote}/${filename}`;
+            await runCommand('scp', [
+              ...scpBaseArgs,
+              localFile,
+              `${server.user}@${server.host}:${remoteFile}`,
+            ], { timeoutMs: 120000 });
+          }
+
+          paperFolder = paperFolderRemote;
+        } finally {
+          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        }
+      } else {
+        // Local: write directly
+        const expandedKb = expandHome(kbFolder);
+        const paperFolderLocal = path.resolve(expandedKb, sanitizedTitle);
+        await fs.mkdir(paperFolderLocal, { recursive: true });
+        for (const [filename, buffer] of Object.entries(filesToWrite)) {
+          await fs.writeFile(path.join(paperFolderLocal, filename), buffer);
+        }
+        paperFolder = paperFolderLocal;
+      }
+    } else {
+      paperFolder = `${kbFolder}/${sanitizedTitle}`;
+    }
+
+    return res.json({ ok: true, results, paperFolder, documentTitle: doc.title });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
+    console.error('[ResearchOps] kb/add-paper failed:', error);
+    return res.status(500).json({ error: sanitizeError(error, 'Failed to add paper to KB') });
   }
 });
 
@@ -2857,13 +4240,113 @@ router.patch('/ideas/:ideaId', async (req, res) => {
   }
 });
 
+router.get('/projects/:projectId/todos/next-actions', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const userId = getUserId(req);
+    const project = await researchOpsStore.getProject(userId, projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const [todos, runs] = await Promise.all([
+      researchOpsStore.listIdeas(userId, { projectId, limit: 400 }),
+      researchOpsStore.listRuns(userId, { projectId, limit: 400 }),
+    ]);
+    const payload = buildTodoNextActions({ todos, runs, project });
+    return res.json(payload);
+  } catch (error) {
+    console.error('[ResearchOps] next todo actions failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to generate next TODO actions') });
+  }
+});
+
+router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'proposal file is required' });
+    }
+
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    const userId = getUserId(req);
+    const { project, server } = await resolveProjectContext(userId, projectId);
+    const saved = await saveProposalToProjectDocs({ project, server, file: req.file });
+    const extractedText = String(await proposalFileToText(req.file)).trim();
+    if (!extractedText) {
+      return res.status(400).json({ error: 'No extractable text found in proposal file' });
+    }
+
+    const todoCandidates = await parseProposalTodosWithAgent({
+      text: extractedText,
+      project,
+    });
+    if (todoCandidates.length === 0) {
+      return res.status(400).json({ error: 'Failed to extract TODOs from the proposal' });
+    }
+
+    const createdIdeas = [];
+    const createdAtIso = new Date().toISOString();
+    for (const candidate of todoCandidates) {
+      // eslint-disable-next-line no-await-in-loop
+      const idea = await researchOpsStore.createIdea(userId, {
+        projectId: project.id,
+        title: candidate.title,
+        hypothesis: candidate.hypothesis,
+        summary: `LLM-generated TODO from proposal (${createdAtIso}, ${saved.relativePath})`,
+        status: 'OPEN',
+      });
+      createdIdeas.push(idea);
+    }
+
+    return res.status(201).json({
+      proposal: {
+        name: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        savedPath: saved.savedPath,
+        relativePath: saved.relativePath,
+      },
+      createdCount: createdIdeas.length,
+      ideas: createdIdeas,
+    });
+  } catch (error) {
+    console.error('[ResearchOps] generate todos from proposal failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to generate TODOs from proposal') });
+  }
+});
+
 // Runs + Queue
 router.post('/plan/generate', async (req, res) => {
   try {
     const instruction = String(req.body?.instruction || '').trim();
     const instructionType = String(req.body?.instructionType || '').trim();
+    const todoMode = req.body?.todoMode === true || String(req.body?.output || '').trim().toLowerCase() === 'todos';
+    const projectId = String(req.body?.projectId || '').trim();
     if (!instruction) {
       return res.status(400).json({ error: 'instruction is required' });
+    }
+    let project = null;
+    if (projectId) {
+      project = await researchOpsStore.getProject(getUserId(req), projectId);
+    }
+    if (todoMode) {
+      const todoCandidates = await generateTodoCandidatesFromInstruction({ instruction, project });
+      const plan = {
+        plan_id: `todo_${Date.now()}`,
+        instruction_type: 'todo',
+        goal: instruction,
+        nodes: todoCandidates.map((item, index) => ({
+          id: `todo_${String(index + 1).padStart(2, '0')}`,
+          label: item.title,
+          description: item.hypothesis,
+          priority: item.priority,
+        })),
+        edges: [],
+        workflow: [],
+        generated_at: new Date().toISOString(),
+      };
+      return res.json({ plan, todoCandidates });
     }
     const plan = planAgentService.generatePlan({ instruction, instructionType });
     return res.json({ plan });
@@ -2883,6 +4366,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
     const provider = String(body.provider || 'codex_cli').trim() || 'codex_cli';
     if (!instruction) return res.status(400).json({ error: 'instruction is required' });
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    await enforceExperimentProjectPathPolicy(getUserId(req), projectId, runType);
 
     const plan = planAgentService.generatePlan({
       instruction,
@@ -2938,11 +4422,13 @@ router.post('/runs/enqueue-v2', async (req, res) => {
     const workflow = workflowSchemaService.normalizeAndValidateWorkflow(workflowInput, {
       allowEmpty: true,
     });
+    const runType = String(runPayload.runType || 'AGENT').trim().toUpperCase() || 'AGENT';
+    await enforceExperimentProjectPathPolicy(getUserId(req), projectId, runType);
 
     const run = await researchOpsStore.enqueueRun(getUserId(req), {
       projectId,
       serverId: String(runPayload.serverId || '').trim() || 'local-default',
-      runType: String(runPayload.runType || 'AGENT').trim().toUpperCase() || 'AGENT',
+      runType,
       provider: String(runPayload.provider || 'codex_cli').trim() || 'codex_cli',
       schemaVersion: '2.0',
       mode: mode === 'interactive' ? 'interactive' : 'headless',
@@ -2976,6 +4462,12 @@ router.post('/runs/enqueue-v2', async (req, res) => {
 
 router.post('/runs/enqueue', async (req, res) => {
   try {
+    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+    const runType = String(payload.runType || '').trim().toUpperCase();
+    const projectId = String(payload.projectId || '').trim();
+    if (projectId && runType) {
+      await enforceExperimentProjectPathPolicy(getUserId(req), projectId, runType);
+    }
     const run = await researchOpsStore.enqueueRun(getUserId(req), req.body || {});
     res.status(201).json({ run });
   } catch (error) {
@@ -3109,15 +4601,57 @@ router.get('/runs/:runId/steps', async (req, res) => {
 
 router.get('/runs/:runId/artifacts', async (req, res) => {
   try {
+    const runId = String(req.params.runId || '').trim();
     const items = await researchOpsStore.listRunArtifacts(getUserId(req), req.params.runId, {
       kind: String(req.query.kind || '').trim(),
       limit: parseLimit(req.query.limit, 200, 1000),
     });
-    return res.json({ items });
+    return res.json({ items: items.map((item) => withArtifactDownloadUrl(item, runId)) });
   } catch (error) {
     console.error('[ResearchOps] listRunArtifacts failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
     return res.status(400).json({ error: sanitizeError(error, 'Failed to list run artifacts') });
+  }
+});
+
+router.get('/runs/:runId/artifacts/:artifactId/download', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const runId = String(req.params.runId || '').trim();
+    const artifactId = String(req.params.artifactId || '').trim();
+    if (!runId || !artifactId) return res.status(400).json({ error: 'runId and artifactId are required' });
+
+    const artifact = await researchOpsStore.getRunArtifact(userId, runId, artifactId);
+    if (!artifact) return res.status(404).json({ error: 'Artifact not found' });
+
+    const preferRedirect = parseBoolean(req.query.redirect, false) || parseBoolean(req.query.presign, false);
+    if (artifact.objectKey) {
+      if (preferRedirect) {
+        try {
+          const signedUrl = await s3Service.generatePresignedDownloadUrl(artifact.objectKey);
+          return res.redirect(302, signedUrl);
+        } catch (_) {
+          // Fall through to proxied mode for browsers that cannot follow cross-origin presigned redirects.
+        }
+      }
+      const buffer = await s3Service.downloadBuffer(artifact.objectKey);
+      const filename = String(artifact.path || artifact.title || `${artifact.id}`).split('/').pop() || `${artifact.id}`;
+      const mimeType = String(artifact.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Disposition', `inline; filename="${filename.replace(/"/g, '')}"`);
+      return res.send(buffer);
+    }
+
+    const inlineText = String(artifact.metadata?.inlinePreview || '');
+    if (inlineText) {
+      res.setHeader('Content-Type', String(artifact.mimeType || 'text/plain; charset=utf-8'));
+      return res.send(inlineText);
+    }
+    return res.status(404).json({ error: 'No downloadable content for this artifact' });
+  } catch (error) {
+    console.error('[ResearchOps] downloadRunArtifact failed:', error);
+    if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to download artifact') });
   }
 });
 
@@ -3242,7 +4776,7 @@ router.get('/runs/:runId/report', async (req, res) => {
     return res.json({
       run,
       steps,
-      artifacts,
+      artifacts: artifacts.map((item) => withArtifactDownloadUrl(item, runId)),
       checkpoints,
       summary: summaryText,
       manifest,
@@ -3294,7 +4828,7 @@ router.post('/scheduler/lease-and-execute', async (req, res) => {
 
 router.post('/scheduler/recover-stale', async (req, res) => {
   try {
-    const result = await researchOpsStore.recoverStaleRuns(getUserId(req), {
+    const result = await researchOpsRunner.recoverStaleRuns(getUserId(req), {
       minutesStale: req.body?.minutesStale,
       serverId: String(req.body?.serverId || '').trim(),
       dryRun: req.body?.dryRun === true,
@@ -3304,6 +4838,16 @@ router.post('/scheduler/recover-stale', async (req, res) => {
     console.error('[ResearchOps] recoverStale failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to recover stale runs') });
   }
+});
+
+router.get('/scheduler/dispatcher/status', (req, res) => {
+  res.json({
+    dispatcher: researchOpsRunner.getDispatcherState(),
+    runner: {
+      running: researchOpsRunner.getRunningState(),
+    },
+    refreshedAt: new Date().toISOString(),
+  });
 });
 
 router.get('/runner/running', (req, res) => {
@@ -3367,6 +4911,8 @@ router.get('/cluster/resource-pool', async (req, res) => {
       researchOpsStore.listRuns(userId, { status: 'RUNNING', limit: 1000 }),
       researchOpsStore.listRuns(userId, { status: 'PROVISIONING', limit: 1000 }),
     ]);
+    const dispatcher = researchOpsRunner.getDispatcherState();
+    const runnerProcesses = researchOpsRunner.getRunningState();
     const activeRuns = [...runningRuns, ...provisioningRuns];
     const queueByServer = new Map();
     queuedRuns.forEach((run) => {
@@ -3378,27 +4924,91 @@ router.get('/cluster/resource-pool', async (req, res) => {
       const sid = String(run.serverId || '').trim() || 'local-default';
       activeByServer.set(sid, (activeByServer.get(sid) || 0) + 1);
     });
+    const runnerByServer = new Map();
+    runnerProcesses.forEach((item) => {
+      const sid = String(item.serverId || '').trim() || 'local-default';
+      runnerByServer.set(sid, (runnerByServer.get(sid) || 0) + 1);
+    });
+    const daemonById = new Map();
 
     const servers = daemons.map((daemon) => {
       const status = deriveDaemonStatus(daemon, { staleAfterMs });
       const gpu = extractGpuCapacity(daemon.capacity);
       const cpuMemory = extractCpuMemoryCapacity(daemon.capacity);
       const serverId = String(daemon.id || '');
+      daemonById.set(serverId, daemon);
       return {
         serverId,
         hostname: daemon.hostname,
         status,
+        registration: 'daemon',
         labels: daemon.labels || {},
         heartbeatAt: daemon.heartbeatAt || null,
         concurrencyLimit: Number(daemon.concurrencyLimit) || 1,
         queuedRuns: queueByServer.get(serverId) || 0,
         activeRuns: activeByServer.get(serverId) || 0,
+        runnerProcesses: runnerByServer.get(serverId) || 0,
         resources: {
           gpu,
           cpuMemoryGb: cpuMemory,
         },
       };
     });
+
+    const knownServerIds = new Set(servers.map((item) => String(item.serverId || '').trim()));
+    if (!knownServerIds.has('local-default')) {
+      const localQueued = queueByServer.get('local-default') || 0;
+      const localActive = activeByServer.get('local-default') || 0;
+      const localRunner = runnerByServer.get('local-default') || 0;
+      servers.push({
+        serverId: 'local-default',
+        hostname: 'embedded-runner',
+        status: 'ONLINE',
+        registration: 'embedded',
+        labels: { role: 'embedded-runner' },
+        heartbeatAt: new Date().toISOString(),
+        concurrencyLimit: Math.max(Number(dispatcher?.unregisteredConcurrency) || 1, 1),
+        queuedRuns: localQueued,
+        activeRuns: localActive,
+        runnerProcesses: localRunner,
+        resources: {
+          gpu: { total: 0, available: 0 },
+          cpuMemoryGb: { total: 0, available: 0 },
+        },
+      });
+      knownServerIds.add('local-default');
+    }
+
+    const discoveredServerIds = new Set([
+      ...Array.from(queueByServer.keys()),
+      ...Array.from(activeByServer.keys()),
+      ...Array.from(runnerByServer.keys()),
+    ]);
+    discoveredServerIds.forEach((sidRaw) => {
+      const sid = String(sidRaw || '').trim() || 'local-default';
+      if (!sid || knownServerIds.has(sid) || daemonById.has(sid)) return;
+      const activeCount = activeByServer.get(sid) || 0;
+      const queuedCount = queueByServer.get(sid) || 0;
+      servers.push({
+        serverId: sid,
+        hostname: `${sid} (unregistered)`,
+        status: activeCount > 0 ? 'ONLINE' : 'UNREGISTERED',
+        registration: 'adhoc',
+        labels: { role: 'unregistered-server' },
+        heartbeatAt: null,
+        concurrencyLimit: Math.max(Number(dispatcher?.unregisteredConcurrency) || 1, 1),
+        queuedRuns: queuedCount,
+        activeRuns: activeCount,
+        runnerProcesses: runnerByServer.get(sid) || 0,
+        resources: {
+          gpu: { total: 0, available: 0 },
+          cpuMemoryGb: { total: 0, available: 0 },
+        },
+      });
+      knownServerIds.add(sid);
+    });
+
+    servers.sort((a, b) => String(a.serverId || '').localeCompare(String(b.serverId || '')));
 
     const aggregate = servers.reduce((acc, item) => {
       if (item.status === 'ONLINE' || item.status === 'DRAINING') {
@@ -3412,6 +5022,7 @@ router.get('/cluster/resource-pool', async (req, res) => {
       if (item.status === 'ONLINE') acc.onlineServers += 1;
       if (item.status === 'OFFLINE') acc.offlineServers += 1;
       if (item.status === 'DRAINING') acc.drainingServers += 1;
+      if (item.status === 'UNREGISTERED') acc.unregisteredServers += 1;
       return acc;
     }, {
       gpuTotal: 0,
@@ -3423,11 +5034,13 @@ router.get('/cluster/resource-pool', async (req, res) => {
       onlineServers: 0,
       offlineServers: 0,
       drainingServers: 0,
+      unregisteredServers: 0,
     });
 
     return res.json({
       aggregate,
       servers,
+      dispatcher,
       refreshedAt: new Date().toISOString(),
     });
   } catch (error) {
