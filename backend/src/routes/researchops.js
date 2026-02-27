@@ -4325,7 +4325,14 @@ router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('f
 
     const userId = getUserId(req);
     const { project, server } = await resolveProjectContext(userId, projectId);
-    const saved = await saveProposalToProjectDocs({ project, server, file: req.file });
+    // Best-effort: save proposal file to project docs (may fail for SSH projects
+    // where the API host lacks direct SSH access to the remote server).
+    let saved = { relativePath: req.file.originalname, savedPath: null };
+    try {
+      saved = await saveProposalToProjectDocs({ project, server, file: req.file });
+    } catch (saveErr) {
+      console.warn('[ResearchOps] Could not save proposal to project docs (continuing):', saveErr.message);
+    }
     const extractedText = String(await proposalFileToText(req.file)).trim();
     if (!extractedText) {
       return res.status(400).json({ error: 'No extractable text found in proposal file' });
