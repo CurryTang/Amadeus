@@ -496,6 +496,169 @@ router.post('/extract-file', upload.single('file'), async (req, res) => {
   }
 });
 
+// ─── Deep Research ──────────────────────────────────────────────────────────
+
+const https = require('https');
+
+/**
+ * Use LLM to distill a proposal into a short arXiv search query.
+ */
+async function extractSearchKeywordsFromProposal(proposalText) {
+  const content = proposalText.slice(0, 4000);
+  const prompt = [
+    'Extract 3-5 key technical concepts or topics from this research proposal for an arXiv paper search.',
+    'Return ONLY a concise search query string (no explanation, no quotes), suitable for the arXiv API `all:` field.',
+  ].join('\n');
+  try {
+    let text = '';
+    if (await codexCliService.isAvailable()) {
+      const r = await codexCliService.readMarkdown(content, prompt, { timeout: 30000 });
+      text = String(r?.text || '').trim();
+    } else if (await geminiCliService.isAvailable()) {
+      const r = await geminiCliService.readMarkdown(content, prompt, { timeout: 30000 });
+      text = String(r?.text || '').trim();
+    } else {
+      const r = await llmService.generateWithFallback(content, prompt);
+      text = String(r?.text || '').trim();
+    }
+    return (text.split('\n')[0] || '').slice(0, 200) || content.slice(0, 100);
+  } catch {
+    return content.slice(0, 100);
+  }
+}
+
+/**
+ * Search arXiv for papers matching a query.
+ * Returns lightweight metadata; does NOT download PDFs.
+ */
+async function searchArxivForPapers(query, maxResults = 15) {
+  const encoded = encodeURIComponent(`all:${query}`);
+  const apiUrl = `https://export.arxiv.org/api/query?search_query=${encoded}&sortBy=relevance&sortOrder=descending&max_results=${maxResults}&start=0`;
+
+  const data = await new Promise((resolve, reject) => {
+    const req = https.get(apiUrl, (response) => {
+      let body = '';
+      response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => resolve(body));
+      response.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(20000, () => req.destroy(new Error('arXiv search timeout')));
+  });
+
+  const papers = [];
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+  let match;
+  // eslint-disable-next-line no-cond-assign
+  while ((match = entryRegex.exec(data)) !== null) {
+    const xml = match[1];
+    const idMatch = xml.match(/<id>([\s\S]*?)<\/id>/);
+    const arxivId = idMatch ? arxivService.parseArxivUrl(idMatch[1].trim()) : null;
+    if (!arxivId) continue;
+
+    const titleMatch = xml.match(/<title>([\s\S]*?)<\/title>/);
+    const title = titleMatch ? titleMatch[1].trim().replace(/\s+/g, ' ') : '';
+
+    const authorsXml = xml.match(/<author>[\s\S]*?<name>([\s\S]*?)<\/name>[\s\S]*?<\/author>/g) || [];
+    const authors = authorsXml
+      .map((a) => { const nm = a.match(/<name>([\s\S]*?)<\/name>/); return nm ? nm[1].trim() : ''; })
+      .filter(Boolean);
+
+    const abstractMatch = xml.match(/<summary>([\s\S]*?)<\/summary>/);
+    const abstract = abstractMatch ? abstractMatch[1].trim().replace(/\s+/g, ' ') : '';
+
+    const publishedMatch = xml.match(/<published>([\s\S]*?)<\/published>/);
+    const published = publishedMatch ? publishedMatch[1].trim() : '';
+
+    const categoryMatch = xml.match(/<arxiv:primary_category[^>]*term="([^"]+)"/);
+    const category = categoryMatch ? categoryMatch[1] : '';
+
+    // Quick GitHub check from abstract only (no extra network call)
+    const githubMatch = abstract.match(/https?:\/\/github\.com\/[\w-]+\/[\w.-]+/i);
+    const codeUrl = githubMatch ? githubMatch[0].replace(/\.+$/, '') : null;
+
+    papers.push({
+      arxivId,
+      title,
+      authors,
+      abstract,
+      published: published.slice(0, 10), // YYYY-MM-DD
+      category,
+      pdfUrl: `https://arxiv.org/pdf/${arxivId}`,
+      texUrl: `https://arxiv.org/e-print/${arxivId}`,
+      absUrl: `https://arxiv.org/abs/${arxivId}`,
+      codeUrl,
+    });
+  }
+  return papers;
+}
+
+/**
+ * POST /import/deep-research
+ * body: { query: string, maxResults?: number }
+ * Returns a list of paper metadata for user selection. Does NOT download.
+ */
+router.post('/deep-research', async (req, res) => {
+  try {
+    const queryRaw = String(req.body?.query || '').trim();
+    if (!queryRaw) return res.status(400).json({ error: 'query is required' });
+    const maxResults = Math.min(Math.max(1, Number(req.body?.maxResults) || 15), 30);
+
+    // If long text (proposal), extract key terms first
+    const searchQuery = queryRaw.length > 250
+      ? await extractSearchKeywordsFromProposal(queryRaw)
+      : queryRaw;
+
+    const papers = await searchArxivForPapers(searchQuery, maxResults);
+    return res.json({ papers, searchQuery, originalQuery: queryRaw });
+  } catch (error) {
+    console.error('[Import] deep-research failed:', error);
+    return res.status(500).json({ error: error.message || 'Search failed' });
+  }
+});
+
+/**
+ * POST /import/save-selected
+ * body: { arxivIds: string[], tags?: string[] }
+ * Downloads and imports the selected papers into the library.
+ */
+router.post('/save-selected', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const arxivIds = Array.isArray(req.body?.arxivIds) ? req.body.arxivIds.map(String).filter(Boolean) : [];
+    const tags = parseTags(req.body?.tags);
+    const analysisProvider = String(req.body?.analysisProvider || 'codex-cli');
+
+    if (arxivIds.length === 0) return res.status(400).json({ error: 'No papers selected' });
+    if (arxivIds.length > 20) return res.status(400).json({ error: 'Maximum 20 papers per import' });
+
+    const context = { userId, tags, analysisProvider };
+    const results = [];
+    for (const arxivId of arxivIds) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await importArxivCandidate({ type: 'arxiv', paperId: arxivId, title: '' }, context);
+        results.push({ arxivId, status: result.status, reason: result.reason || null, document: result.document || null });
+      } catch (err) {
+        results.push({ arxivId, status: 'failed', reason: err.message, document: null });
+      }
+    }
+
+    return res.json({
+      results,
+      summary: {
+        total: results.length,
+        imported: results.filter((r) => r.status === 'imported').length,
+        skipped: results.filter((r) => r.status === 'skipped').length,
+        failed: results.filter((r) => r.status === 'failed').length,
+      },
+    });
+  } catch (error) {
+    console.error('[Import] save-selected failed:', error);
+    return res.status(500).json({ error: error.message || 'Import failed' });
+  }
+});
+
 router.post('/save-note', async (req, res) => {
   try {
     const title = normalizeTitle(req.body?.title, `Quick Note ${new Date().toISOString().slice(0, 10)}`);
