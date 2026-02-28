@@ -2957,12 +2957,18 @@ async function deleteProjectWithStorageCleanup(userId, project, { force = false,
 
   let objectKeys = [];
   let objectKeyLookupError = '';
+  // Collect run IDs before DB deletion so we can clean up S3 prefixes
+  let runIdsForS3Cleanup = [];
   if (deleteStorage) {
     try {
       objectKeys = await researchOpsStore.listProjectArtifactObjectKeys(userId, projectId, { limit: 100000 });
     } catch (error) {
       objectKeyLookupError = sanitizeError(error, 'Failed to collect storage keys for project deletion');
     }
+    try {
+      const allRuns = await researchOpsStore.listRuns(userId, { projectId, limit: 10000 });
+      runIdsForS3Cleanup = allRuns.map((r) => String(r.id || '').trim()).filter(Boolean);
+    } catch (_) { /* non-fatal */ }
   }
 
   const summary = await researchOpsStore.deleteProject(userId, projectId, { force });
@@ -2982,6 +2988,17 @@ async function deleteProjectWithStorageCleanup(userId, project, { force = false,
     storage.deleted = deletedStorage.deleted;
     storage.failed = deletedStorage.failed;
     storage.errors = deletedStorage.errors;
+  }
+  // Also delete orphaned S3 objects under runs/<runId>/ prefix (not tracked in DB artifacts table)
+  if (deleteStorage && runIdsForS3Cleanup.length > 0) {
+    for (const runId of runIdsForS3Cleanup) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const { deleted, failed } = await s3Service.deleteObjectsByPrefix(`runs/${runId}/`);
+        storage.deleted += deleted;
+        storage.failed += failed;
+      } catch (_) { /* non-fatal */ }
+    }
   }
 
   return {

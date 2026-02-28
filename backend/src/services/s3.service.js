@@ -3,6 +3,8 @@ const {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const config = require('../config');
@@ -182,11 +184,69 @@ function generateS3Key(originalFilename, userId = 'default_user') {
   return `${userId}/${timestamp}-${randomStr}-${sanitizedFilename}`;
 }
 
+/**
+ * List all object keys under a given S3 prefix (paginated).
+ * @param {string} prefix - S3 key prefix, e.g. "runs/run_abc123/"
+ * @param {number} [maxKeys=10000]
+ * @returns {Promise<string[]>}
+ */
+async function listObjectKeysByPrefix(prefix, maxKeys = 10000) {
+  assertStorageReady();
+  const keys = [];
+  let continuationToken;
+  do {
+    const command = new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix,
+      MaxKeys: Math.min(1000, maxKeys - keys.length),
+      ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+    });
+    // eslint-disable-next-line no-await-in-loop
+    const response = await s3Client.send(command);
+    for (const obj of (response.Contents || [])) {
+      if (obj.Key) keys.push(obj.Key);
+    }
+    continuationToken = response.IsTruncated ? response.NextContinuationToken : null;
+  } while (continuationToken && keys.length < maxKeys);
+  return keys;
+}
+
+/**
+ * Delete all objects under a given S3 prefix (batch delete, up to maxKeys).
+ * @param {string} prefix
+ * @param {number} [maxKeys=10000]
+ * @returns {Promise<{deleted: number, failed: number}>}
+ */
+async function deleteObjectsByPrefix(prefix, maxKeys = 10000) {
+  assertStorageReady();
+  const keys = await listObjectKeysByPrefix(prefix, maxKeys);
+  let deleted = 0;
+  let failed = 0;
+  // S3 batch delete supports up to 1000 keys per request
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000).map((Key) => ({ Key }));
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const resp = await s3Client.send(new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: batch, Quiet: true },
+      }));
+      failed += (resp.Errors || []).length;
+      deleted += batch.length - (resp.Errors || []).length;
+    } catch (_) {
+      failed += batch.length;
+    }
+  }
+  return { deleted, failed };
+}
+
 module.exports = {
   generatePresignedUploadUrl,
   generatePresignedDownloadUrl,
   uploadBuffer,
   downloadBuffer,
   deleteObject,
+  deleteObjectsByPrefix,
+  listObjectKeysByPrefix,
   generateS3Key,
 };
