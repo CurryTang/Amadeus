@@ -133,7 +133,7 @@ _jstr() {
 }
 
 _write_status() {
-  local status="$1" msg="$2" next="${3:-}"
+  local status="$1" msg="$2" next="\${3:-}"
   local now_iso
   now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date +%s)
   printf '{"status":"%s","message":%s,"lastCheck":"%s","nextCheck":"%s","wakeups":%d,"runId":"%s"}\\n' \
