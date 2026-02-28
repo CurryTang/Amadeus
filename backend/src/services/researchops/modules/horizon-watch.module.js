@@ -133,7 +133,7 @@ _jstr() {
 }
 
 _write_status() {
-  local status="$1" msg="$2" next="\${3:-}"
+  local status="$1" msg="$2" next="$3"
   local now_iso
   now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date +%s)
   printf '{"status":"%s","message":%s,"lastCheck":"%s","nextCheck":"%s","wakeups":%d,"runId":"%s"}\\n' \
@@ -142,7 +142,7 @@ _write_status() {
 
 _log "=== Horizon watchdog starting ==="
 _log "runId=$RUNID session=${sessionTag}"
-_log "interval=${INTERVAL}s max=${MAX_SECS}s"
+_log "interval=$INTERVAL s, max=$MAX_SECS s"
 _write_status "starting" "Watchdog launched" ""
 
 # ── Start main experiment command (background, if provided) ─────────────────
@@ -163,8 +163,8 @@ while true; do
   ELAPSED=$(( NOW - START_TS ))
 
   if [ "$ELAPSED" -ge "$MAX_SECS" ]; then
-    _log "=== MAX DURATION REACHED (${ELAPSED}s >= ${MAX_SECS}s) ==="
-    _write_status "timeout" "Exceeded max duration ${MAX_SECS}s" ""
+    _log "=== MAX DURATION REACHED (elapsed=$ELAPSED >= max=$MAX_SECS s) ==="
+    _write_status "timeout" "Exceeded max duration ($MAX_SECS s)" ""
     break
   fi
 
@@ -172,7 +172,7 @@ while true; do
   NEXT_ISO=$(_iso "$NEXT_TS")
 
   WAKEUPS=$(( WAKEUPS + 1 ))
-  _log "=== Wakeup #$WAKEUPS | elapsed=${ELAPSED}s | next=$NEXT_ISO ==="
+  _log "=== Wakeup #$WAKEUPS | elapsed=$ELAPSED s | next=$NEXT_ISO ==="
 
   CHECK_OUT=$(eval "$CHECK_CMD" 2>&1) || CHECK_OUT="(check command failed with exit $?)"
   _log "Check: $CHECK_OUT"
@@ -185,7 +185,7 @@ while true; do
   fi
 
   _write_status "running" "$CHECK_OUT" "$NEXT_ISO"
-  _log "Sleeping ${INTERVAL}s (next check: $NEXT_ISO)..."
+  _log "Sleeping $INTERVAL s (next check: $NEXT_ISO)..."
   sleep "$INTERVAL"
 done
 
