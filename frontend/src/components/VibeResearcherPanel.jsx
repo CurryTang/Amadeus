@@ -68,6 +68,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [runExperimentCommand, setRunExperimentCommand] = useState('');
   const [pinnedAssetIds, setPinnedAssetIds] = useState([]);
   const [agentSkill, setAgentSkill] = useState('implement');
+  const [runProvider, setRunProvider] = useState('codex_cli'); // codex_cli | claude_code_cli
 
   const [selectedRunId, setSelectedRunId] = useState('');
   const [runReport, setRunReport] = useState(null);
@@ -769,6 +770,17 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
   }, [apiUrl, autopilotSession, headers]);
 
+  // These must be defined before any useCallback that lists them as dependencies.
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) || null,
+    [projects, selectedProjectId]
+  );
+
+  const linkedKnowledgeGroupIds = useMemo(() => {
+    if (!Array.isArray(selectedProject?.knowledgeGroupIds)) return [];
+    return selectedProject.knowledgeGroupIds.map((id) => Number(id)).filter(Number.isFinite);
+  }, [selectedProject]);
+
   const handleSetKnowledgeBaseFolder = useCallback(() => {
     if (!selectedProjectId || submitting) return;
     setError('');
@@ -1150,11 +1162,6 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
   }, [apiUrl, headers, insertStepJson, loadAll, loadRunReport, selectedRunId]);
 
-  const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) || null,
-    [projects, selectedProjectId]
-  );
-
   const projectStats = useMemo(() => {
     const stats = new Map();
     projects.forEach((project) => {
@@ -1196,11 +1203,6 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     () => runs.filter((run) => run.projectId === selectedProjectId),
     [runs, selectedProjectId]
   );
-
-  const linkedKnowledgeGroupIds = useMemo(() => {
-    if (!Array.isArray(selectedProject?.knowledgeGroupIds)) return [];
-    return selectedProject.knowledgeGroupIds.map((id) => Number(id)).filter(Number.isFinite);
-  }, [selectedProject]);
 
   const knowledgeBaseFolder = String(selectedProject?.kbFolderPath || '').trim();
 
@@ -1285,18 +1287,18 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       const prefix = agentSkill === 'experiment' ? EXPERIMENT_SKILL_PREFIX : IMPLEMENT_SKILL_PREFIX;
       const fullPrompt = `${prefix}${runPrompt.trim()}`;
       const workflow = [
-        { id: 'agent_main', type: 'agent.run', inputs: { prompt: fullPrompt, provider: 'codex_cli' } },
+        { id: 'agent_main', type: 'agent.run', inputs: { prompt: fullPrompt, provider: runProvider } },
         { id: 'report', type: 'report.render', inputs: { format: 'md+json' } },
       ];
       const payload = {
         projectId: selectedProjectId,
         serverId: runServerId.trim() || 'local-default',
         runType: 'AGENT',
-        provider: 'codex_cli',
+        provider: runProvider,
         schemaVersion: '2.0',
         mode: 'headless',
         workflow,
-        contextRefs: { knowledgeGroupIds: selectedProject.knowledgeGroupIds || [] },
+        contextRefs: { knowledgeGroupIds: selectedProject?.knowledgeGroupIds || [] },
         metadata: {
           prompt: runPrompt.trim(),
           agentSkill,
@@ -1305,7 +1307,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
           ...(pinnedAssetIds.length ? { pinnedAssetIds } : {}),
         },
       };
-      await axios.post(`${apiUrl}/researchops/runs`, payload, { headers });
+      await axios.post(`${apiUrl}/researchops/runs/enqueue-v2`, payload, { headers });
       setRunPrompt('');
       await loadAll();
     } catch (err) {
@@ -1657,6 +1659,22 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                     <option key={s.id} value={s.id}>{s.name || s.host}</option>
                   ))}
                 </select>
+                <div className="vibe-provider-toggle" title="Select coding agent">
+                  <button
+                    type="button"
+                    className={`vibe-provider-chip${runProvider === 'codex_cli' ? ' is-active' : ''}`}
+                    onClick={() => setRunProvider('codex_cli')}
+                  >
+                    Codex
+                  </button>
+                  <button
+                    type="button"
+                    className={`vibe-provider-chip${runProvider === 'claude_code_cli' ? ' is-active' : ''}`}
+                    onClick={() => setRunProvider('claude_code_cli')}
+                  >
+                    Claude Code
+                  </button>
+                </div>
                 <button
                   type="submit"
                   className="vibe-launch-btn"
@@ -1974,13 +1992,13 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                   <div className="vibe-autopilot-status-row">
                     <span className="vibe-autopilot-label">
                       {autopilotSession.status === 'running' ? (
-                        <>&#9654; Running — iter {autopilotSession.currentIteration}/{autopilotSession.maxIterations} — {autopilotSession.currentPhase}</>
+                        <>{'\u25b6'} Running \u2014 iter {autopilotSession.currentIteration}/{autopilotSession.maxIterations} \u2014 {autopilotSession.currentPhase}</>
                       ) : autopilotSession.status === 'completed' ? (
-                        <>{autopilotSession.goalAchieved ? '&#10003; Goal achieved' : '&#10003; Completed'} ({autopilotSession.currentIteration} iterations)</>
+                        <>{autopilotSession.goalAchieved ? '\u2713 Goal achieved' : '\u2713 Completed'} ({autopilotSession.currentIteration} iterations)</>
                       ) : autopilotSession.status === 'stopped' ? (
-                        <>&#9632; Stopped at iter {autopilotSession.currentIteration}</>
+                        <>{'\u25a0'} Stopped at iter {autopilotSession.currentIteration}</>
                       ) : (
-                        <>&#9888; {autopilotSession.status}</>
+                        <>{'\u26a0'} {autopilotSession.status}</>
                       )}
                     </span>
                     {autopilotSession.currentTask && autopilotSession.status === 'running' && (

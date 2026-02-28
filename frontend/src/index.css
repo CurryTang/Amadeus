@@ -6492,6 +6492,41 @@ button.vibe-skill-chip.is-active {
   cursor: not-allowed;
 }
 
+/* Provider toggle (Codex / Claude Code) */
+.vibe-provider-toggle {
+  display: flex;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.vibe-provider-chip {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #f8fafc;
+  color: #475569;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.vibe-provider-chip + .vibe-provider-chip {
+  border-left: 1px solid #c7d2fe;
+}
+
+.vibe-provider-chip:hover:not(.is-active) {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vibe-provider-chip.is-active {
+  background: #4f46e5;
+  color: #fff;
+}
+
 /* ──────────────────────────────────────────────
    Run Context Bar & Run Indicator
 ────────────────────────────────────────────── */
