@@ -5487,4 +5487,163 @@ router.post('/experiments/execute', async (req, res) => {
   }
 });
 
+// ─── Horizon watch helpers ────────────────────────────────────────────────────
+
+function buildHorizonSshArgs(server, { connectTimeout = 12 } = {}) {
+  const expandHome = (p) => String(p || '').replace(/^~(?=\/|$)/, os.homedir());
+  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
+  const args = [
+    '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ClearAllForwardings=yes',
+    '-o', `ConnectTimeout=${connectTimeout}`, '-o', 'StrictHostKeyChecking=accept-new',
+    '-i', keyPath, '-p', String(server?.port || 22),
+  ];
+  if (String(server?.proxy_jump || '').trim()) args.push('-J', String(server.proxy_jump).trim());
+  return args;
+}
+
+async function getHorizonServer(serverId) {
+  if (!serverId || ['local', 'local-default', 'self'].includes(String(serverId).trim())) return null;
+  const db = getDb();
+  let r = await db.execute({ sql: 'SELECT * FROM ssh_servers WHERE id = ?', args: [serverId] });
+  if (r.rows?.length) return r.rows[0];
+  r = await db.execute({ sql: 'SELECT * FROM ssh_servers WHERE name = ?', args: [serverId] });
+  return r.rows?.[0] || null;
+}
+
+async function sshReadFile(server, remotePath) {
+  const sshTarget = `${server.user}@${server.host}`;
+  return runCommand('ssh', [
+    ...buildHorizonSshArgs(server),
+    sshTarget,
+    `cat ${remotePath} 2>/dev/null || echo '{"status":"unknown"}'`,
+  ], { timeoutMs: 15000 });
+}
+
+async function sshTailFile(server, remotePath, lines = 80) {
+  const sshTarget = `${server.user}@${server.host}`;
+  return runCommand('ssh', [
+    ...buildHorizonSshArgs(server),
+    sshTarget,
+    `tail -${lines} ${remotePath} 2>/dev/null || echo ''`,
+  ], { timeoutMs: 15000 });
+}
+
+async function sshCheckTmux(server, session) {
+  const sshTarget = `${server.user}@${server.host}`;
+  try {
+    await runCommand('ssh', [
+      ...buildHorizonSshArgs(server),
+      sshTarget,
+      `tmux has-session -t '${session}' 2>/dev/null && echo alive || echo dead`,
+    ], { timeoutMs: 12000 });
+    return true;
+  } catch (_) { return false; }
+}
+
+// GET /api/researchops/runs/:runId/horizon-status
+// Returns current status from the watchdog status file + tmux alive check.
+router.get('/runs/:runId/horizon-status', requireAuth, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const runId = String(req.params.runId || '').trim();
+    const run = await researchOpsStore.getRun(userId, runId);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const meta = run.metadata || {};
+    const serverId = String(meta.horizonServerId || run.serverId || '').trim();
+    const statusFile = String(meta.horizonStatusFile || `~/.researchops/horizon/${runId}.json`);
+    const logFile = String(meta.horizonLogFile || `~/.researchops/horizon/${runId}.log`);
+    const session = String(meta.horizonSessionName || `hz_${runId.slice(0, 10)}`);
+
+    const server = await getHorizonServer(serverId);
+
+    let statusJson = {};
+    let recentLog = '';
+    let tmuxAlive = null;
+
+    if (server) {
+      const [statusResult, logResult] = await Promise.allSettled([
+        sshReadFile(server, statusFile),
+        sshTailFile(server, logFile, 60),
+      ]);
+      if (statusResult.status === 'fulfilled') {
+        try { statusJson = JSON.parse(statusResult.value.stdout.trim()); } catch (_) {}
+      }
+      if (logResult.status === 'fulfilled') {
+        recentLog = logResult.value.stdout;
+      }
+      // check tmux alive (only if status isn't terminal)
+      if (!['done', 'timeout'].includes(statusJson.status)) {
+        tmuxAlive = await sshCheckTmux(server, session);
+      }
+    } else {
+      // local
+      const expandHome = (p) => p.replace(/^~/, os.homedir());
+      try {
+        const raw = await fs.readFile(expandHome(statusFile), 'utf8');
+        statusJson = JSON.parse(raw.trim());
+      } catch (_) {}
+      try {
+        const { execFile } = require('child_process');
+        recentLog = await new Promise((resolve) => {
+          execFile('tail', ['-60', expandHome(logFile)], (e, out) => resolve(out || ''));
+        });
+      } catch (_) {}
+    }
+
+    return res.json({
+      runId,
+      status: statusJson.status || 'unknown',
+      message: statusJson.message || '',
+      lastCheck: statusJson.lastCheck || null,
+      nextCheck: statusJson.nextCheck || null,
+      wakeups: statusJson.wakeups || 0,
+      tmuxAlive,
+      recentLog: recentLog.slice(-4000), // last 4KB of log
+      session,
+      serverId,
+    });
+  } catch (error) {
+    console.error('[ResearchOps] horizon-status failed:', error);
+    return res.status(500).json({ error: 'Failed to fetch horizon status' });
+  }
+});
+
+// POST /api/researchops/runs/:runId/horizon-cancel
+// Kills the tmux session on the target server.
+router.post('/runs/:runId/horizon-cancel', requireAuth, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const runId = String(req.params.runId || '').trim();
+    const run = await researchOpsStore.getRun(userId, runId);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const meta = run.metadata || {};
+    const serverId = String(meta.horizonServerId || run.serverId || '').trim();
+    const session = String(meta.horizonSessionName || `hz_${runId.slice(0, 10)}`);
+    const server = await getHorizonServer(serverId);
+
+    if (server) {
+      const sshTarget = `${server.user}@${server.host}`;
+      await runCommand('ssh', [
+        ...buildHorizonSshArgs(server),
+        sshTarget,
+        `tmux kill-session -t '${session}' 2>/dev/null; echo ok`,
+      ], { timeoutMs: 15000 });
+    } else {
+      try {
+        const { execFile } = require('child_process');
+        await new Promise((resolve) => {
+          execFile('tmux', ['kill-session', '-t', session], () => resolve());
+        });
+      } catch (_) {}
+    }
+
+    return res.json({ ok: true, session, message: `Killed tmux session '${session}'` });
+  } catch (error) {
+    console.error('[ResearchOps] horizon-cancel failed:', error);
+    return res.status(500).json({ error: 'Failed to cancel horizon session' });
+  }
+});
+
 module.exports = router;

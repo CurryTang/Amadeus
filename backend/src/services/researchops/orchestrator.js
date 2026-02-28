@@ -11,6 +11,7 @@ const BashRunModule = require('./modules/bash-run.module');
 const CheckpointModule = require('./modules/checkpoint.module');
 const ReportRenderModule = require('./modules/report-render.module');
 const ArtifactPublishModule = require('./modules/artifact-publish.module');
+const HorizonWatchModule = require('./modules/horizon-watch.module');
 const workflowSchemaService = require('./workflow-schema.service');
 const { getDb } = require('../../db');
 
@@ -740,6 +741,7 @@ class ResearchOpsOrchestrator {
       ['checkpoint.hitl', new CheckpointModule()],
       ['report.render', new ReportRenderModule()],
       ['artifact.publish', new ArtifactPublishModule()],
+      ['horizon.watch', new HorizonWatchModule()],
     ]);
   }
 
