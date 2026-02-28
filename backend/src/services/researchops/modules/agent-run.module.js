@@ -527,10 +527,10 @@ function tryParseStructuredOutput(text = '') {
   return null;
 }
 
-function defaultArgsFor(command, prompt) {
+function defaultArgsFor(command, prompt, opts = {}) {
   if (command === 'codex') {
-    const model = cleanString(process.env.RESEARCHOPS_CODEX_MODEL || config.codexCli?.model || 'gpt-5.3-codex');
-    const reasoningEffort = cleanString(process.env.RESEARCHOPS_CODEX_REASONING_EFFORT || 'high').toLowerCase() || 'high';
+    const model = cleanString(opts.model) || cleanString(process.env.RESEARCHOPS_CODEX_MODEL || config.codexCli?.model || 'o4-mini');
+    const reasoningEffort = cleanString(opts.reasoningEffort) || cleanString(process.env.RESEARCHOPS_CODEX_REASONING_EFFORT || 'medium').toLowerCase() || 'medium';
     const args = ['exec', '--yolo'];
     if (model) args.push('-m', model);
     if (reasoningEffort) args.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
@@ -538,7 +538,7 @@ function defaultArgsFor(command, prompt) {
     return args;
   }
   if (command === 'claude') {
-    const model = cleanString(process.env.RESEARCHOPS_CLAUDE_MODEL || config.claudeCli?.model || 'claude-sonnet-4-6');
+    const model = cleanString(opts.model) || cleanString(process.env.RESEARCHOPS_CLAUDE_MODEL || config.claudeCli?.model || 'claude-sonnet-4-6');
     const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
     return isRoot
       ? (model ? ['--model', model, '-p', prompt] : ['-p', prompt])
@@ -730,7 +730,11 @@ class AgentRunModule extends BaseModule {
 
     const prompt = buildPrompt(step, run, promptContext);
     if (args.length === 0) {
-      args = defaultArgsFor(command, prompt);
+      const agentOpts = {
+        model: cleanString(inputs.model) || undefined,
+        reasoningEffort: cleanString(inputs.reasoningEffort) || undefined,
+      };
+      args = defaultArgsFor(command, prompt, agentOpts);
     }
     args = ensureHeadlessProviderArgs(command, args);
     const shellCommand = toShellCommand(command, args);
