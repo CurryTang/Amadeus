@@ -3793,8 +3793,53 @@ body > #d[id*="mermaid"] {
 .latest-papers-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.latest-papers-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.latest-category-select {
+  padding: 4px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #475569;
+  background: #fff;
+  cursor: pointer;
+  max-width: 120px;
+}
+.latest-category-select:focus { outline: none; border-color: #6366f1; }
+.latest-keyword-input {
+  padding: 4px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #1e293b;
+  background: #fff;
+  width: 120px;
+  min-width: 0;
+}
+.latest-keyword-input:focus { outline: none; border-color: #6366f1; }
+.latest-keyword-input::placeholder { color: #94a3b8; }
+.latest-filter-clear {
+  padding: 3px 7px;
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  cursor: pointer;
+  line-height: 1;
+}
+.latest-filter-clear:hover { border-color: #6366f1; color: #6366f1; }
+.latest-papers-toolbar-info {
+  flex-shrink: 0;
 }
 .latest-papers-cache-info {
   font-size: 0.78rem;
@@ -6003,6 +6048,38 @@ body > #d[id*="mermaid"] {
   }
 }
 
+@media (max-width: 640px) {
+  .vibe-launcher-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .vibe-launcher-server {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .vibe-launch-btn {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .vibe-workspace-statusbar > * {
+    flex: 1 1 calc(33% - 6px);
+    min-width: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .vibe-skill-chips {
+    flex-wrap: wrap;
+  }
+
+  .vibe-skill-chip {
+    flex: 1 1 auto;
+  }
+}
+
 /* Import modal */
 .import-modal-backdrop {
   position: fixed;
@@ -6592,7 +6669,7 @@ button.vibe-skill-chip.is-active {
 
 .vibe-run-row {
   display: grid;
-  grid-template-columns: 90px 80px minmax(0, 1fr) 126px 20px;
+  grid-template-columns: 90px 80px minmax(0, 1fr) 126px;
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
@@ -6815,6 +6892,130 @@ button.vibe-skill-chip.is-active {
   color: #a78bfa;
   font-size: 0.85rem;
   text-align: center;
+}
+
+/* Branch filter */
+.vibe-run-branch-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.vibe-run-branch-select {
+  flex: 1;
+  font-size: 0.78rem;
+  padding: 4px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.vibe-run-branch-select:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.vibe-run-branch-clear {
+  padding: 3px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  font-size: 0.85rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.vibe-run-branch-clear:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+/* Run tree — depth-based indentation */
+.vibe-run-depth-1 { padding-left: 14px; }
+.vibe-run-depth-2 { padding-left: 28px; }
+.vibe-run-depth-3 { padding-left: 42px; }
+.vibe-run-depth-4 { padding-left: 56px; }
+
+.vibe-run-depth-1 .vibe-run-row,
+.vibe-run-depth-2 .vibe-run-row,
+.vibe-run-depth-3 .vibe-run-row,
+.vibe-run-depth-4 .vibe-run-row {
+  border-left: 2px solid #e0e7ff;
+}
+
+/* Git SHA badge (inline in prompt) */
+.vibe-run-sha {
+  display: inline-block;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.66rem;
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+}
+
+/* Restore button (appears on hover to the right of the row) */
+.vibe-run-restore-btn {
+  flex-shrink: 0;
+  padding: 4px 7px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #6366f1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.1s;
+}
+
+.vibe-run-row-wrap:hover .vibe-run-restore-btn {
+  opacity: 1;
+}
+
+.vibe-run-restore-btn:hover {
+  background: #eef2ff;
+  border-color: #6366f1;
+}
+
+/* Restore success banner */
+.vibe-restore-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 7px;
+  font-size: 0.8rem;
+  color: #166534;
+  margin-bottom: 8px;
+}
+
+.vibe-restore-banner code {
+  font-size: 0.78rem;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.vibe-restore-banner-close {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #166534;
+  line-height: 1;
 }
 
 /* Observed session rows */

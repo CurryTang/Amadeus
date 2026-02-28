@@ -502,6 +502,21 @@ async function enrichFeedWithArxivMetadata(items = []) {
   return enriched;
 }
 
+function applySourceFilters(items, config) {
+  const keywords = String(config.keywords || '')
+    .split(/[\n,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const watchedAuthors = String(config.watchedAuthors || '')
+    .split(/\n+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (keywords.length === 0 && watchedAuthors.length === 0) return items;
+  return items.filter((item) => {
+    const titleAbstract = `${item.title || ''} ${item.abstract || ''}`.toLowerCase();
+    if (keywords.length > 0 && keywords.some((kw) => titleAbstract.includes(kw))) return true;
+    const authorText = (item.authors || []).join(' ').toLowerCase();
+    if (watchedAuthors.length > 0 && watchedAuthors.some((wa) => authorText.includes(wa))) return true;
+    return false;
+  });
+}
+
 async function fetchSourceFeedPapers(source, { debug = false } = {}) {
   const sourceType = String(source.type || '').toLowerCase();
   const sourceName = source.name || source.type;
@@ -577,6 +592,8 @@ async function fetchSourceFeedPapers(source, { debug = false } = {}) {
     else {
       return { source: sourceName, type: sourceType, total: 0, skipped: true, reason: 'unsupported_source_type' };
     }
+
+    items = applySourceFilters(items, source.config || {});
 
     return {
       source: sourceName,

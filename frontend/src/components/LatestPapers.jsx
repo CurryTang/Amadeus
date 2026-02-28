@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 
 const CACHE_KEY = 'latest_papers_cache_v2';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h client-side guard
+const CATEGORY_FILTER_KEY = 'tracker_category_filter';
 const PAGE_SIZE = 5;
 const SOURCE_LABELS = {
   hf: 'HF Daily',
@@ -12,6 +13,16 @@ const SOURCE_LABELS = {
   arxiv_authors: 'Authors',
   arxiv: 'arXiv',
 };
+const CATEGORY_ORDER = ['hf', 'alphaxiv', 'arxiv_authors', 'twitter', 'finance'];
+
+function formatFeedError(error, fallback = 'Failed to load latest papers') {
+  const status = Number(error?.response?.status || 0);
+  const apiMessage = String(error?.response?.data?.error || '').trim();
+  if (status === 504) {
+    return 'Tracker feed timed out (504). Please retry in a few seconds and check Tracker source errors.';
+  }
+  return apiMessage || error?.message || fallback;
+}
 
 function getFeedItemKey(item) {
   if (!item) return '';
@@ -138,6 +149,49 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   const [total, setTotal] = useState(0);
   const [savingIds, setSavingIds] = useState(new Set());
 
+  // Filters
+  const [activeCategory, setActiveCategory] = useState(() => {
+    try { return localStorage.getItem(CATEGORY_FILTER_KEY) || ''; } catch (_) { return ''; }
+  });
+  const [keywordSearch, setKeywordSearch] = useState('');
+
+  useEffect(() => {
+    try { localStorage.setItem(CATEGORY_FILTER_KEY, activeCategory); } catch (_) {}
+  }, [activeCategory]);
+
+  const availableCategories = useMemo(() => {
+    const counts = {};
+    for (const p of papers) {
+      const types = new Set([
+        String(p.sourceType || '').toLowerCase(),
+        ...(p.sourceTypes || []).map((t) => String(t).toLowerCase()),
+      ].filter(Boolean));
+      for (const t of types) counts[t] = (counts[t] || 0) + 1;
+    }
+    return CATEGORY_ORDER.filter((t) => counts[t] > 0);
+  }, [papers]);
+
+  const filteredPapers = useMemo(() => {
+    let result = papers;
+    if (activeCategory) {
+      result = result.filter((p) => {
+        const primary = String(p.sourceType || '').toLowerCase();
+        const all = (p.sourceTypes || []).map((t) => String(t).toLowerCase());
+        return primary === activeCategory || all.includes(activeCategory);
+      });
+    }
+    if (keywordSearch.trim()) {
+      const kw = keywordSearch.trim().toLowerCase();
+      result = result.filter((p) => {
+        const text = `${p.title || ''} ${p.abstract || ''} ${(p.authors || []).join(' ')}`.toLowerCase();
+        return text.includes(kw);
+      });
+    }
+    return result;
+  }, [papers, activeCategory, keywordSearch]);
+
+  const isFiltered = !!(activeCategory || keywordSearch.trim());
+
   const fetchFeed = useCallback(async ({
     offset = 0,
     append = false,
@@ -214,7 +268,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         });
       }
     } catch (e) {
-      setError(e.response?.data?.error || e.message || 'Failed to load latest papers');
+      setError(formatFeedError(e, 'Failed to load latest papers'));
     } finally {
       setLoading(false);
     }
@@ -271,14 +325,45 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
     });
   };
 
+  const displayCount = isFiltered
+    ? `${filteredPapers.length}/${papers.length}`
+    : `${papers.length}${total ? `/${total}` : ''}`;
+
   return (
     <div className="latest-papers-container">
       <div className="latest-papers-toolbar">
+        <div className="latest-papers-toolbar-left">
+          <select
+            className="latest-category-select"
+            value={activeCategory}
+            onChange={(e) => setActiveCategory(e.target.value)}
+            title="Filter by source"
+          >
+            <option value="">All Sources</option>
+            {availableCategories.map((type) => (
+              <option key={type} value={type}>{SOURCE_LABELS[type] || type}</option>
+            ))}
+          </select>
+          <input
+            className="latest-keyword-input"
+            type="text"
+            placeholder="Search…"
+            value={keywordSearch}
+            onChange={(e) => setKeywordSearch(e.target.value)}
+          />
+          {isFiltered && (
+            <button
+              className="latest-filter-clear"
+              onClick={() => { setActiveCategory(''); setKeywordSearch(''); }}
+              title="Clear filters"
+            >×</button>
+          )}
+        </div>
         <div className="latest-papers-toolbar-info">
           {fetchedAt && (
             <span className="latest-papers-cache-info">
-              {cached ? 'Cached' : 'Live'} · updated {new Date(fetchedAt).toLocaleString()}
-              {` · showing ${papers.length}${total ? `/${total}` : ''}`}
+              {cached ? 'Cached' : 'Live'} · {new Date(fetchedAt).toLocaleString()}
+              {` · ${displayCount}`}
             </span>
           )}
         </div>
@@ -315,15 +400,24 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         </div>
       )}
 
-      {!loading && papers.length === 0 && !error && (
+      {!loading && filteredPapers.length === 0 && !error && (
         <div className="empty-state">
-          <p>No tracker items found</p>
-          <p className="hint">Add tracker sources to start seeing research, Twitter, or finance updates.</p>
+          {isFiltered ? (
+            <>
+              <p>No papers match the current filter</p>
+              <p className="hint">Try a different keyword or source.</p>
+            </>
+          ) : (
+            <>
+              <p>No tracker items found</p>
+              <p className="hint">Add tracker sources to start seeing research, Twitter, or finance updates.</p>
+            </>
+          )}
         </div>
       )}
 
       <div className="latest-papers-list">
-        {papers.map((paper, idx) => (
+        {filteredPapers.map((paper, idx) => (
           <PaperCard
             key={getFeedItemKey(paper) || `${paper.title || 'item'}-${idx}`}
             paper={paper}
@@ -334,7 +428,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         ))}
       </div>
 
-      {!error && papers.length > 0 && hasMore && (
+      {!error && !isFiltered && papers.length > 0 && hasMore && (
         <div className="load-more-container">
           <button
             className="load-more-btn"

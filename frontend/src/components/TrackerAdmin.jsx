@@ -23,17 +23,56 @@ const POPULAR_ARXIV_CATEGORIES = [
 
 const EMPTY_FORM = { type: 'hf', name: '', config: {} };
 
+function formatTrackerRequestError(error, fallback = 'Tracker request failed') {
+  const status = Number(error?.response?.status || 0);
+  const apiMessage = String(error?.response?.data?.error || '').trim();
+  if (status === 504) {
+    return 'Tracker request timed out (504). Check source status/errors and retry.';
+  }
+  return apiMessage || error?.message || fallback;
+}
+
+function formatSourceError(rawError = '') {
+  const text = String(rawError || '').trim();
+  if (!text) return '';
+  const normalized = text.toLowerCase();
+  if (normalized.includes('source_timeout') || normalized.includes('timed out') || normalized.includes('timeout')) {
+    return 'Source timed out while refreshing feed metadata.';
+  }
+  return text;
+}
+
 // Config fields per source type
+// Filter fields appended to paper-based sources
+const PAPER_FILTER_FIELDS = [
+  {
+    key: 'keywords',
+    label: 'Keyword Filter (optional)',
+    type: 'textarea',
+    placeholder: 'LLM\ntransformer\ndiffusion model',
+    hint: 'Only show papers whose title or abstract contains at least one keyword. One per line.',
+  },
+  {
+    key: 'watchedAuthors',
+    label: 'Author Filter (optional)',
+    type: 'textarea',
+    placeholder: 'Yann LeCun\nAndrej Karpathy',
+    hint: 'Only show papers by these authors. One name per line. Matched as substring.',
+  },
+];
+
 const CONFIG_FIELDS = {
   hf: [
     { key: 'minUpvotes', label: 'Min Upvotes', type: 'number', placeholder: '10', hint: 'Only import papers with at least this many upvotes' },
     { key: 'lookbackDays', label: 'Lookback Days', type: 'number', placeholder: '7', hint: 'How many past days to check each run' },
+    ...PAPER_FILTER_FIELDS,
   ],
   alphaxiv: [
     { key: 'categories', label: 'Categories', type: 'categories', hint: 'arXiv category codes to monitor, comma-separated (e.g. cs.LG, cs.AI)' },
     { key: 'interval', label: 'Time Window', type: 'select', options: ['3 Days', '7 Days', '30 Days', '90 Days'], placeholder: '7 Days', hint: 'Time window for ranking papers on AlphaXiv' },
     { key: 'sortBy', label: 'Sort By', type: 'select', options: ['Views', 'Hot', 'Likes', 'GitHub', 'Comments'], placeholder: 'Views', hint: 'How to rank papers — Views is most reliable' },
     { key: 'minViews', label: 'Min Views', type: 'number', placeholder: '0', hint: 'Only import papers with at least this many views on AlphaXiv' },
+    ...PAPER_FILTER_FIELDS,
   ],
   twitter: [
     {
@@ -111,6 +150,13 @@ const CONFIG_FIELDS = {
       defaultChecked: false,
       hint: 'In paper mode, skip posts without detected arXiv/paper links.',
       showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
+    },
+    {
+      key: 'keywords',
+      label: 'Keyword Filter (optional)',
+      type: 'textarea',
+      placeholder: 'LLM\ntransformer\ndiffusion model',
+      hint: 'Only show papers whose title or abstract contains at least one keyword. One per line.',
     },
   ],
   finance: [
@@ -196,6 +242,13 @@ const CONFIG_FIELDS = {
   arxiv_authors: [
     { key: 'maxPerAuthor', label: 'Max papers per author', type: 'number', placeholder: '5', hint: 'How many recent papers to fetch per scholar per run (1–20).' },
     { key: 'lookbackDays', label: 'Lookback days', type: 'number', placeholder: '30', hint: 'Only include papers published within this many days (1–90).' },
+    {
+      key: 'keywords',
+      label: 'Keyword Filter (optional)',
+      type: 'textarea',
+      placeholder: 'LLM\ntransformer',
+      hint: 'Only show papers whose title or abstract contains at least one keyword. One per line.',
+    },
   ],
 };
 
@@ -371,7 +424,7 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
       });
       setFeedPerSource(Array.isArray(res.data?.perSource) ? res.data.perSource : []);
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to load tracker feed summary');
+      setError(formatTrackerRequestError(e, 'Failed to load tracker feed summary'));
     }
   };
 
@@ -549,7 +602,7 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
         && (String(entry?.error || '').trim() || Number(entry?.failed || 0) > 0)
       ));
       if (match) {
-        if (String(match.error || '').trim()) return String(match.error).trim();
+        if (String(match.error || '').trim()) return formatSourceError(String(match.error).trim());
         return 'Last run failed';
       }
     }
@@ -558,7 +611,7 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
       && String(entry?.source || '').trim() === sourceName
       && entry?.reason
     ));
-    return feedMatch?.reason ? String(feedMatch.reason) : '';
+    return feedMatch?.reason ? formatSourceError(String(feedMatch.reason)) : '';
   };
 
   const handleCancelForm = () => {
