@@ -99,7 +99,7 @@ async function designNextTask(proposal, history, iteration, maxIterations) {
     '  "task_title": "Short title (<= 80 chars)",',
     '  "task_description": "What needs to be done and why",',
     '  "implementation_prompt": "Detailed prompt for an AI coding agent to implement this task. Include file paths, expected outputs, and success criteria.",',
-    '  "test_command": "bash command to run/test the result (empty string if not applicable)",',
+    '  "test_command": "bash command to run/test the result (empty string if not applicable). IMPORTANT: use \'python3\' not \'python\'. If a .venv directory exists in the project root, prefer \'.venv/bin/python3\'. Never assume \'python\' is in PATH on Linux.",',
     '  "goal_achieved": false,',
     '  "reason": "Why this is the right next step"',
     '}',

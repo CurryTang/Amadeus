@@ -50,6 +50,32 @@ function isMetricArtifact(artifact = {}) {
   return path.startsWith('metrics/') || path.includes('/metrics/');
 }
 
+function isDeliverableArtifact(artifact = {}) {
+  const kind = cleanString(artifact.kind).toLowerCase();
+  const path = normalizePathSuffix(artifact.path);
+  if (kind.includes('deliverable')) return true;
+  if (kind.includes('experiment-output')) return true;
+  if (isTableArtifact(artifact) || isFigureArtifact(artifact)) return true;
+  return (
+    path.startsWith('docs/')
+    || path.startsWith('results/')
+    || path.includes('/docs/')
+    || path.includes('/results/')
+  );
+}
+
+function dedupeArtifacts(items = []) {
+  const seen = new Set();
+  const output = [];
+  for (const item of items) {
+    const key = String(item?.id || item?.path || item?.title || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(item);
+  }
+  return output;
+}
+
 function artifactDigest(artifact = {}) {
   return {
     id: artifact.id,
@@ -65,11 +91,19 @@ function artifactDigest(artifact = {}) {
 
 function summarizeArtifacts(artifacts = []) {
   const digest = artifacts.map((item) => artifactDigest(item));
+  const tables = digest.filter((item) => isTableArtifact(item));
+  const figures = digest.filter((item) => isFigureArtifact(item));
+  const deliverables = dedupeArtifacts([
+    ...digest.filter((item) => isDeliverableArtifact(item)),
+    ...tables,
+    ...figures,
+  ]);
   return {
     digest,
-    tables: digest.filter((item) => isTableArtifact(item)),
-    figures: digest.filter((item) => isFigureArtifact(item)),
+    tables,
+    figures,
     metrics: digest.filter((item) => isMetricArtifact(item)),
+    deliverables,
   };
 }
 
@@ -116,6 +150,7 @@ function toMarkdown(
   const tables = Array.isArray(artifactSummary.tables) ? artifactSummary.tables : [];
   const figures = Array.isArray(artifactSummary.figures) ? artifactSummary.figures : [];
   const metrics = Array.isArray(artifactSummary.metrics) ? artifactSummary.metrics : [];
+  const deliverables = Array.isArray(artifactSummary.deliverables) ? artifactSummary.deliverables : [];
 
   lines.push('# Run Summary');
   lines.push('');
@@ -150,6 +185,7 @@ function toMarkdown(
   lines.push(`- tables: ${tables.length}`);
   lines.push(`- figures: ${figures.length}`);
   lines.push(`- metrics: ${metrics.length}`);
+  lines.push(`- deliverables: ${deliverables.length}`);
   lines.push('');
   for (const artifact of digest.slice(0, 200)) {
     lines.push(`- ${artifact.kind || 'artifact'}: ${artifact.title || artifact.path || artifact.id}`);
@@ -169,6 +205,15 @@ function toMarkdown(
     lines.push('## Figures');
     lines.push('');
     for (const item of figures.slice(0, 40)) {
+      lines.push(`- ${item.title || item.path || item.id}`);
+    }
+    lines.push('');
+  }
+
+  if (deliverables.length > 0) {
+    lines.push('## Deliverables');
+    lines.push('');
+    for (const item of deliverables.slice(0, 60)) {
       lines.push(`- ${item.title || item.path || item.id}`);
     }
     lines.push('');
@@ -232,6 +277,7 @@ class ReportRenderModule extends BaseModule {
       tables: artifactSummary.tables,
       figures: artifactSummary.figures,
       metrics: artifactSummary.metrics,
+      deliverables: artifactSummary.deliverables,
     };
 
     const observability = await observabilityAdapters.publishRunObservability(step, context, baseManifest);
@@ -250,6 +296,7 @@ class ReportRenderModule extends BaseModule {
         tableCount: artifactSummary.tables.length,
         figureCount: artifactSummary.figures.length,
         metricArtifactCount: artifactSummary.metrics.length,
+        deliverableCount: artifactSummary.deliverables.length,
         contextAssetCount: Array.isArray(contextPack?.assets) ? contextPack.assets.length : 0,
         contextDocumentCount: Array.isArray(contextPack?.documents) ? contextPack.documents.length : 0,
       },
@@ -260,6 +307,7 @@ class ReportRenderModule extends BaseModule {
       tables: artifactSummary.tables,
       figures: artifactSummary.figures,
       metrics: artifactSummary.metrics,
+      deliverables: artifactSummary.deliverables,
       observability,
     };
 
@@ -302,6 +350,7 @@ class ReportRenderModule extends BaseModule {
         stepCount: stepResults.length,
         tableCount: artifactSummary.tables.length,
         figureCount: artifactSummary.figures.length,
+        deliverableCount: artifactSummary.deliverables.length,
       },
       outputs: {
         manifest,

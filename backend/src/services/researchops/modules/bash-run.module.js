@@ -4,6 +4,7 @@ const fs = require('fs/promises');
 const { spawn } = require('child_process');
 const BaseModule = require('./base-module');
 const { getDb } = require('../../../db');
+const { terminateProcessTree } = require('../process-control');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -58,7 +59,9 @@ function buildRuntimeEnv(context, inputs = {}) {
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
   const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
   const args = [
+    '-F', '/dev/null',
     '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
     '-o', `ConnectTimeout=${connectTimeout}`,
     '-o', 'StrictHostKeyChecking=accept-new',
     '-i', keyPath,
@@ -73,7 +76,9 @@ function buildSshArgs(server, { connectTimeout = 12 } = {}) {
 function buildScpArgs(server, { connectTimeout = 12 } = {}) {
   const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
   const args = [
+    '-F', '/dev/null',
     '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
     '-o', `ConnectTimeout=${connectTimeout}`,
     '-o', 'StrictHostKeyChecking=accept-new',
     '-i', keyPath,
@@ -97,6 +102,253 @@ function inferMimeType(filePath = '') {
   if (p.endsWith('.pdf')) return 'application/pdf';
   if (p.endsWith('.yaml') || p.endsWith('.yml')) return 'text/yaml';
   return 'application/octet-stream';
+}
+
+function toBoolean(value, fallback = true) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = cleanString(value).toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function toPositiveInt(value, fallback, { min = 1, max = 1000 } = {}) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.floor(n), min), max);
+}
+
+function toRootCandidates(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => cleanString(item)).filter(Boolean);
+  }
+  const single = cleanString(value);
+  if (!single) return [];
+  return [single];
+}
+
+function normalizeAutoCaptureDirs(value) {
+  const defaults = ['docs', 'results', 'submissions'];
+  const raw = Array.isArray(value) ? value : defaults;
+  const normalized = new Set();
+  raw.forEach((item) => {
+    const token = cleanString(item).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!token) return;
+    if (token.includes('..')) return;
+    normalized.add(token);
+  });
+  if (normalized.size === 0) {
+    defaults.forEach((item) => normalized.add(item));
+  }
+  return [...normalized];
+}
+
+function normalizeAutoCaptureRoots(value) {
+  const defaults = ['REPORT.md'];
+  const raw = value === undefined ? defaults : toRootCandidates(value);
+  const normalized = new Set();
+  raw.forEach((item) => {
+    const token = cleanString(item).replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!token) return;
+    if (token.includes('..')) return;
+    normalized.add(token);
+  });
+  return normalized.size > 0 ? [...normalized] : defaults;
+}
+
+function toRelativeWithin(baseDir, candidatePath) {
+  const base = path.resolve(baseDir);
+  const candidate = path.resolve(candidatePath);
+  const rel = path.relative(base, candidate);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return rel.replace(/\\/g, '/');
+}
+
+async function listLocalDeliverableCandidates(cwd, {
+  dirs = [],
+  rootFiles = [],
+  maxFiles = 24,
+  maxBytes = 5 * 1024 * 1024,
+} = {}) {
+  const queue = [];
+  const dirRoots = dirs.map((dir) => path.resolve(cwd, dir));
+  const dirPrefixes = new Set(dirs.map((dir) => cleanString(dir).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')));
+
+  async function walkDirectory(currentPath) {
+    let entries;
+    try {
+      entries = await fs.readdir(currentPath, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.git')) continue;
+        // eslint-disable-next-line no-await-in-loop
+        await walkDirectory(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const rel = toRelativeWithin(cwd, fullPath);
+      if (!rel) continue;
+      const top = rel.split('/')[0];
+      if (!dirPrefixes.has(top)) continue;
+      let stat = null;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        stat = await fs.stat(fullPath);
+      } catch (_) {
+        stat = null;
+      }
+      if (!stat || !stat.isFile()) continue;
+      if (Number(stat.size) > maxBytes) continue;
+      queue.push({
+        relPath: rel,
+        absPath: fullPath,
+        size: Number(stat.size) || 0,
+        mtimeMs: Number(stat.mtimeMs) || 0,
+      });
+    }
+  }
+
+  for (const dirRoot of dirRoots) {
+    // eslint-disable-next-line no-await-in-loop
+    await walkDirectory(dirRoot);
+  }
+
+  for (const rootFile of rootFiles) {
+    const absPath = path.resolve(cwd, rootFile);
+    let stat = null;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      stat = await fs.stat(absPath);
+    } catch (_) {
+      stat = null;
+    }
+    if (!stat || !stat.isFile()) continue;
+    if (Number(stat.size) > maxBytes) continue;
+    const rel = toRelativeWithin(cwd, absPath);
+    if (!rel) continue;
+    queue.push({
+      relPath: rel,
+      absPath,
+      size: Number(stat.size) || 0,
+      mtimeMs: Number(stat.mtimeMs) || 0,
+    });
+  }
+
+  queue.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const deduped = [];
+  const seen = new Set();
+  for (const item of queue) {
+    if (seen.has(item.relPath)) continue;
+    seen.add(item.relPath);
+    deduped.push(item);
+    if (deduped.length >= maxFiles) break;
+  }
+  return deduped;
+}
+
+async function listRemoteDeliverableCandidates(execServer, cwd, {
+  dirs = [],
+  rootFiles = [],
+  maxFiles = 24,
+  maxBytes = 5 * 1024 * 1024,
+} = {}) {
+  const escapedRoot = shellEscape(cwd);
+  const escapedDirs = dirs.map((item) => shellEscape(item)).join(' ');
+  const escapedRoots = rootFiles.map((item) => shellEscape(item)).join(' ');
+  const script = [
+    'set -euo pipefail',
+    `ROOT=${escapedRoot}`,
+    `MAX_FILES=${Number(maxFiles)}`,
+    `MAX_BYTES=${Number(maxBytes)}`,
+    'collect() {',
+    '  local rel="$1"',
+    '  local full="$2"',
+    '  if [ ! -f "$full" ]; then return; fi',
+    '  local size',
+    '  size=$(wc -c < "$full" 2>/dev/null || echo 0)',
+    '  if [ "${size:-0}" -gt "$MAX_BYTES" ]; then return; fi',
+    '  local mtime',
+    '  mtime=$(stat -c %Y "$full" 2>/dev/null || echo 0)',
+    '  printf "%s\\t%s\\t%s\\n" "$rel" "${size:-0}" "${mtime:-0}"',
+    '}',
+    'for d in ' + (escapedDirs || "''") + '; do',
+    '  [ -z "$d" ] && continue',
+    '  if [ -d "$ROOT/$d" ]; then',
+    '    while IFS= read -r full; do',
+    '      [ -z "$full" ] && continue',
+    '      rel="${full#"$ROOT"/}"',
+    '      collect "$rel" "$full"',
+    '    done < <(find "$ROOT/$d" -type f 2>/dev/null)',
+    '  fi',
+    'done',
+    'for rf in ' + (escapedRoots || "''") + '; do',
+    '  [ -z "$rf" ] && continue',
+    '  collect "$rf" "$ROOT/$rf"',
+    'done',
+    'exit 0',
+  ].join('\n');
+
+  const sshArgs = [
+    ...buildSshArgs(execServer, { connectTimeout: 15 }),
+    `${execServer.user}@${execServer.host}`,
+    'bash',
+    '-s',
+  ];
+
+  const output = await new Promise((resolve, reject) => {
+    const proc = spawn('ssh', sshArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    proc.stdin.write(`${script}\n`);
+    proc.stdin.end();
+    proc.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) return resolve(stdout);
+      return reject(new Error(stderr.trim() || `ssh exited ${code}`));
+    });
+  });
+
+  const rows = String(output || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split('\t');
+      if (parts.length < 3) return null;
+      const [relPath, sizeRaw, mtimeRaw] = parts;
+      const rel = cleanString(relPath).replace(/\\/g, '/').replace(/^\/+/, '');
+      if (!rel || rel.includes('..')) return null;
+      const size = Number(sizeRaw);
+      const mtime = Number(mtimeRaw);
+      if (!Number.isFinite(size) || size < 0) return null;
+      if (!Number.isFinite(mtime) || mtime < 0) return null;
+      return {
+        relPath: rel,
+        size,
+        mtimeMs: mtime * 1000,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  const deduped = [];
+  const seen = new Set();
+  for (const item of rows) {
+    if (seen.has(item.relPath)) continue;
+    seen.add(item.relPath);
+    deduped.push(item);
+    if (deduped.length >= maxFiles) break;
+  }
+  return deduped;
 }
 
 function isLocalExecTarget(rawValue = '') {
@@ -209,13 +461,49 @@ function resolveRemoteCwd({ cwd, execServer, sourceServer }) {
   };
 }
 
-function buildRemoteScript(envVars = {}) {
+// Derive a short tmux session name from a run ID (deterministic, ≤20 chars)
+function deriveTmuxSession(runId) {
+  return `resops-${String(runId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12)}`;
+}
+
+// Derive deterministic log/exit file paths for a run step
+function deriveTmuxPaths(runId, stepId) {
+  const safeStep = String(stepId || 'step').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const base = `/tmp/researchops-runs/${runId}`;
+  return { logFile: `${base}/${safeStep}.log`, exitFile: `${base}/${safeStep}.exit` };
+}
+
+// Fire-and-forget SSH command for remote cleanup (e.g. killing a tmux session)
+function spawnRemoteFireAndForget(server, cmd) {
+  if (!server || !cleanString(cmd)) return;
+  try {
+    const proc = spawn('ssh', [
+      ...buildSshArgs(server, { connectTimeout: 10 }),
+      `${server.user}@${server.host}`,
+      'bash', '-c', cmd,
+    ], { stdio: ['ignore', 'ignore', 'ignore'], detached: process.platform !== 'win32' });
+    if (typeof proc.unref === 'function') proc.unref();
+  } catch (_) { /* fire-and-forget */ }
+}
+
+function buildRemoteScript(envVars = {}, tmuxOpts = null) {
   const exports = Object.entries(envVars)
     .filter(([key]) => isValidEnvKey(key))
     .map(([key, value]) => `export ${key}=${shellEscape(value)}`);
-  return [
+  const header = [
     'TARGET_CWD="$1"',
-    'RUN_CMD="$2"',
+    'RUN_CMD_B64="$2"',
+    'RUN_CMD=""',
+    'if [ -n "$RUN_CMD_B64" ]; then',
+    '  RUN_CMD="$(printf \'%s\' "$RUN_CMD_B64" | base64 -d 2>/dev/null || true)"',
+    '  if [ -z "$RUN_CMD" ]; then',
+    '    RUN_CMD="$(printf \'%s\' "$RUN_CMD_B64" | base64 --decode 2>/dev/null || true)"',
+    '  fi',
+    'fi',
+    'if [ -z "$RUN_CMD" ]; then',
+    '  echo "Missing remote command payload" >&2',
+    '  exit 2',
+    'fi',
     'case "$TARGET_CWD" in',
     "  '~'|'~/'*) TARGET_CWD=\"$HOME${TARGET_CWD#\\~}\" ;;",
     'esac',
@@ -223,9 +511,56 @@ function buildRemoteScript(envVars = {}) {
     '  cd "$TARGET_CWD"',
     'fi',
     ...exports,
-    'bash -lc "$RUN_CMD"',
-    '',
-  ].join('\n');
+  ];
+
+  if (tmuxOpts && tmuxOpts.sessionName) {
+    const { sessionName, logFile, exitFile } = tmuxOpts;
+    // Runner script executed inside the tmux session (base64-encoded to avoid quoting issues)
+    const runnerLines = [
+      '#!/usr/bin/env bash',
+      'bash -l "$1" > "$2" 2>&1',
+      'printf \'%d\\n\' "$?" > "$3"',
+      'rm -f "$1" "$4"',
+    ].join('\n');
+    const runnerB64 = Buffer.from(runnerLines, 'utf8').toString('base64');
+    return [
+      ...header,
+      `_RT_SESSION=${shellEscape(sessionName)}`,
+      `_RT_LOG=${shellEscape(logFile)}`,
+      `_RT_EXIT=${shellEscape(exitFile)}`,
+      `_RT_RUNNER_B64=${shellEscape(runnerB64)}`,
+      'mkdir -p "$(dirname "$_RT_LOG")" "$(dirname "$_RT_EXIT")"',
+      'rm -f "$_RT_LOG" "$_RT_EXIT"',
+      'touch "$_RT_LOG"',
+      'if command -v tmux >/dev/null 2>&1; then',
+      '  tmux kill-session -t "$_RT_SESSION" 2>/dev/null || true',
+      '  _RT_SCRIPT="$(mktemp /tmp/resops-cmd-XXXXX.sh)"',
+      '  _RT_RUNNER="$(mktemp /tmp/resops-run-XXXXX.sh)"',
+      '  printf \'%s\' "$RUN_CMD" > "$_RT_SCRIPT"',
+      '  printf \'%s\' "$_RT_RUNNER_B64" | base64 -d 2>/dev/null > "$_RT_RUNNER" ||',
+      '    printf \'%s\' "$_RT_RUNNER_B64" | base64 --decode 2>/dev/null > "$_RT_RUNNER"',
+      '  chmod 700 "$_RT_SCRIPT" "$_RT_RUNNER"',
+      '  tmux new-session -d -s "$_RT_SESSION" "bash $_RT_RUNNER $_RT_SCRIPT $_RT_LOG $_RT_EXIT $_RT_RUNNER" || {',
+      '    bash -lc "$RUN_CMD"; exit $?',
+      '  }',
+      '  tail -n +1 -f "$_RT_LOG" &',
+      '  _RT_TAIL=$!',
+      '  while ! [ -f "$_RT_EXIT" ]; do sleep 0.3; done',
+      '  sleep 1',
+      '  kill "$_RT_TAIL" 2>/dev/null || true',
+      '  wait "$_RT_TAIL" 2>/dev/null || true',
+      '  tmux kill-session -t "$_RT_SESSION" 2>/dev/null || true',
+      '  _RT_RC="$(cat "$_RT_EXIT" 2>/dev/null || echo 1)"',
+      '  rm -f "$_RT_LOG" "$_RT_EXIT" 2>/dev/null || true',
+      '  exit "$_RT_RC"',
+      'else',
+      '  bash -lc "$RUN_CMD"',
+      'fi',
+      '',
+    ].join('\n');
+  }
+
+  return [...header, 'bash -lc "$RUN_CMD"', ''].join('\n');
 }
 
 function toRemoteShellCommand({ command = '', args = [], cmd = '' } = {}) {
@@ -261,6 +596,14 @@ class BashRunModule extends BaseModule {
     const timeoutMs = Number(inputs.timeoutMs) > 0 ? Number(inputs.timeoutMs) : 15 * 60 * 1000;
     const runtimeEnv = buildRuntimeEnv(context, inputs);
     const outputFiles = asStringArray(inputs.outputFiles);
+    const autoCaptureOutputs = toBoolean(inputs.autoCaptureOutputs, true);
+    const autoCaptureDirs = normalizeAutoCaptureDirs(inputs.autoCaptureDirs);
+    const autoCaptureRoots = normalizeAutoCaptureRoots(inputs.autoCaptureRootFiles);
+    const autoCaptureMaxFiles = toPositiveInt(inputs.autoCaptureMaxFiles, 24, { min: 1, max: 200 });
+    const autoCaptureMaxBytes = toPositiveInt(inputs.autoCaptureMaxBytes, 5 * 1024 * 1024, {
+      min: 1024,
+      max: 50 * 1024 * 1024,
+    });
     const execServerRef = cleanString(
       inputs.execServerId
       || inputs.sshServerId
@@ -301,10 +644,17 @@ class BashRunModule extends BaseModule {
       );
     }
 
+    const runId = cleanString(context.run?.id);
+    const tmuxOpts = execServer && runId
+      ? { sessionName: deriveTmuxSession(runId), ...deriveTmuxPaths(runId, step.id) }
+      : null;
+
     return new Promise((resolve, reject) => {
+      const detached = process.platform !== 'win32';
       const child = execServer
         ? (() => {
           const remoteCmd = toRemoteShellCommand({ command, args, cmd });
+          const remoteCmdBase64 = Buffer.from(remoteCmd, 'utf8').toString('base64');
           const sshArgs = [
             ...buildSshArgs(execServer, { connectTimeout: 15 }),
             `${execServer.user}@${execServer.host}`,
@@ -312,13 +662,14 @@ class BashRunModule extends BaseModule {
             '-s',
             '--',
             effectiveCwd,
-            remoteCmd,
+            remoteCmdBase64,
           ];
           const proc = spawn('ssh', sshArgs, {
             env: process.env,
             stdio: ['pipe', 'pipe', 'pipe'],
+            detached,
           });
-          const remoteScript = buildRemoteScript(runtimeEnv);
+          const remoteScript = buildRemoteScript(runtimeEnv, tmuxOpts);
           proc.stdin.on('error', () => {});
           proc.stdin.end(remoteScript);
           return proc;
@@ -330,6 +681,7 @@ class BashRunModule extends BaseModule {
             ...runtimeEnv,
           },
           stdio: ['ignore', 'pipe', 'pipe'],
+          detached,
         });
 
       let stdout = '';
@@ -339,12 +691,30 @@ class BashRunModule extends BaseModule {
 
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill('SIGTERM');
+        terminateProcessTree({
+          pid: child.pid,
+          child,
+          detached,
+          graceMs: 3500,
+        }).catch(() => {});
+        if (execServer && tmuxOpts) {
+          const cleanCmd = `tmux kill-session -t ${shellEscape(tmuxOpts.sessionName)} 2>/dev/null; rm -f ${shellEscape(tmuxOpts.logFile)} ${shellEscape(tmuxOpts.exitFile)}`;
+          spawnRemoteFireAndForget(execServer, cleanCmd);
+        }
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
 
       context.registerCancelable(() => {
-        child.kill('SIGTERM');
+        terminateProcessTree({
+          pid: child.pid,
+          child,
+          detached,
+          graceMs: 3500,
+        }).catch(() => {});
+        if (execServer && tmuxOpts) {
+          const cleanCmd = `tmux kill-session -t ${shellEscape(tmuxOpts.sessionName)} 2>/dev/null; rm -f ${shellEscape(tmuxOpts.logFile)} ${shellEscape(tmuxOpts.exitFile)}`;
+          spawnRemoteFireAndForget(execServer, cleanCmd);
+        }
       });
 
       child.stdout.on('data', (chunk) => {
@@ -460,6 +830,120 @@ class BashRunModule extends BaseModule {
           result.artifacts = [...(result.artifacts || []), ...fetchedArtifacts];
         }
 
+        // Auto-capture deliverables from common output locations.
+        if (result.status === 'SUCCEEDED' && autoCaptureOutputs) {
+          try {
+            const existingArtifacts = await context.listArtifacts();
+            const existingPaths = new Set(
+              (Array.isArray(existingArtifacts) ? existingArtifacts : [])
+                .map((item) => cleanString(item?.path))
+                .filter(Boolean)
+            );
+            const captured = [];
+            const candidates = execServer
+              ? await listRemoteDeliverableCandidates(execServer, effectiveCwd, {
+                dirs: autoCaptureDirs,
+                rootFiles: autoCaptureRoots,
+                maxFiles: autoCaptureMaxFiles,
+                maxBytes: autoCaptureMaxBytes,
+              })
+              : await listLocalDeliverableCandidates(effectiveCwd, {
+                dirs: autoCaptureDirs,
+                rootFiles: autoCaptureRoots,
+                maxFiles: autoCaptureMaxFiles,
+                maxBytes: autoCaptureMaxBytes,
+              });
+
+            for (const candidate of candidates) {
+              if (!candidate?.relPath || existingPaths.has(candidate.relPath)) continue;
+              if (candidate.relPath.startsWith('.git/')) continue;
+              let fileBuffer = null;
+              try {
+                if (execServer) {
+                  const remotePath = path.posix.join(
+                    effectiveCwd.replace(/\\/g, '/'),
+                    candidate.relPath.replace(/\\/g, '/')
+                  );
+                  const tempPath = path.join(
+                    os.tmpdir(),
+                    `researchops-deliverable-${Date.now()}-${Math.random().toString(36).slice(2)}-${path.basename(candidate.relPath)}`
+                  );
+                  const scpArgs = [
+                    ...buildScpArgs(execServer, { connectTimeout: 15 }),
+                    `${execServer.user}@${execServer.host}:${remotePath}`,
+                    tempPath,
+                  ];
+                  await new Promise((res, rej) => {
+                    const scp = spawn('scp', scpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+                    scp.on('close', (c) => (c === 0 ? res() : rej(new Error(`SCP exited ${c}`))));
+                    scp.on('error', rej);
+                  });
+                  // eslint-disable-next-line no-await-in-loop
+                  fileBuffer = await fs.readFile(tempPath);
+                  // eslint-disable-next-line no-await-in-loop
+                  await fs.unlink(tempPath).catch(() => {});
+                } else {
+                  const absolutePath = path.resolve(effectiveCwd, candidate.relPath);
+                  // eslint-disable-next-line no-await-in-loop
+                  fileBuffer = await fs.readFile(absolutePath);
+                }
+              } catch (readErr) {
+                // eslint-disable-next-line no-await-in-loop
+                await context.emitStepLog(
+                  step,
+                  `[deliverable-capture-warning] Failed to read ${candidate.relPath}: ${readErr.message}`,
+                  { isError: true }
+                ).catch(() => {});
+                continue;
+              }
+
+              if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0) continue;
+              if (fileBuffer.length > autoCaptureMaxBytes) continue;
+
+              try {
+                const deliverableArtifact = await context.createArtifact(step, {
+                  kind: 'deliverable',
+                  title: path.basename(candidate.relPath),
+                  mimeType: inferMimeType(candidate.relPath),
+                  content: fileBuffer,
+                  pathHint: candidate.relPath,
+                  metadata: {
+                    autoCaptured: true,
+                    source: execServer ? 'ssh' : 'local',
+                    remoteServerId: execServer ? String(execServer.id) : null,
+                    bytes: fileBuffer.length,
+                  },
+                });
+                if (deliverableArtifact) {
+                  captured.push(deliverableArtifact);
+                  existingPaths.add(candidate.relPath);
+                }
+              } catch (captureErr) {
+                // eslint-disable-next-line no-await-in-loop
+                await context.emitStepLog(
+                  step,
+                  `[deliverable-capture-warning] Failed to persist ${candidate.relPath}: ${captureErr.message}`,
+                  { isError: true }
+                ).catch(() => {});
+              }
+            }
+
+            if (captured.length > 0) {
+              result.artifacts = [...(result.artifacts || []), ...captured];
+              await context.emitStepLog(
+                step,
+                `[deliverable-capture] auto-promoted ${captured.length} file(s) to run artifacts`
+              ).catch(() => {});
+            }
+          } catch (autoCaptureError) {
+            await context.emitStepLog(
+              step,
+              `[deliverable-capture-warning] ${autoCaptureError.message}`,
+              { isError: true }
+            ).catch(() => {});
+          }
+        }
+
         if (result.status === 'FAILED') {
           const message = timedOut
             ? `bash.run timed out after ${timeoutMs}ms`
@@ -475,3 +959,7 @@ class BashRunModule extends BaseModule {
 }
 
 module.exports = BashRunModule;
+module.exports.deriveTmuxSession = deriveTmuxSession;
+module.exports.deriveTmuxPaths = deriveTmuxPaths;
+module.exports.buildSshArgs = buildSshArgs;
+module.exports.spawnRemoteFireAndForget = spawnRemoteFireAndForget;

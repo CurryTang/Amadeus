@@ -476,6 +476,173 @@ async function updateProject(userId, projectId, payload = {}) {
   return updated ? projectShape(updated) : null;
 }
 
+async function deleteProject(userId, projectId, { force = false } = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(projectId);
+  if (!id) return null;
+
+  let projectDoc = null;
+  if (storeMode === 'mongodb') {
+    projectDoc = await mongoDb.collection('researchops_projects').findOne({ id, userId: uid });
+  } else {
+    projectDoc = memory.projects.find((item) => item.id === id && item.userId === uid) || null;
+  }
+  if (!projectDoc) return null;
+
+  const activeRunStatuses = ACTIVE_RUN_STATUSES.slice();
+  let activeRuns = [];
+  let runDocs = [];
+
+  if (storeMode === 'mongodb') {
+    activeRuns = await mongoDb.collection('researchops_runs')
+      .find({ userId: uid, projectId: id, status: { $in: activeRunStatuses } })
+      .project({ _id: 0, id: 1, status: 1 })
+      .limit(200)
+      .toArray();
+    if (activeRuns.length > 0 && !force) {
+      const error = new Error('Project has active runs');
+      error.code = 'PROJECT_HAS_ACTIVE_RUNS';
+      error.activeRuns = activeRuns;
+      throw error;
+    }
+    runDocs = await mongoDb.collection('researchops_runs')
+      .find({ userId: uid, projectId: id })
+      .project({ _id: 0, id: 1 })
+      .toArray();
+  } else {
+    activeRuns = memory.runs
+      .filter((item) => item.userId === uid && item.projectId === id && activeRunStatuses.includes(item.status))
+      .map((item) => ({ id: item.id, status: item.status }));
+    if (activeRuns.length > 0 && !force) {
+      const error = new Error('Project has active runs');
+      error.code = 'PROJECT_HAS_ACTIVE_RUNS';
+      error.activeRuns = activeRuns;
+      throw error;
+    }
+    runDocs = memory.runs
+      .filter((item) => item.userId === uid && item.projectId === id)
+      .map((item) => ({ id: item.id }));
+  }
+
+  const runIds = runDocs.map((item) => cleanString(item.id)).filter(Boolean);
+  const summary = {
+    projectId: id,
+    projectName: cleanString(projectDoc.name) || null,
+    activeRunIds: activeRuns.map((item) => item.id),
+    deleted: {
+      projects: 0,
+      ideas: 0,
+      runs: 0,
+      runEvents: 0,
+      runSteps: 0,
+      runArtifacts: 0,
+      runCheckpoints: 0,
+    },
+  };
+
+  if (storeMode === 'mongodb') {
+    const [projectDeleteResult, ideasDeleteResult, runsDeleteResult] = await Promise.all([
+      mongoDb.collection('researchops_projects').deleteOne({ id, userId: uid }),
+      mongoDb.collection('researchops_ideas').deleteMany({ userId: uid, projectId: id }),
+      mongoDb.collection('researchops_runs').deleteMany({ userId: uid, projectId: id }),
+    ]);
+    summary.deleted.projects = Number(projectDeleteResult?.deletedCount || 0);
+    summary.deleted.ideas = Number(ideasDeleteResult?.deletedCount || 0);
+    summary.deleted.runs = Number(runsDeleteResult?.deletedCount || 0);
+
+    if (runIds.length > 0) {
+      const [eventsDeleteResult, stepsDeleteResult, artifactsDeleteResult, checkpointsDeleteResult] = await Promise.all([
+        mongoDb.collection('researchops_run_events').deleteMany({ userId: uid, runId: { $in: runIds } }),
+        mongoDb.collection('researchops_run_steps').deleteMany({ userId: uid, runId: { $in: runIds } }),
+        mongoDb.collection('researchops_run_artifacts').deleteMany({ userId: uid, runId: { $in: runIds } }),
+        mongoDb.collection('researchops_run_checkpoints').deleteMany({ userId: uid, runId: { $in: runIds } }),
+      ]);
+      summary.deleted.runEvents = Number(eventsDeleteResult?.deletedCount || 0);
+      summary.deleted.runSteps = Number(stepsDeleteResult?.deletedCount || 0);
+      summary.deleted.runArtifacts = Number(artifactsDeleteResult?.deletedCount || 0);
+      summary.deleted.runCheckpoints = Number(checkpointsDeleteResult?.deletedCount || 0);
+    }
+  } else {
+    const beforeCounts = {
+      projects: memory.projects.length,
+      ideas: memory.ideas.length,
+      runs: memory.runs.length,
+      runEvents: memory.runEvents.length,
+      runSteps: memory.runSteps.length,
+      runArtifacts: memory.runArtifacts.length,
+      runCheckpoints: memory.runCheckpoints.length,
+    };
+
+    memory.projects = memory.projects.filter((item) => !(item.userId === uid && item.id === id));
+    memory.ideas = memory.ideas.filter((item) => !(item.userId === uid && item.projectId === id));
+    memory.runs = memory.runs.filter((item) => !(item.userId === uid && item.projectId === id));
+    memory.runEvents = memory.runEvents.filter((item) => !(item.userId === uid && runIds.includes(item.runId)));
+    memory.runSteps = memory.runSteps.filter((item) => !(item.userId === uid && runIds.includes(item.runId)));
+    memory.runArtifacts = memory.runArtifacts.filter((item) => !(item.userId === uid && runIds.includes(item.runId)));
+    memory.runCheckpoints = memory.runCheckpoints.filter((item) => !(item.userId === uid && runIds.includes(item.runId)));
+
+    summary.deleted.projects = beforeCounts.projects - memory.projects.length;
+    summary.deleted.ideas = beforeCounts.ideas - memory.ideas.length;
+    summary.deleted.runs = beforeCounts.runs - memory.runs.length;
+    summary.deleted.runEvents = beforeCounts.runEvents - memory.runEvents.length;
+    summary.deleted.runSteps = beforeCounts.runSteps - memory.runSteps.length;
+    summary.deleted.runArtifacts = beforeCounts.runArtifacts - memory.runArtifacts.length;
+    summary.deleted.runCheckpoints = beforeCounts.runCheckpoints - memory.runCheckpoints.length;
+  }
+
+  return summary;
+}
+
+async function listProjectArtifactObjectKeys(userId, projectId, { limit = 20000 } = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(projectId);
+  if (!id) return [];
+  const cap = toInt(limit, 20000, 1, 100000);
+
+  if (storeMode === 'mongodb') {
+    const runDocs = await mongoDb.collection('researchops_runs')
+      .find({ userId: uid, projectId: id })
+      .project({ _id: 0, id: 1 })
+      .toArray();
+    const runIds = runDocs.map((item) => cleanString(item.id)).filter(Boolean);
+    if (!runIds.length) return [];
+
+    const artifactDocs = await mongoDb.collection('researchops_run_artifacts')
+      .find({
+        userId: uid,
+        runId: { $in: runIds },
+        objectKey: { $exists: true, $ne: null, $ne: '' },
+      })
+      .project({ _id: 0, objectKey: 1 })
+      .limit(cap)
+      .toArray();
+
+    return Array.from(new Set(
+      artifactDocs
+        .map((item) => cleanString(item.objectKey))
+        .filter(Boolean)
+    ));
+  }
+
+  const runIdSet = new Set(
+    memory.runs
+      .filter((item) => item.userId === uid && item.projectId === id)
+      .map((item) => cleanString(item.id))
+      .filter(Boolean)
+  );
+  if (!runIdSet.size) return [];
+
+  return Array.from(new Set(
+    memory.runArtifacts
+      .filter((item) => item.userId === uid && runIdSet.has(cleanString(item.runId)))
+      .map((item) => cleanString(item.objectKey))
+      .filter(Boolean)
+      .slice(0, cap)
+  ));
+}
+
 async function listIdeas(userId, { projectId = '', status = '', limit = 80 } = {}) {
   await initStore();
   const uid = normalizeUserId(userId);
@@ -1054,8 +1221,9 @@ async function retryRun(userId, runId, payload = {}) {
   }
 
   const ts = nowIso();
+  const { _id: _ignoredObjectId, ...sourceWithoutObjectId } = source;
   const nextDoc = {
-    ...source,
+    ...sourceWithoutObjectId,
     id: newId('run'),
     status: 'QUEUED',
     createdAt: ts,
@@ -1589,6 +1757,32 @@ async function listRunArtifacts(userId, runId, { kind = '', limit = 200 } = {}) 
     .map(runArtifactShape);
 }
 
+async function getRunArtifact(userId, runId, artifactId) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const rid = cleanString(runId);
+  const aid = cleanString(artifactId);
+  if (!rid || !aid) return null;
+
+  const run = await getRun(uid, rid);
+  if (!run) {
+    const error = new Error('Run not found');
+    error.code = 'RUN_NOT_FOUND';
+    throw error;
+  }
+
+  if (storeMode === 'mongodb') {
+    const doc = await mongoDb.collection('researchops_run_artifacts')
+      .findOne({ userId: uid, runId: rid, id: aid });
+    return doc ? runArtifactShape(doc) : null;
+  }
+
+  const found = memory.runArtifacts.find(
+    (item) => item.userId === uid && item.runId === rid && item.id === aid
+  );
+  return found ? runArtifactShape(found) : null;
+}
+
 async function createRunCheckpoint(userId, runId, payload = {}) {
   await initStore();
   const uid = normalizeUserId(userId);
@@ -2056,6 +2250,8 @@ module.exports = {
   setProjectKnowledgeGroups,
   setProjectKnowledgeBaseFolder,
   updateProject,
+  deleteProject,
+  listProjectArtifactObjectKeys,
   listIdeas,
   createIdea,
   getIdea,
@@ -2077,6 +2273,7 @@ module.exports = {
   upsertRunStep,
   listRunSteps,
   createRunArtifact,
+  getRunArtifact,
   listRunArtifacts,
   createRunCheckpoint,
   listRunCheckpoints,

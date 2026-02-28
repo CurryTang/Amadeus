@@ -250,6 +250,25 @@ app.post('/api/researchops/insights/ensure-path', async (req, res) => {
 });
 
 /**
+ * Ensure a local project path is a git repository on the executor
+ * POST /api/researchops/insights/ensure-git
+ * Body: { projectPath }
+ */
+app.post('/api/researchops/insights/ensure-git', async (req, res) => {
+  try {
+    const projectPath = String(req.body?.projectPath || '').trim();
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+    const result = await projectInsightsService.ensureLocalGitRepository(projectPath);
+    return res.json(result);
+  } catch (error) {
+    console.error('[Processing] Project ensure-git insight error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to ensure project git repository' });
+  }
+});
+
+/**
  * Load project git progress for a local path on the executor
  * POST /api/researchops/insights/git-log
  * Body: { projectPath, limit }
@@ -261,7 +280,8 @@ app.post('/api/researchops/insights/git-log', async (req, res) => {
       return res.status(400).json({ error: 'projectPath is required' });
     }
     const limit = clampInteger(req.body?.limit, 30, 1, 120);
-    const result = await projectInsightsService.loadLocalProjectGitProgress(projectPath, limit);
+    const branch = String(req.body?.branch || '').trim();
+    const result = await projectInsightsService.loadLocalProjectGitProgress(projectPath, limit, { branch });
     return res.json(result);
   } catch (error) {
     console.error('[Processing] Project git-log insight error:', error);

@@ -30,6 +30,8 @@ const FEED_METADATA_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_METADATA_TIME
 const FEED_METADATA_ENRICH_MAX = Number.isFinite(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '80', 10))
   ? Math.max(0, Math.min(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '80', 10), 500))
   : 80;
+const FEED_REQUEST_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_REQUEST_TIMEOUT_MS || '10000', 10);
+const FEED_PAGE_ANNOTATE_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_PAGE_ANNOTATE_TIMEOUT_MS || '4500', 10);
 const FEED_PERSIST_ROW_ID = 1;
 const FEED_PERSIST_MAX_STALE_MS = parseInt(
   process.env.TRACKER_FEED_PERSIST_MAX_STALE_MS || String(72 * 60 * 60 * 1000),
@@ -446,6 +448,14 @@ async function withTimeout(task, timeoutMs, label) {
   }
 }
 
+function isTimeoutError(error) {
+  const text = String(error?.message || '').toLowerCase();
+  return error?.name === 'AbortError'
+    || text.includes('timeout')
+    || text.includes('timed out')
+    || text.includes('source_timeout');
+}
+
 async function enrichFeedWithArxivMetadata(items = []) {
   if (!Array.isArray(items) || items.length === 0 || FEED_METADATA_ENRICH_MAX <= 0) return items;
 
@@ -718,7 +728,11 @@ router.get('/feed', async (req, res) => {
     }
 
     if (!snapshot && !debug) {
-      const persisted = await loadPersistedFeedSnapshot();
+      const persisted = await withTimeout(
+        () => loadPersistedFeedSnapshot(),
+        FEED_REQUEST_TIMEOUT_MS,
+        'feed_persisted_load'
+      ).catch(() => null);
       if (persisted?.data?.length) {
         snapshot = persisted;
         cacheSource = 'persisted';
@@ -780,7 +794,17 @@ router.get('/feed', async (req, res) => {
 
     const sourceData = Array.isArray(snapshot.data) ? snapshot.data : [];
     const rawPageData = sourceData.slice(offset, offset + limit);
-    const pageData = await annotateSavedStatus(rawPageData);
+    let pageData = [];
+    try {
+      pageData = await withTimeout(
+        () => annotateSavedStatus(rawPageData),
+        FEED_PAGE_ANNOTATE_TIMEOUT_MS,
+        'feed_saved_status'
+      );
+    } catch (annotateError) {
+      console.warn('[tracker] annotateSavedStatus timed out/faulted:', annotateError.message || annotateError);
+      pageData = rawPageData.map((item) => ({ ...item, saved: Boolean(item?.saved) }));
+    }
     const fetchedAtIso = snapshot.fetchedAt
       ? new Date(snapshot.fetchedAt).toISOString()
       : new Date(now).toISOString();
@@ -800,7 +824,11 @@ router.get('/feed', async (req, res) => {
     });
   } catch (e) {
     console.error('[tracker] GET /feed error:', e);
-    res.status(500).json({ error: e.message });
+    const timeout = isTimeoutError(e);
+    res.status(timeout ? 504 : 500).json({
+      error: timeout ? 'Tracker feed request timed out. Please retry.' : (e.message || 'Failed to load tracker feed'),
+      code: timeout ? 'TRACKER_FEED_TIMEOUT' : 'TRACKER_FEED_ERROR',
+    });
   }
 });
 

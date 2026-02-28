@@ -322,6 +322,40 @@ async function ensureLocalProjectPath(projectPath) {
   return { normalizedPath };
 }
 
+async function ensureLocalGitRepository(projectPath) {
+  const targetPath = String(projectPath || '').trim();
+  if (!targetPath) throw new Error('projectPath is required');
+
+  const rootPath = path.resolve(expandHome(targetPath));
+  const stats = await fs.stat(rootPath).catch(() => null);
+  if (!stats || !stats.isDirectory()) {
+    throw new Error(`Project path is not a directory: ${rootPath}`);
+  }
+
+  let isGitRepo = false;
+  try {
+    const check = await runCommand('git', ['-C', rootPath, 'rev-parse', '--is-inside-work-tree'], {
+      timeoutMs: 10000,
+    });
+    isGitRepo = String(check.stdout || '').trim() === 'true';
+  } catch {
+    isGitRepo = false;
+  }
+
+  let initialized = false;
+  if (!isGitRepo) {
+    await runCommand('git', ['-C', rootPath, 'init'], { timeoutMs: 15000 });
+    isGitRepo = true;
+    initialized = true;
+  }
+
+  return {
+    rootPath,
+    isGitRepo,
+    initialized,
+  };
+}
+
 async function loadLocalProjectGitProgress(projectPath, limit = 25, { branch: branchOverride = '' } = {}) {
   const targetPath = String(projectPath || '').trim();
   if (!targetPath) throw new Error('projectPath is required');
@@ -374,7 +408,19 @@ async function loadLocalProjectGitProgress(projectPath, limit = 25, { branch: br
     `--pretty=format:${GIT_LOG_FORMAT}`,
     '-n',
     String(safeLimit),
-  ], { timeoutMs: 18000 });
+  ], { timeoutMs: 18000 }).catch((error) => {
+    const message = String(error?.message || '').toLowerCase();
+    const emptyRepoError = (
+      message.includes('does not have any commits yet')
+      || message.includes('unknown revision')
+      || message.includes('ambiguous argument')
+      || message.includes('bad revision')
+    );
+    if (emptyRepoError) {
+      return { stdout: '' };
+    }
+    throw error;
+  });
 
   const commits = parseGitLogOutput(logResult.stdout);
   return {
@@ -471,6 +517,7 @@ async function loadLocalProjectChangedFiles(projectPath, limit = 200) {
 module.exports = {
   checkLocalProjectPath,
   ensureLocalProjectPath,
+  ensureLocalGitRepository,
   loadLocalProjectGitProgress,
   loadLocalProjectFiles,
   loadLocalProjectChangedFiles,

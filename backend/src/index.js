@@ -15,6 +15,7 @@ const pdfService = require('./services/pdf.service');
 const codeAnalysisService = require('./services/code-analysis.service');
 const aiEditService = require('./services/ai-edit.service');
 const paperTrackerService = require('./services/paper-tracker.service');
+const researchOpsRunner = require('./services/researchops/runner');
 
 const app = express();
 
@@ -50,8 +51,19 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     const path = String(req.path || '');
+    const url = String(req.url || '');
+    const originalUrl = String(req.originalUrl || '');
+    const combined = `${path} ${url} ${originalUrl}`;
     if (req.method === 'OPTIONS') return true;
-    return path === '/api/auth/login' || path === '/api/auth/verify';
+    // Authenticated browser sessions are chatty (polling/workspace refresh).
+    // Avoid user-facing 429s during normal operation.
+    if (req.cookies && req.cookies.auth_token) return true;
+    if (path === '/api/auth/login' || path === '/api/auth/verify') return true;
+    // ResearchOps UI polls several endpoints frequently (events/report/dashboard/workspace).
+    // Exempt them from the coarse global limiter to prevent false 429s during active runs.
+    if (combined.includes('/researchops')) return true;
+    if (combined.includes('/project-insights')) return true;
+    return false;
   },
 });
 
@@ -170,6 +182,19 @@ async function startServer() {
       console.log('Paper tracker scheduler is disabled on this node');
     }
 
+    if (isPrimaryWorker) {
+      const dispatcherState = researchOpsRunner.startAutoDispatch({
+        enabled: process.env.RESEARCHOPS_AUTO_DISPATCH_ENABLED,
+        userId: process.env.RESEARCHOPS_AUTO_DISPATCH_USER_ID,
+        intervalMs: process.env.RESEARCHOPS_AUTO_DISPATCH_INTERVAL_MS,
+        maxLeasesPerTick: process.env.RESEARCHOPS_AUTO_DISPATCH_MAX_LEASES_PER_TICK,
+        unregisteredConcurrency: process.env.RESEARCHOPS_AUTO_DISPATCH_UNREGISTERED_CONCURRENCY,
+        staleRecoveryIntervalMs: process.env.RESEARCHOPS_STALE_RECOVERY_INTERVAL_MS,
+        staleMinutes: process.env.RESEARCHOPS_STALE_RECOVERY_MINUTES,
+      });
+      console.log('[ResearchOps] Auto dispatcher state:', dispatcherState);
+    }
+
     app.listen(config.port, () => {
       console.log(`Server running on port ${config.port}`);
       console.log(`Environment: ${config.nodeEnv}`);
@@ -187,6 +212,7 @@ process.on('SIGINT', async () => {
   codeAnalysisService.stopProcessor();
   aiEditService.stopProcessor();
   paperTrackerService.stop();
+  researchOpsRunner.stopAutoDispatch();
   process.exit(0);
 });
 
@@ -196,6 +222,7 @@ process.on('SIGTERM', async () => {
   codeAnalysisService.stopProcessor();
   aiEditService.stopProcessor();
   paperTrackerService.stop();
+  researchOpsRunner.stopAutoDispatch();
   process.exit(0);
 });
 

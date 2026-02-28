@@ -135,19 +135,19 @@ module.exports = {
   // Gemini CLI Configuration
   geminiCli: {
     path: process.env.GEMINI_CLI_PATH || 'gemini',
-    model: process.env.GEMINI_CLI_MODEL || 'gemini-3-flash-preview',
+    model: process.env.GEMINI_CLI_MODEL || 'gemini-2.5-flash',
   },
 
   // Google API Configuration (Google Developer Platform)
   googleApi: {
     apiKey: process.env.GOOGLE_API_KEY,
-    model: process.env.GOOGLE_API_MODEL || 'gemini-3-flash-preview',
+    model: process.env.GOOGLE_API_MODEL || 'gemini-2.5-flash',
   },
 
   // Codex CLI Configuration (OpenAI Codex)
   codexCli: {
     path: process.env.CODEX_CLI_PATH || 'codex',
-    model: process.env.CODEX_CLI_MODEL || 'gpt-5.1-codex-mini',
+    model: process.env.CODEX_CLI_MODEL || 'gpt-5.3-codex',
     sandbox: process.env.CODEX_CLI_SANDBOX || 'workspace-write',
     approval: process.env.CODEX_CLI_APPROVAL || 'never',
   },
@@ -155,7 +155,7 @@ module.exports = {
   // Claude Code CLI Configuration
   claudeCli: {
     path: process.env.CLAUDE_CLI_PATH || 'claude',
-    model: process.env.CLAUDE_CLI_MODEL || 'claude-haiku-4-5-20251001',
+    model: process.env.CLAUDE_CLI_MODEL || 'claude-sonnet-4-6',
     apiKey: process.env.ANTHROPIC_API_KEY,
   },
 
@@ -163,7 +163,7 @@ module.exports = {
   llm: {
     gemini: {
       apiKey: process.env.GEMINI_API_KEY,
-      model: process.env.GEMINI_MODEL || 'gemini-1.5-pro',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     },
     anthropic: {
       apiKey: process.env.ANTHROPIC_API_KEY,

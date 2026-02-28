@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const os = require('os');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
 const store = require('./store');
 const s3Service = require('../s3.service');
 const contextPackService = require('./context-pack.service');
@@ -11,9 +12,497 @@ const CheckpointModule = require('./modules/checkpoint.module');
 const ReportRenderModule = require('./modules/report-render.module');
 const ArtifactPublishModule = require('./modules/artifact-publish.module');
 const workflowSchemaService = require('./workflow-schema.service');
+const { getDb } = require('../../db');
+
+const PROJECT_GIT_LOCKS = new Map();
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function shellEscape(value) {
+  const text = String(value ?? '');
+  return `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
+function asBoolean(value, fallback = true) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = cleanString(value).toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function normalizeRemotePath(input = '') {
+  const raw = cleanString(input).replace(/\\/g, '/');
+  return raw.replace(/\/{2,}/g, '/');
+}
+
+function joinRemotePath(...parts) {
+  return normalizeRemotePath(parts.filter(Boolean).join('/'));
+}
+
+function summarizeProcessIo(text = '', maxLines = 3) {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return '';
+  return lines.slice(-Math.max(1, Number(maxLines) || 3)).join(' | ');
+}
+
+function formatProcessError(error) {
+  const message = cleanString(error?.message || 'process failed');
+  const details = [];
+  const stderrTail = summarizeProcessIo(error?.stderr || '', 3);
+  const stdoutTail = summarizeProcessIo(error?.stdout || '', 2);
+  if (stderrTail) details.push(`stderr=${stderrTail}`);
+  else if (stdoutTail) details.push(`stdout=${stdoutTail}`);
+  if (Number.isFinite(Number(error?.code))) details.push(`code=${Number(error.code)}`);
+  return details.length ? `${message} (${details.join('; ')})` : message;
+}
+
+function isRetriableSshError(error) {
+  const code = Number(error?.code);
+  if (code === 255) return true;
+  const message = `${cleanString(error?.message)} ${cleanString(error?.stderr)}`.toLowerCase();
+  return [
+    'connection timed out',
+    'connection reset',
+    'connection closed',
+    'operation timed out',
+    'broken pipe',
+    'network is unreachable',
+    'remote host identification has changed',
+  ].some((token) => message.includes(token));
+}
+
+async function runProcess(command, args = [], {
+  cwd = '',
+  env = null,
+  input = '',
+  timeoutMs = 120000,
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: cleanString(cwd) || undefined,
+      env: env || process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, Number.isFinite(Number(timeoutMs)) ? Number(timeoutMs) : 120000);
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr, code: 0, signal: signal || null });
+        return;
+      }
+      const err = new Error(
+        timedOut
+          ? `${command} timed out after ${timeoutMs}ms`
+          : `${command} exited with code ${code}`
+      );
+      err.code = code;
+      err.signal = signal || null;
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+    });
+
+    if (input) child.stdin.write(String(input));
+    child.stdin.end();
+  });
+}
+
+function buildSshArgs(server, { connectTimeout = 15 } = {}) {
+  const keyPath = cleanString(server?.ssh_key_path || '~/.ssh/id_rsa').replace(/^~(?=\/|$)/, os.homedir());
+  const args = [
+    '-F', '/dev/null',
+    '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
+    '-o', `ConnectTimeout=${connectTimeout}`,
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-i', keyPath,
+    '-p', String(server?.port || 22),
+  ];
+  if (cleanString(server?.proxy_jump)) {
+    args.push('-J', cleanString(server.proxy_jump));
+  }
+  return args;
+}
+
+async function getSshServerByRef(ref = '') {
+  const normalized = cleanString(ref);
+  if (!normalized) return null;
+  const db = getDb();
+  let result = await db.execute({
+    sql: 'SELECT * FROM ssh_servers WHERE id = ?',
+    args: [normalized],
+  });
+  if (result.rows?.length) return result.rows[0];
+  result = await db.execute({
+    sql: 'SELECT * FROM ssh_servers WHERE name = ?',
+    args: [normalized],
+  });
+  return result.rows?.[0] || null;
+}
+
+async function runSshScript(server, scriptBody, args = [], timeoutMs = 120000) {
+  const sshArgs = [
+    ...buildSshArgs(server, { connectTimeout: 15 }),
+    `${server.user}@${server.host}`,
+    'bash',
+    '-s',
+    '--',
+    ...args.map((item) => String(item ?? '')),
+  ];
+
+  let lastError = null;
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await runProcess('ssh', sshArgs, {
+        input: `${String(scriptBody || '').trim()}\n`,
+        timeoutMs,
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxAttempts || !isRetriableSshError(error)) {
+        throw error;
+      }
+      // Brief backoff to avoid failing the whole run on transient SSH blips.
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(350 * attempt);
+    }
+  }
+  throw lastError || new Error('ssh execution failed');
+}
+
+async function withProjectGitLock(projectId, fn) {
+  const key = cleanString(projectId) || '__default__';
+  const previous = PROJECT_GIT_LOCKS.get(key) || Promise.resolve();
+  let release = null;
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+  PROJECT_GIT_LOCKS.set(key, current);
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (PROJECT_GIT_LOCKS.get(key) === current) {
+      PROJECT_GIT_LOCKS.delete(key);
+    }
+  }
+}
+
+function buildGitWorkspaceAwareRun(run = {}, gitWorkspace = null) {
+  if (!gitWorkspace) return run;
+  const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+  const effectiveCwd = cleanString(gitWorkspace.worktreeProjectPath || gitWorkspace.worktreePath);
+  return {
+    ...run,
+    metadata: {
+      ...metadata,
+      cwd: effectiveCwd,
+      cwdSourceServerId: gitWorkspace.cwdSourceServerId || cleanString(run?.serverId || ''),
+      gitManagedRun: true,
+      gitWorktreePath: gitWorkspace.worktreePath,
+      gitWorktreeProjectPath: effectiveCwd,
+      gitBaseCommit: gitWorkspace.baseCommit,
+      gitTargetBranch: gitWorkspace.targetBranch || null,
+    },
+  };
+}
+
+async function prepareGitWorkspace({ userId, run, project }) {
+  const enabled = asBoolean(run?.metadata?.gitManaged, true);
+  if (!enabled) return null;
+  const runId = cleanString(run?.id);
+  const projectPath = cleanString(project?.projectPath);
+  if (!runId) throw new Error('Git workspace preparation failed: missing run id');
+  if (!projectPath) throw new Error('Git workspace preparation failed: missing project path');
+
+  const projectId = cleanString(project?.id || run?.projectId || '');
+  return withProjectGitLock(projectId || runId, async () => {
+    const locationType = cleanString(project?.locationType || 'local').toLowerCase();
+    const isSsh = locationType === 'ssh';
+    const serverRef = isSsh
+      ? cleanString(project?.serverId || run?.serverId)
+      : '';
+    const sshServer = isSsh ? await getSshServerByRef(serverRef) : null;
+    if (isSsh && !sshServer) {
+      throw new Error(`Git workspace preparation failed: SSH server not found (${serverRef || 'unknown'})`);
+    }
+
+    const runLocalGit = async (workingPath, gitArgs, timeoutMs = 120000) => runProcess(
+      'git',
+      ['-C', workingPath, ...gitArgs],
+      { timeoutMs }
+    );
+    const runRemoteGit = async (workingPath, gitArgs, timeoutMs = 120000) => {
+      const cmd = `git -C "$TARGET" ${gitArgs.map((item) => shellEscape(item)).join(' ')}`;
+      const script = [
+        'set -euo pipefail',
+        'TARGET="$1"',
+        cmd,
+      ].join('\n');
+      return runSshScript(sshServer, script, [workingPath], timeoutMs);
+    };
+
+    const runGit = isSsh ? runRemoteGit : runLocalGit;
+    const normalizedProjectPath = isSsh
+      ? normalizeRemotePath(projectPath)
+      : path.resolve(projectPath);
+
+    if (isSsh) {
+      const ensureScript = [
+        'set -euo pipefail',
+        'TARGET="$1"',
+        'mkdir -p "$TARGET"',
+        'TOPLEVEL="$(git -C "$TARGET" rev-parse --show-toplevel 2>/dev/null || true)"',
+        'if [ -z "$TOPLEVEL" ]; then',
+        '  git -C "$TARGET" init >/dev/null 2>&1',
+        'fi',
+      ].join('\n');
+      await runSshScript(sshServer, ensureScript, [normalizedProjectPath], 120000);
+    } else {
+      await fs.mkdir(normalizedProjectPath, { recursive: true });
+      const detectedTopLevel = cleanString(
+        (await runGit(normalizedProjectPath, ['rev-parse', '--show-toplevel']).catch(() => ({ stdout: '' }))).stdout
+      )
+        .split(/\r?\n/)[0];
+      const topLevelPath = detectedTopLevel ? path.resolve(detectedTopLevel) : '';
+      if (!topLevelPath) {
+        await runGit(normalizedProjectPath, ['init']);
+      }
+    }
+
+    const repoRoot = cleanString((await runGit(normalizedProjectPath, ['rev-parse', '--show-toplevel'])).stdout)
+      .split(/\r?\n/)[0] || normalizedProjectPath;
+    const projectPrefix = cleanString((await runGit(normalizedProjectPath, ['rev-parse', '--show-prefix'])).stdout)
+      .split(/\r?\n/)[0];
+    const projectRelativePath = projectPrefix
+      ? projectPrefix.replace(/\\/g, '/').replace(/\/+$/, '')
+      : '';
+
+    const hasHeadCommit = await runGit(repoRoot, ['rev-parse', '--verify', 'HEAD'])
+      .then(() => true)
+      .catch(() => false);
+    if (!hasHeadCommit) {
+      await runGit(repoRoot, ['config', 'user.name', 'Auto Researcher']).catch(() => {});
+      await runGit(repoRoot, ['config', 'user.email', 'auto-researcher@local']).catch(() => {});
+      await runGit(repoRoot, ['commit', '--allow-empty', '-m', 'researchops: initialize repository'], 180000);
+    }
+
+    const requestedBranch = cleanString(project?.gitBranch);
+    const currentBranch = cleanString((await runGit(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout)
+      .split(/\r?\n/)[0] || '';
+
+    let targetBranch = requestedBranch;
+    if (targetBranch) {
+      const branchExists = await runGit(repoRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${targetBranch}`]).then(
+        () => true
+      ).catch(() => false);
+      if (!branchExists) {
+        targetBranch = currentBranch && currentBranch !== 'HEAD' ? currentBranch : '';
+      }
+    } else if (currentBranch && currentBranch !== 'HEAD') {
+      targetBranch = currentBranch;
+    }
+
+    const baseRef = targetBranch || 'HEAD';
+    const baseCommit = cleanString((await runGit(repoRoot, ['rev-parse', baseRef])).stdout)
+      .split(/\r?\n/)[0];
+    if (!baseCommit) {
+      throw new Error('Git workspace preparation failed: unable to resolve base commit');
+    }
+
+    const safeProjectId = projectId.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const safeRunId = runId.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const worktreePath = isSsh
+      ? joinRemotePath('/tmp/researchops-worktrees', `${safeProjectId}-${safeRunId}`)
+      : path.join(os.tmpdir(), 'researchops-worktrees', `${safeProjectId}-${safeRunId}`);
+    const worktreeProjectPath = projectRelativePath
+      ? (isSsh ? joinRemotePath(worktreePath, projectRelativePath) : path.join(worktreePath, projectRelativePath))
+      : worktreePath;
+
+    if (isSsh) {
+      const prepScript = [
+        'set -euo pipefail',
+        'ROOT="$1"',
+        'WT="$2"',
+        'BASE="$3"',
+        'WT_PROJECT="$4"',
+        'mkdir -p "$(dirname "$WT")"',
+        'git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || true',
+        'rm -rf "$WT"',
+        'git -C "$ROOT" worktree add --detach "$WT" "$BASE"',
+        'if [ -n "$WT_PROJECT" ]; then',
+        '  mkdir -p "$WT_PROJECT"',
+        'fi',
+      ].join('\n');
+      await runSshScript(sshServer, prepScript, [repoRoot, worktreePath, baseCommit, worktreeProjectPath], 180000);
+    } else {
+      await runGit(repoRoot, ['worktree', 'remove', '--force', worktreePath]).catch(() => {});
+      await fs.rm(worktreePath, { recursive: true, force: true }).catch(() => {});
+      await fs.mkdir(path.dirname(worktreePath), { recursive: true });
+      await runGit(repoRoot, ['worktree', 'add', '--detach', worktreePath, baseCommit], 180000);
+      await fs.mkdir(worktreeProjectPath, { recursive: true });
+    }
+
+    await runGit(repoRoot, ['update-ref', `refs/researchops/runs/${runId}/base`, baseCommit]).catch(() => {});
+
+    return {
+      enabled: true,
+      userId: cleanString(userId),
+      runId,
+      projectId,
+      mode: isSsh ? 'ssh' : 'local',
+      server: sshServer,
+      repoRoot,
+      projectPath: normalizedProjectPath,
+      projectRelativePath,
+      projectUsesParentRepo: Boolean(projectRelativePath),
+      worktreePath,
+      worktreeProjectPath,
+      baseCommit,
+      targetBranch: targetBranch || '',
+      runType: cleanString(run?.runType || '').toUpperCase() || 'RUN',
+      cwdSourceServerId: isSsh ? cleanString(project?.serverId || run?.serverId) : 'local-default',
+      runGitRepo: (gitArgs, timeoutMs = 120000) => runGit(repoRoot, gitArgs, timeoutMs),
+      runGitProject: (gitArgs, timeoutMs = 120000) => runGit(normalizedProjectPath, gitArgs, timeoutMs),
+      runGitWorktree: (gitArgs, timeoutMs = 120000) => runGit(worktreePath, gitArgs, timeoutMs),
+    };
+  });
+}
+
+async function finalizeGitWorkspaceSuccess(gitWorkspace) {
+  if (!gitWorkspace?.enabled) return null;
+  const commitMessage = `researchops(${gitWorkspace.runId}): ${gitWorkspace.runType.toLowerCase()} succeeded`;
+  return withProjectGitLock(gitWorkspace.projectId, async () => {
+    await gitWorkspace.runGitWorktree(['config', 'user.name', 'Auto Researcher']).catch(() => {});
+    await gitWorkspace.runGitWorktree(['config', 'user.email', 'auto-researcher@local']).catch(() => {});
+    await gitWorkspace.runGitWorktree(['add', '-A'], 180000);
+    await gitWorkspace.runGitWorktree(['commit', '--allow-empty', '-m', commitMessage], 180000);
+    const worktreeCommit = cleanString((await gitWorkspace.runGitWorktree(['rev-parse', 'HEAD'])).stdout)
+      .split(/\r?\n/)[0];
+    if (!worktreeCommit) {
+      throw new Error('Git finalize failed: unable to read worktree commit hash');
+    }
+    await gitWorkspace.runGitRepo(['update-ref', `refs/researchops/runs/${gitWorkspace.runId}/head`, worktreeCommit]).catch(() => {});
+
+    const projectStatusRaw = cleanString((await gitWorkspace.runGitProject(['status', '--porcelain'])).stdout);
+    let preRunStashRef = '';
+    let preRunStashCreated = false;
+    if (projectStatusRaw) {
+      const previousStashTop = cleanString(
+        (await gitWorkspace.runGitProject(['rev-parse', '--verify', '--quiet', 'refs/stash']).catch(() => ({ stdout: '' }))).stdout
+      ).split(/\r?\n/)[0];
+      await gitWorkspace.runGitProject([
+        'stash',
+        'push',
+        '--include-untracked',
+        '-m',
+        `researchops-pre-run-${gitWorkspace.runId}`,
+      ], 180000);
+      const currentStashTop = cleanString(
+        (await gitWorkspace.runGitProject(['rev-parse', '--verify', '--quiet', 'refs/stash']).catch(() => ({ stdout: '' }))).stdout
+      ).split(/\r?\n/)[0];
+      if (currentStashTop && currentStashTop !== previousStashTop) {
+        preRunStashRef = currentStashTop;
+        preRunStashCreated = true;
+      }
+    }
+
+    let stashRestoreWarning = '';
+    const restoreStash = async () => {
+      if (!preRunStashCreated || !preRunStashRef) return;
+      try {
+        await gitWorkspace.runGitProject(['stash', 'apply', '--index', preRunStashRef], 180000);
+        await gitWorkspace.runGitProject(['stash', 'drop', preRunStashRef], 120000).catch(() => {});
+      } catch (error) {
+        const detail = cleanString(error?.stderr) || cleanString(error?.message) || 'unknown error';
+        stashRestoreWarning = `Pre-run changes were stashed (${preRunStashRef}) and need manual restore: ${detail}`;
+        await gitWorkspace.runGitProject(['reset', '--hard', 'HEAD']).catch(() => {});
+        await gitWorkspace.runGitProject(['clean', '-fd']).catch(() => {});
+      }
+    };
+
+    let mergeStrategy = 'merge';
+    try {
+      await gitWorkspace.runGitProject(['merge', '--no-ff', '--no-edit', worktreeCommit], 180000);
+    } catch (error) {
+      await gitWorkspace.runGitProject(['merge', '--abort']).catch(() => {});
+      try {
+        await gitWorkspace.runGitProject(['merge', '--no-ff', '--no-edit', '-X', 'theirs', worktreeCommit], 180000);
+        mergeStrategy = 'merge-theirs';
+      } catch (retryError) {
+        await gitWorkspace.runGitProject(['merge', '--abort']).catch(() => {});
+        await restoreStash().catch(() => {});
+        const detail = cleanString(retryError?.stderr) || cleanString(retryError?.message) || 'unknown error';
+        throw new Error(`Git finalize failed during merge: ${detail}`);
+      }
+    }
+
+    const appliedCommit = cleanString((await gitWorkspace.runGitProject(['rev-parse', 'HEAD'])).stdout)
+      .split(/\r?\n/)[0] || worktreeCommit;
+    await restoreStash();
+    await gitWorkspace.runGitRepo(['update-ref', `refs/researchops/runs/${gitWorkspace.runId}/applied`, appliedCommit]).catch(() => {});
+    return {
+      commitMessage,
+      worktreeCommit,
+      appliedCommit,
+      targetBranch: gitWorkspace.targetBranch || null,
+      mergeStrategy,
+      stashRestoreWarning: stashRestoreWarning || null,
+    };
+  });
+}
+
+async function rollbackGitWorkspaceFailure(gitWorkspace) {
+  if (!gitWorkspace?.enabled) return;
+  await gitWorkspace.runGitProject(['merge', '--abort']).catch(() => {});
+  await gitWorkspace.runGitProject(['cherry-pick', '--abort']).catch(() => {});
+  await gitWorkspace.runGitWorktree(['reset', '--hard', gitWorkspace.baseCommit]).catch(() => {});
+}
+
+async function cleanupGitWorkspace(gitWorkspace) {
+  if (!gitWorkspace?.enabled) return;
+  if (gitWorkspace.mode === 'ssh') {
+    const cleanupScript = [
+      'set -euo pipefail',
+      'ROOT="$1"',
+      'WT="$2"',
+      'git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || true',
+      'rm -rf "$WT"',
+    ].join('\n');
+    await runSshScript(gitWorkspace.server, cleanupScript, [gitWorkspace.repoRoot, gitWorkspace.worktreePath], 120000)
+      .catch(() => {});
+    return;
+  }
+  await gitWorkspace.runGitRepo(['worktree', 'remove', '--force', gitWorkspace.worktreePath]).catch(() => {});
+  await fs.rm(gitWorkspace.worktreePath, { recursive: true, force: true }).catch(() => {});
 }
 
 function sleep(ms) {
@@ -264,11 +753,19 @@ class ResearchOpsOrchestrator {
     if (!run?.id) throw new Error('Invalid run');
     const runId = run.id;
     const startedAt = Date.now();
+    const project = await store.getProject(uid, run.projectId);
+    if (!project) {
+      throw new Error(`Project not found for run ${runId}`);
+    }
     let cancelled = false;
     const cancelFns = new Set();
     const stepResults = [];
     let cachedArtifacts = null;
     let runtimeFiles = null;
+    let gitWorkspace = null;
+    let gitFinalize = null;
+    let gitFinalized = false;
+    let effectiveRun = run;
 
     const contextPack = await contextPackService.buildContextPack(uid, {
       runId,
@@ -304,7 +801,42 @@ class ResearchOpsOrchestrator {
     }
 
     try {
-      runtimeFiles = await stageRuntimeFiles(run, contextPack);
+      gitWorkspace = await prepareGitWorkspace({
+        userId: uid,
+        run,
+        project,
+      });
+      if (gitWorkspace?.enabled) {
+        effectiveRun = buildGitWorkspaceAwareRun(run, gitWorkspace);
+        const effectiveCwd = cleanString(gitWorkspace.worktreeProjectPath || gitWorkspace.worktreePath);
+        await store.publishRunEvents(uid, runId, [{
+          eventType: 'LOG_LINE',
+          status: 'INFO',
+          message: `[git-orchestrator] worktree=${gitWorkspace.worktreePath} cwd=${effectiveCwd} base=${gitWorkspace.baseCommit}`,
+        }]);
+        if (gitWorkspace.projectUsesParentRepo) {
+          await store.publishRunEvents(uid, runId, [{
+            eventType: 'LOG_LINE',
+            status: 'INFO',
+            message: `[git-orchestrator] project path is nested; reusing repo root ${gitWorkspace.repoRoot}`,
+            payload: {
+              projectPath: gitWorkspace.projectPath,
+              projectRelativePath: gitWorkspace.projectRelativePath || '',
+            },
+          }]);
+        }
+      }
+    } catch (error) {
+      await store.publishRunEvents(uid, runId, [{
+        eventType: 'LOG_LINE',
+        status: 'ERROR',
+        message: `[git-orchestrator] ${formatProcessError(error)}`,
+      }]).catch(() => {});
+      throw error;
+    }
+
+    try {
+      runtimeFiles = await stageRuntimeFiles(effectiveRun, contextPack);
       if (runtimeFiles?.skillRefsPath) {
         await store.createRunArtifact(uid, runId, {
           kind: 'skill_refs_manifest',
@@ -313,7 +845,7 @@ class ResearchOpsOrchestrator {
           mimeType: 'application/json',
           metadata: {
             localPath: runtimeFiles.skillRefsPath,
-            skillCount: Array.isArray(run.skillRefs) ? run.skillRefs.length : 0,
+            skillCount: Array.isArray(effectiveRun.skillRefs) ? effectiveRun.skillRefs.length : 0,
             skillsDir: runtimeFiles.skillsDir || null,
           },
         });
@@ -326,7 +858,7 @@ class ResearchOpsOrchestrator {
           mimeType: 'application/json',
           metadata: {
             localPath: runtimeFiles.runSpecPath,
-            schemaVersion: cleanString(run.schemaVersion) || '2.0',
+            schemaVersion: cleanString(effectiveRun.schemaVersion) || '2.0',
           },
         });
       }
@@ -344,14 +876,14 @@ class ResearchOpsOrchestrator {
     }
 
     const context = {
-      run,
+      run: effectiveRun,
       userId: uid,
       runId,
       contextPack,
       runtimeFiles,
       runtimeEnv: {
         RESEARCHOPS_RUN_ID: runId,
-        RESEARCHOPS_PROJECT_ID: cleanString(run.projectId),
+        RESEARCHOPS_PROJECT_ID: cleanString(effectiveRun.projectId),
         RESEARCHOPS_TMPDIR: runtimeFiles?.rootDir || '',
         RESEARCHOPS_CONTEXT_PACK_JSON_PATH: runtimeFiles?.contextJsonPath || '',
         RESEARCHOPS_CONTEXT_PACK_MD_PATH: runtimeFiles?.contextMarkdownPath || '',
@@ -504,9 +1036,9 @@ class ResearchOpsOrchestrator {
       : null;
 
     try {
-      const workflowInput = Array.isArray(run.workflow) && run.workflow.length
-        ? run.workflow
-        : defaultWorkflow(run);
+      const workflowInput = Array.isArray(effectiveRun.workflow) && effectiveRun.workflow.length
+        ? effectiveRun.workflow
+        : defaultWorkflow(effectiveRun);
       const normalizedWorkflow = workflowSchemaService.normalizeAndValidateWorkflow(workflowInput, {
         allowEmpty: false,
       });
@@ -723,7 +1255,7 @@ class ResearchOpsOrchestrator {
               for (const suggestion of suggestedNextSteps.slice(0, 8)) {
                 // eslint-disable-next-line no-await-in-loop
                 await store.createIdea(uid, {
-                  projectId: run.projectId,
+                  projectId: effectiveRun.projectId,
                   title: suggestion.length > 120 ? `${suggestion.slice(0, 117)}...` : suggestion,
                   hypothesis: suggestion,
                   summary: `Auto-generated from run ${runId} step ${stepId}`,
@@ -851,12 +1383,12 @@ class ResearchOpsOrchestrator {
         }
       }
 
-      if (run.mode === 'headless') {
-        const required = Array.isArray(run?.outputContract?.requiredArtifacts)
-          ? run.outputContract.requiredArtifacts
+      if (effectiveRun.mode === 'headless') {
+        const required = Array.isArray(effectiveRun?.outputContract?.requiredArtifacts)
+          ? effectiveRun.outputContract.requiredArtifacts
           : [];
         const requiredKinds = normalizeTokenList(required);
-        if (run?.outputContract?.summaryRequired) {
+        if (effectiveRun?.outputContract?.summaryRequired) {
           requiredKinds.push('run_summary_md');
         }
 
@@ -867,8 +1399,8 @@ class ResearchOpsOrchestrator {
           throw new Error(`Headless output contract failed: missing artifacts ${missingKinds.join(', ')}`);
         }
 
-        const expectedTables = normalizeTokenList(run?.outputContract?.tables);
-        const expectedFigures = normalizeTokenList(run?.outputContract?.figures);
+        const expectedTables = normalizeTokenList(effectiveRun?.outputContract?.tables);
+        const expectedFigures = normalizeTokenList(effectiveRun?.outputContract?.figures);
         if (expectedTables.length > 0) {
           const tableArtifacts = artifacts.filter((item) => isTableLikeArtifact(item));
           const missingTables = expectedTables.filter((token) => !tableArtifacts.some((item) => artifactMatchesToken(item, token)));
@@ -885,15 +1417,38 @@ class ResearchOpsOrchestrator {
         }
       }
 
+      if (gitWorkspace?.enabled) {
+        gitFinalize = await finalizeGitWorkspaceSuccess(gitWorkspace);
+        gitFinalized = true;
+        await store.publishRunEvents(uid, runId, [{
+          eventType: 'LOG_LINE',
+          status: 'INFO',
+          message: `[git-orchestrator] merged ${gitFinalize?.appliedCommit || gitFinalize?.worktreeCommit || 'unknown'} (${gitFinalize?.commitMessage || 'run commit'})`,
+          payload: {
+            appliedCommit: gitFinalize?.appliedCommit || null,
+            worktreeCommit: gitFinalize?.worktreeCommit || null,
+            targetBranch: gitFinalize?.targetBranch || null,
+            mergeStrategy: gitFinalize?.mergeStrategy || 'merge',
+          },
+        }]);
+        if (cleanString(gitFinalize?.stashRestoreWarning)) {
+          await store.publishRunEvents(uid, runId, [{
+            eventType: 'LOG_LINE',
+            status: 'WARNING',
+            message: `[git-orchestrator] ${gitFinalize.stashRestoreWarning}`,
+          }]);
+        }
+      }
+
       // Collect continuation spec from any agent.run step, or from run metadata (for chained phases)
       const continuationFromStep = stepResults
         .slice()
         .reverse()
         .find((r) => r.continuation && typeof r.continuation === 'object' && r.continuation.nextRun)
         ?.continuation || null;
-      const pendingContinuation = run?.metadata?.pendingContinuation
-        && typeof run.metadata.pendingContinuation === 'object'
-        ? run.metadata.pendingContinuation
+      const pendingContinuation = effectiveRun?.metadata?.pendingContinuation
+        && typeof effectiveRun.metadata.pendingContinuation === 'object'
+        ? effectiveRun.metadata.pendingContinuation
         : null;
       const effectiveContinuation = continuationFromStep || pendingContinuation || null;
 
@@ -915,7 +1470,20 @@ class ResearchOpsOrchestrator {
         stepCount: stepResults.length,
         continuation: effectiveContinuation,
       };
+    } catch (error) {
+      if (gitWorkspace?.enabled && !gitFinalized) {
+        await rollbackGitWorkspaceFailure(gitWorkspace).catch(() => {});
+        await store.publishRunEvents(uid, runId, [{
+          eventType: 'LOG_LINE',
+          status: 'WARNING',
+          message: `[git-orchestrator] run failed; rolled back workspace to ${gitWorkspace.baseCommit}`,
+        }]).catch(() => {});
+      }
+      throw error;
     } finally {
+      if (gitWorkspace?.enabled) {
+        await cleanupGitWorkspace(gitWorkspace).catch(() => {});
+      }
       if (typeof onUnregisterCancel === 'function') {
         onUnregisterCancel(register);
       }

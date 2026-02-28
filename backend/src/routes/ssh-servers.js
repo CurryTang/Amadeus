@@ -144,7 +144,9 @@ function resolveSharedFsConfig(payload = {}, defaults = {}, { selfId = '' } = {}
 function buildSshArgs(server, { connectTimeout = 10 } = {}) {
   const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
   const sshArgs = [
+    '-F', '/dev/null',
     '-o', 'BatchMode=yes',
+    '-o', 'ClearAllForwardings=yes',
     '-o', `ConnectTimeout=${connectTimeout}`,
     '-o', 'StrictHostKeyChecking=accept-new',
     '-i', keyPath,

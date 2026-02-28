@@ -59,11 +59,12 @@ class ProjectInsightsProxyService {
     }
   }
 
-  getGitLog({ projectPath, limit = 30 } = {}) {
+  getGitLog({ projectPath, branch = '', limit = 30 } = {}) {
     return this.request('/api/researchops/insights/git-log', {
       method: 'POST',
       body: {
         projectPath,
+        branch,
         limit,
       },
     });
@@ -98,6 +99,13 @@ class ProjectInsightsProxyService {
 
   ensurePath({ projectPath } = {}) {
     return this.request('/api/researchops/insights/ensure-path', {
+      method: 'POST',
+      body: { projectPath },
+    });
+  }
+
+  ensureGitRepo({ projectPath } = {}) {
+    return this.request('/api/researchops/insights/ensure-git', {
       method: 'POST',
       body: { projectPath },
     });
