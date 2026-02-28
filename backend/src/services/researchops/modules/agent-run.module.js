@@ -529,8 +529,8 @@ function tryParseStructuredOutput(text = '') {
 
 function defaultArgsFor(command, prompt, opts = {}) {
   if (command === 'codex') {
-    const model = cleanString(opts.model) || cleanString(process.env.RESEARCHOPS_CODEX_MODEL || config.codexCli?.model || 'o4-mini');
-    const reasoningEffort = cleanString(opts.reasoningEffort) || cleanString(process.env.RESEARCHOPS_CODEX_REASONING_EFFORT || 'medium').toLowerCase() || 'medium';
+    const model = cleanString(opts.model) || cleanString(process.env.RESEARCHOPS_CODEX_MODEL || config.codexCli?.model || 'gpt-5.3-codex');
+    const reasoningEffort = cleanString(opts.reasoningEffort) || cleanString(process.env.RESEARCHOPS_CODEX_REASONING_EFFORT || 'high').toLowerCase() || 'high';
     const args = ['exec', '--yolo'];
     if (model) args.push('-m', model);
     if (reasoningEffort) args.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
