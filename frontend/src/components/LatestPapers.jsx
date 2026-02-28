@@ -192,6 +192,17 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
 
   const isFiltered = !!(activeCategory || keywordSearch.trim());
 
+  const [sortOrder, setSortOrder] = useState('default'); // 'default' | 'newest' | 'oldest'
+
+  const sortedFilteredPapers = useMemo(() => {
+    if (sortOrder === 'default') return filteredPapers;
+    return [...filteredPapers].sort((a, b) => {
+      const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+      const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+      return sortOrder === 'newest' ? tb - ta : ta - tb;
+    });
+  }, [filteredPapers, sortOrder]);
+
   const fetchFeed = useCallback(async ({
     offset = 0,
     append = false,
@@ -326,7 +337,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   };
 
   const displayCount = isFiltered
-    ? `${filteredPapers.length}/${papers.length}`
+    ? `${sortedFilteredPapers.length}/${papers.length}`
     : `${papers.length}${total ? `/${total}` : ''}`;
 
   return (
@@ -351,6 +362,16 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
             value={keywordSearch}
             onChange={(e) => setKeywordSearch(e.target.value)}
           />
+          <select
+            className="latest-category-select"
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+            title="Sort order"
+          >
+            <option value="default">By Relevance</option>
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+          </select>
           {isFiltered && (
             <button
               className="latest-filter-clear"
@@ -400,7 +421,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         </div>
       )}
 
-      {!loading && filteredPapers.length === 0 && !error && (
+      {!loading && sortedFilteredPapers.length === 0 && !error && (
         <div className="empty-state">
           {isFiltered ? (
             <>
@@ -417,7 +438,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
       )}
 
       <div className="latest-papers-list">
-        {filteredPapers.map((paper, idx) => (
+        {sortedFilteredPapers.map((paper, idx) => (
           <PaperCard
             key={getFeedItemKey(paper) || `${paper.title || 'item'}-${idx}`}
             paper={paper}
