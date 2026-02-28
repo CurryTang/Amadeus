@@ -1420,6 +1420,14 @@ class ResearchOpsOrchestrator {
       if (gitWorkspace?.enabled) {
         gitFinalize = await finalizeGitWorkspaceSuccess(gitWorkspace);
         gitFinalized = true;
+        if (gitFinalize?.worktreeCommit) {
+          await store.patchRunMeta(uid, runId, {
+            gitBaseCommit: gitWorkspace.baseCommit || null,
+            gitWorktreeCommit: gitFinalize.worktreeCommit,
+            gitAppliedCommit: gitFinalize.appliedCommit || gitFinalize.worktreeCommit,
+            gitTargetBranch: gitFinalize.targetBranch || null,
+          }).catch(() => {});
+        }
         await store.publishRunEvents(uid, runId, [{
           eventType: 'LOG_LINE',
           status: 'INFO',

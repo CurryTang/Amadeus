@@ -4379,6 +4379,97 @@ router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('f
   }
 });
 
+// Run tree (parent-child structure)
+router.get('/projects/:projectId/run-tree', requireAuth, async (req, res) => {
+  try {
+    const uid = getUserId(req);
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 100), 400);
+
+    const runs = await researchOpsStore.listRuns(uid, { projectId, limit });
+
+    // Build adjacency map
+    const nodeMap = {};
+    for (const run of runs) {
+      nodeMap[run.id] = { ...run, children: [] };
+    }
+    const roots = [];
+    for (const run of runs) {
+      const parentId = run.metadata?.parentRunId;
+      if (parentId && nodeMap[parentId]) {
+        nodeMap[parentId].children.push(nodeMap[run.id]);
+      } else {
+        roots.push(nodeMap[run.id]);
+      }
+    }
+
+    return res.json({ tree: roots, total: runs.length });
+  } catch (error) {
+    console.error('[ResearchOps] run-tree failed:', error);
+    return res.status(500).json({ error: sanitizeError(error, 'Failed to build run tree') });
+  }
+});
+
+// Git restore — create a new branch from a specific run's committed state
+router.post('/projects/:projectId/git/restore', requireAuth, async (req, res) => {
+  try {
+    const uid = getUserId(req);
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    const runId = String(req.body?.runId || '').trim();
+    if (!runId) return res.status(400).json({ error: 'runId is required' });
+
+    const { project, server } = await resolveProjectContext(uid, projectId);
+    if (!project.projectPath) return res.status(400).json({ error: 'Project has no projectPath configured' });
+
+    const run = await researchOpsStore.getRun(uid, runId);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    // Prefer the SHA stored in run metadata; fall back to git ref lookup
+    let resolvedCommit = String(run.metadata?.gitAppliedCommit || run.metadata?.gitWorktreeCommit || '').trim();
+
+    if (!resolvedCommit) {
+      if (server?.id && server.id !== 'local-default') {
+        return res.status(400).json({ error: 'Git restore via SSH is not supported yet; run must have git metadata stored' });
+      }
+      // Try resolving from the git namespace ref directly
+      try {
+        const result = await runCommand('git', [
+          '-C', project.projectPath,
+          'rev-parse', `refs/researchops/runs/${runId}/head`,
+        ], { timeoutMs: 15000 });
+        resolvedCommit = String(result.stdout || '').trim().split(/\r?\n/)[0];
+      } catch {
+        return res.status(404).json({ error: 'No git state found for this run. Run may not have had git tracking enabled.' });
+      }
+    }
+
+    if (!resolvedCommit) {
+      return res.status(404).json({ error: 'Could not resolve git commit for this run' });
+    }
+
+    const safeSuffix = runId.replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 12);
+    const branch = String(req.body?.branch || `restore/run-${safeSuffix}`).trim().replace(/\s+/g, '-');
+
+    try {
+      await runCommand('git', [
+        '-C', project.projectPath,
+        'checkout', '-b', branch, resolvedCommit,
+      ], { timeoutMs: 30000 });
+    } catch (gitErr) {
+      return res.status(400).json({ error: `git checkout failed: ${String(gitErr.message || gitErr).slice(0, 200)}` });
+    }
+
+    return res.json({ ok: true, branch, commit: resolvedCommit, runId });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    console.error('[ResearchOps] git/restore failed:', error);
+    return res.status(500).json({ error: sanitizeError(error, 'Git restore failed') });
+  }
+});
+
 // Autopilot
 router.post('/projects/:projectId/autopilot/start', requireAuth, async (req, res) => {
   try {

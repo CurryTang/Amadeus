@@ -372,6 +372,48 @@ async function executeRun(userId, run) {
             }]).catch(() => {});
           }
         }
+
+        // Handle nextRuns[] array — tree branching: one parent spawns multiple children
+        const nextRunsSpec = Array.isArray(continuation?.nextRuns) ? continuation.nextRuns : [];
+        for (const spec of nextRunsSpec) {
+          if (!spec || typeof spec !== 'object') continue;
+          try {
+            const branchLabel = asString(spec.branchLabel || spec.metadata?.branchLabel) || '';
+            const childPayload = {
+              projectId: asString(spec.projectId) || run.projectId,
+              runType: asString(spec.runType).toUpperCase() || 'AGENT',
+              schemaVersion: asString(spec.schemaVersion) || '2.0',
+              serverId: asString(spec.serverId) || run.serverId || 'local-default',
+              provider: asString(spec.provider) || run.provider || null,
+              mode: asString(spec.mode) || 'interactive',
+              workflow: Array.isArray(spec.workflow) ? spec.workflow : [],
+              skillRefs: Array.isArray(spec.skillRefs)
+                ? spec.skillRefs
+                : (Array.isArray(run.skillRefs) ? run.skillRefs : []),
+              contextRefs: spec.contextRefs && typeof spec.contextRefs === 'object'
+                ? spec.contextRefs
+                : (run.contextRefs || {}),
+              metadata: {
+                ...(spec.metadata && typeof spec.metadata === 'object' ? spec.metadata : {}),
+                parentRunId: run.id,
+                branchLabel,
+                continuationPhase: asString(continuation.phase) || 'branch',
+              },
+            };
+            const childRun = await store.enqueueRun(uid, childPayload);
+            await store.publishRunEvents(uid, run.id, [{
+              eventType: 'RESULT_SUMMARY',
+              message: `Branch run enqueued: ${childRun.id}${branchLabel ? ` (${branchLabel})` : ''}`,
+              payload: { childRunId: childRun.id, branchLabel, childRunType: childPayload.runType },
+            }]);
+          } catch (branchError) {
+            console.error('[ResearchOpsRunner] branch enqueue failed:', branchError);
+            await store.publishRunEvents(uid, run.id, [{
+              eventType: 'LOG_LINE',
+              message: `[branch-warning] Failed to enqueue branch run: ${branchError.message}`,
+            }]).catch(() => {});
+          }
+        }
       } catch (error) {
         console.error('[ResearchOpsRunner] v2 run failed:', error);
         const current = await store.getRun(uid, run.id).catch(() => null);

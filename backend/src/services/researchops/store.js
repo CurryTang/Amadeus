@@ -1001,6 +1001,36 @@ async function updateRunStatus(userId, runId, status, message = '', payload = nu
   return runShape(updated);
 }
 
+async function patchRunMeta(userId, runId, metaPatch) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(runId);
+  if (!id || !metaPatch || typeof metaPatch !== 'object') return null;
+
+  if (storeMode === 'mongodb') {
+    const setFields = { updatedAt: nowIso() };
+    for (const [k, v] of Object.entries(metaPatch)) {
+      setFields[`metadata.${k}`] = v;
+    }
+    const result = await mongoDb.collection('researchops_runs').findOneAndUpdate(
+      { id, userId: uid },
+      { $set: setFields },
+      { returnDocument: 'after' }
+    );
+    const updated = unwrapFindOneAndUpdate(result);
+    return updated ? runShape(updated) : null;
+  }
+
+  const idx = memory.runs.findIndex((item) => item.id === id && item.userId === uid);
+  if (idx === -1) return null;
+  memory.runs[idx] = {
+    ...memory.runs[idx],
+    metadata: { ...(memory.runs[idx].metadata || {}), ...metaPatch },
+    updatedAt: nowIso(),
+  };
+  return runShape(memory.runs[idx]);
+}
+
 async function listQueue(userId, { serverId = '', limit = 100 } = {}) {
   await initStore();
   const uid = normalizeUserId(userId);
@@ -2260,6 +2290,7 @@ module.exports = {
   listRuns,
   getRun,
   updateRunStatus,
+  patchRunMeta,
   listQueue,
   leaseNextRun,
   recoverStaleRuns,
