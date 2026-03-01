@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const { getDb } = require('../db');
+const keypairService = require('../services/keypair.service');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -142,7 +143,7 @@ function resolveSharedFsConfig(payload = {}, defaults = {}, { selfId = '' } = {}
 }
 
 function buildSshArgs(server, { connectTimeout = 10 } = {}) {
-  const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
+  const keyPath = keypairService.MANAGED_KEY_PATH;
   const sshArgs = [
     '-F', '/dev/null',
     '-o', 'BatchMode=yes',
@@ -592,15 +593,14 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 // ─── Utility endpoints ─────────────────────────────────────────────────────
 
-// GET /api/ssh-servers/public-key?keyPath=~/.ssh/id_rsa
+// GET /api/ssh-servers/public-key — returns the system managed public key
 router.get('/public-key', requireAuth, (req, res) => {
-  const keyPath = expandHome(req.query.keyPath || '~/.ssh/id_rsa');
-  const pubPath = keyPath.endsWith('.pub') ? keyPath : `${keyPath}.pub`;
+  const pubPath = keypairService.MANAGED_KEY_PUB_PATH;
   try {
     const publicKey = fs.readFileSync(pubPath, 'utf8').trim();
     res.json({ publicKey, path: pubPath });
   } catch {
-    res.status(404).json({ error: `Public key not found at ${pubPath}` });
+    res.status(404).json({ error: 'Managed public key not found. Restart the server to generate it.' });
   }
 });
 
@@ -801,11 +801,10 @@ router.post('/:id/authorize-key', requireAuth, async (req, res) => {
     const result = await db.execute({ sql: `SELECT * FROM ssh_servers WHERE id = ?`, args: [req.params.id] });
     if (!result.rows.length) return res.status(404).json({ error: 'Server not found' });
     const s = result.rows[0];
-    const keyPath = expandHome(s.ssh_key_path || '~/.ssh/id_rsa');
-    const pubPath = keyPath.endsWith('.pub') ? keyPath : `${keyPath}.pub`;
+    const pubPath = keypairService.MANAGED_KEY_PUB_PATH;
 
     if (!fs.existsSync(pubPath)) {
-      return res.status(400).json({ error: `Public key not found at ${pubPath}. Run: ssh-keygen` });
+      return res.status(400).json({ error: 'Managed public key not found. Restart the server to generate it.' });
     }
 
     // Check sshpass is available

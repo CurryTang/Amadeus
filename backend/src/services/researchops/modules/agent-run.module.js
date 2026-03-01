@@ -6,6 +6,7 @@ const BaseModule = require('./base-module');
 const { getDb } = require('../../../db');
 const config = require('../../../config');
 const { terminateProcessTree } = require('../process-control');
+const keypairService = require('../../keypair.service');
 
 const TOP_PRIORITY_FILE_REMOVAL_RULE = [
   'TOP-PRIORITY RULE (apply before all other instructions):',
@@ -64,7 +65,7 @@ async function getExecServerByRef(ref = '') {
 }
 
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
-  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
+  const keyPath = keypairService.MANAGED_KEY_PATH;
   const args = [
     '-F', '/dev/null',
     '-o', 'BatchMode=yes',
@@ -412,9 +413,19 @@ function applyTopPriorityFileRemovalRule(prompt = '') {
   return `${TOP_PRIORITY_FILE_REMOVAL_RULE}\n\n${text}`;
 }
 
+function resolveReferencePath(inputs = {}, runMetadata = {}) {
+  return cleanString(
+    inputs.referencePath
+    || inputs.reference
+    || runMetadata.referencePath
+    || runMetadata.reference
+  );
+}
+
 function buildPrompt(step, run, context = {}) {
   const inputs = step.inputs && typeof step.inputs === 'object' ? step.inputs : {};
   const runMetadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+  const referencePath = resolveReferencePath(inputs, runMetadata);
   const stepPrompt = cleanString(inputs.prompt);
   let basePrompt = stepPrompt;
   if (!basePrompt) {
@@ -448,6 +459,7 @@ function buildPrompt(step, run, context = {}) {
   if (skillsDir) hints.push(`- Skills directory: ${skillsDir}`);
   if (runSpecPath) hints.push(`- Run spec snapshot: ${runSpecPath}`);
   if (parentArtifactsDir) hints.push(`- Parent run artifacts (read these for context): ${parentArtifactsDir}/`);
+  if (referencePath) hints.push(`- Reference path (original code/papers): ${referencePath}`);
 
   const promptWithResources = hints.length === 0
     ? basePrompt
@@ -457,6 +469,14 @@ function buildPrompt(step, run, context = {}) {
     'Run resources (read before coding):',
     ...hints,
   ].join('\n');
+  const promptWithReference = referencePath
+    ? [
+      promptWithResources,
+      '',
+      'Reference requirement:',
+      `Use ${referencePath} as the primary reference for implementation details and alignment with original code/papers when applicable.`,
+    ].join('\n')
+    : promptWithResources;
 
   const continuationInstructions = rootDir ? [
     '',
@@ -481,8 +501,8 @@ function buildPrompt(step, run, context = {}) {
   ].join('\n') : '';
 
   const fullPrompt = continuationInstructions
-    ? `${promptWithResources}${continuationInstructions}`
-    : promptWithResources;
+    ? `${promptWithReference}${continuationInstructions}`
+    : promptWithReference;
 
   return applyTopPriorityFileRemovalRule(fullPrompt);
 }
@@ -648,10 +668,12 @@ class AgentRunModule extends BaseModule {
     this.validate(step);
     const inputs = step.inputs && typeof step.inputs === 'object' ? step.inputs : {};
     const run = context.run || {};
+    const runMetadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
     const requestedCommand = cleanString(inputs.command) || providerToCommand(run.provider);
     let command = requestedCommand;
     let args = asStringArray(inputs.args);
-    const cwdInput = cleanString(inputs.cwd || run?.metadata?.cwd);
+    const cwdInput = cleanString(inputs.cwd || runMetadata.cwd);
+    const referencePath = resolveReferencePath(inputs, runMetadata);
     const execServerRef = cleanString(
       inputs.execServerId
       || inputs.sshServerId
@@ -693,6 +715,10 @@ class AgentRunModule extends BaseModule {
       : 45 * 60 * 1000;
     let runtimeEnv = buildRuntimeEnv(context, inputs);
     let promptContext = context;
+    if (referencePath) {
+      runtimeEnv.RESEARCHOPS_REFERENCE_PATH = referencePath;
+      runtimeEnv.VIBE_REFERENCE_PATH = referencePath;
+    }
     if (requestedCwd) runtimeEnv.RESEARCHOPS_REQUESTED_CWD = requestedCwd;
     if (fallbackReason) runtimeEnv.RESEARCHOPS_CWD_FALLBACK_REASON = fallbackReason;
     if (fallbackReason && requestedCwd) {

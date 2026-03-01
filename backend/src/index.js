@@ -16,6 +16,7 @@ const codeAnalysisService = require('./services/code-analysis.service');
 const aiEditService = require('./services/ai-edit.service');
 const paperTrackerService = require('./services/paper-tracker.service');
 const researchOpsRunner = require('./services/researchops/runner');
+const keypairService = require('./services/keypair.service');
 
 const app = express();
 
@@ -150,6 +151,13 @@ async function startServer() {
   try {
     await initDatabase();
     console.log('Connected to Turso database');
+
+    const { created } = await keypairService.ensureKeypair();
+    if (created) {
+      console.log('[keypair] New Ed25519 keypair generated — authorize it on your SSH servers');
+    } else {
+      console.log('[keypair] Managed keypair ready');
+    }
 
     // Clean up any leftover temp files from previous sessions
     // All raw files should only be stored in S3, not on the server
