@@ -2989,6 +2989,19 @@ body > #d[id*="mermaid"] {
   border-color: #6366f1;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
+.ssh-form-oneliner {
+  background: #1e293b;
+  border-radius: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+.ssh-form-oneliner code {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: #a5f3fc;
+  white-space: nowrap;
+  user-select: all;
+}
 .ssh-form-hint {
   font-size: 0.75rem;
   color: #9ca3af;
@@ -4272,6 +4285,305 @@ body > #d[id*="mermaid"] {
   color: #7f1d1d;
 }
 
+.vibe-agent-bash-modal {
+  width: min(1200px, 95vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vibe-agent-bash-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.vibe-agent-session-pane {
+  border: 1px solid #dbe4f4;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.vibe-agent-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vibe-agent-pane-head h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.vibe-agent-session-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.vibe-agent-session-item {
+  width: 100%;
+  border: 1px solid #dbe4f4;
+  border-radius: 10px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vibe-agent-session-item.is-active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+}
+
+.vibe-agent-session-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.vibe-agent-session-meta {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.vibe-agent-session-preview {
+  font-size: 0.75rem;
+  color: #334155;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.vibe-agent-session-status {
+  font-size: 0.7rem;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid #dbe4f4;
+  background: #f8fafc;
+  color: #334155;
+}
+
+.vibe-agent-session-status--running {
+  border-color: #bae6fd;
+  color: #0369a1;
+  background: #f0f9ff;
+}
+
+.vibe-agent-session-status--failed {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff1f2;
+}
+
+.vibe-agent-chat-pane {
+  border: 1px solid #dbe4f4;
+  border-radius: 12px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px;
+  gap: 10px;
+}
+
+.vibe-agent-chat-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vibe-agent-chat-head-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vibe-agent-chat-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.vibe-agent-messages {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  flex: 1;
+  min-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vibe-agent-msg {
+  border-radius: 10px;
+  border: 1px solid #dbe4f4;
+  background: #ffffff;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vibe-agent-msg--assistant {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.vibe-agent-msg--system {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+}
+
+.vibe-agent-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: #475569;
+  flex-wrap: wrap;
+}
+
+.vibe-agent-msg-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  color: #0f172a;
+}
+
+.vibe-agent-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vibe-agent-msg-attachment {
+  width: min(180px, 100%);
+  border: 1px solid #dbe4f4;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+  margin: 0;
+}
+
+.vibe-agent-msg-attachment img {
+  display: block;
+  width: 100%;
+  max-height: 150px;
+  object-fit: cover;
+  background: #f1f5f9;
+}
+
+.vibe-agent-msg-attachment figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.72rem;
+  color: #334155;
+  padding: 6px;
+}
+
+.vibe-agent-msg-attachment figcaption small {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.vibe-agent-attachment-fallback {
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  text-align: center;
+  font-size: 0.74rem;
+  color: #475569;
+  background: #f8fafc;
+}
+
+.vibe-agent-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vibe-agent-composer-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vibe-agent-composer-image {
+  width: min(220px, 100%);
+  border: 1px solid #dbe4f4;
+  border-radius: 10px;
+  padding: 6px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vibe-agent-composer-image img {
+  width: 100%;
+  max-height: 130px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.vibe-agent-composer-image input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 0.78rem;
+}
+
+.vibe-agent-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+@media (max-width: 1024px) {
+  .vibe-agent-bash-layout {
+    grid-template-columns: 1fr;
+    max-height: none;
+    overflow: auto;
+  }
+  .vibe-agent-session-pane {
+    max-height: 180px;
+  }
+}
+
 .vibe-workspace {
   display: flex;
   flex-direction: column;
@@ -4572,7 +4884,7 @@ body > #d[id*="mermaid"] {
   grid-template-areas:
     "knowledge outputs deliverables"
     "pipeline files project"
-    "projectfiles projectfiles projectfiles";
+    "gitprogress gitprogress gitprogress";
   gap: 14px;
 }
 
@@ -4617,9 +4929,21 @@ body > #d[id*="mermaid"] {
   overflow: hidden;
 }
 
-.vibe-card--projectfiles {
-  grid-area: projectfiles;
+/* .vibe-card--projectfiles removed — replaced by vibe-card--gitprogress */
+
+/* Prevent long content (file paths, commit messages) from blowing out neo grid columns */
+.vibe-workspace-grid--neo .vibe-list-main strong {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vibe-workspace-grid--neo .vibe-kb-folder-row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  display: block;
 }
 
 .vibe-git-insights {
@@ -4791,6 +5115,58 @@ body > #d[id*="mermaid"] {
   margin: 0;
   font-size: 0.8rem;
   color: #243b63;
+}
+
+.vibe-git-file-ai {
+  background: linear-gradient(160deg, #f5f8ff 0%, #eef4ff 100%);
+  border-color: #c8d9f4;
+}
+
+.vibe-git-file-ai-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vibe-git-file-ai-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vibe-git-file-ai-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #3b5ea6;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.vibe-git-file-ai-input,
+.vibe-git-file-ai-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #c8d9f4;
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 0.8rem;
+  background: #ffffff;
+  color: #1e293b;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.vibe-git-file-ai-input:focus,
+.vibe-git-file-ai-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.vibe-git-file-ai-submit {
+  width: 100%;
+  margin-top: 2px;
 }
 
 .vibe-git-file-preview-head {
@@ -4998,12 +5374,88 @@ body > #d[id*="mermaid"] {
   flex: 1 1 120px;
 }
 
+.vibe-kb-code-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.vibe-kb-code-option input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+}
+
+.vibe-all-papers-search {
+  flex: 1;
+  min-width: 220px;
+  border: 1px solid #d2def3;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  background: #fff;
+  color: #1e293b;
+}
+
+.vibe-all-papers-search:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.vibe-all-papers-body {
+  margin-top: 10px;
+  max-height: 62vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vibe-all-papers-group {
+  border: 1px solid #d8e3f5;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 8px;
+}
+
+.vibe-all-papers-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.vibe-all-papers-group-head strong {
+  font-size: 0.86rem;
+  color: #102647;
+}
+
+.vibe-all-papers-group-head span {
+  font-size: 0.76rem;
+  color: #5b6f8c;
+}
+
+.vibe-all-papers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .vibe-inline-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 8px;
+}
+
+.vibe-run-select {
+  flex: 1 1 240px;
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
 }
 
 .vibe-workspace .vibe-list-item {
@@ -5601,6 +6053,34 @@ body > #d[id*="mermaid"] {
   overflow: auto;
 }
 
+.vibe-all-papers-modal {
+  max-width: 1100px;
+  max-height: 88vh;
+  overflow: auto;
+}
+
+.vibe-markdown-viewer-modal {
+  max-width: 1100px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vibe-markdown-viewer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #dbe4f2;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.vibe-markdown-viewer-content {
+  max-width: 100%;
+}
+
 .vibe-knowledge-hub-modal {
   max-width: 1320px;
   max-height: 90vh;
@@ -5963,6 +6443,7 @@ body > #d[id*="mermaid"] {
   }
 
   .vibe-workspace-grid--neo {
+    grid-template-columns: 1fr;
     grid-template-areas:
       "knowledge"
       "outputs"
@@ -5970,7 +6451,7 @@ body > #d[id*="mermaid"] {
       "pipeline"
       "files"
       "project"
-      "projectfiles";
+      "gitprogress";
   }
 
   .vibe-project-columns {
@@ -6530,6 +7011,24 @@ button.vibe-skill-chip.is-active {
   border-color: #6366f1;
 }
 
+.vibe-launcher-reference-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  background: #fff;
+  color: #334155;
+  transition: border-color 0.15s;
+}
+
+.vibe-launcher-reference-input:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
 .vibe-launcher-footer {
   display: flex;
   align-items: center;
@@ -6603,6 +7102,85 @@ button.vibe-skill-chip.is-active {
   background: #4f46e5;
   color: #fff;
 }
+
+.vibe-model-select {
+  font-size: 0.78rem;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid #c7d2fe;
+  background: #f8fafc;
+  color: #475569;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.vibe-model-select:focus {
+  outline: none;
+  border-color: #818cf8;
+}
+
+/* Long Horizon skill chip */
+.vibe-skill-chip--horizon { border-color: #d97706; color: #92400e; }
+.vibe-skill-chip--horizon.is-active { background: #d97706; color: #fff; }
+
+/* Horizon launcher form */
+.vibe-horizon-form { display: flex; flex-direction: column; gap: 8px; }
+
+.vibe-horizon-input {
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #1e293b;
+  width: 100%;
+  box-sizing: border-box;
+}
+.vibe-horizon-input:focus { outline: none; border-color: #d97706; }
+
+.vibe-horizon-config-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vibe-horizon-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* Horizon status row (inside run list) */
+.vibe-horizon-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 28px;
+  font-size: 0.75rem;
+  background: #fffbeb;
+  border-top: 1px solid #fde68a;
+  flex-wrap: wrap;
+}
+.vibe-horizon-status-badge { font-weight: 600; font-size: 0.72rem; letter-spacing: 0.03em; }
+.vibe-horizon-status-time { color: #78716c; }
+.vibe-horizon-status-msg { color: #44403c; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vibe-horizon-check-btn {
+  padding: 2px 8px; font-size: 0.72rem; border-radius: 4px;
+  border: 1px solid #d97706; background: #fff; color: #92400e;
+  cursor: pointer; margin-left: auto; flex-shrink: 0;
+}
+.vibe-horizon-check-btn:hover:not(:disabled) { background: #fef3c7; }
+.vibe-horizon-check-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.vibe-horizon-cancel-btn {
+  padding: 2px 8px; font-size: 0.72rem; border-radius: 4px;
+  border: 1px solid #ef4444; background: #fff; color: #b91c1c;
+  cursor: pointer; flex-shrink: 0;
+}
+.vibe-horizon-cancel-btn:hover { background: #fef2f2; }
 
 /* ──────────────────────────────────────────────
    Run Context Bar & Run Indicator
