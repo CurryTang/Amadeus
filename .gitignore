@@ -1,6 +1,9 @@
 # Plans and notes
 plan.md
 IMPLEMENTATION_PLAN.md
+RUNNING_SERVICES.md
+CLAUDE.md
+AGENTS.md
 
 # Environment files
 .env
@@ -47,3 +50,13 @@ frps.toml
 
 # Large binary files
 others/AutoRDL.zip
+
+reference/
+# Claude Code local settings (may contain hardcoded SSH paths/IPs)
+.claude/settings.local.json
+
+# Playwright MCP screenshots and logs
+.playwright-mcp/
+
+# Ad-hoc test/debug screenshots
+*.png
