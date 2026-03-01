@@ -1,6 +1,6 @@
-# Auto Reader
+# Auto Researcher
 
-Your personal AI research assistant that automatically reads, summarizes, and organizes academic papers.
+Your personal AI research assistant that automatically reads, summarizes, organizes, and acts on academic papers.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)
@@ -19,13 +19,33 @@ Your personal AI research assistant that automatically reads, summarizes, and or
 
 ## Features
 
-- **One-Click Paper Saving** - Chrome extension to save papers from arXiv, OpenReview, and any PDF
-- **AI-Powered Summaries** - Multi-pass deep reading generates comprehensive notes
+- **One-Click Paper Saving** - Chrome extension saves papers from arXiv, OpenReview, and any PDF
+- **AI-Powered Summaries** - Multi-pass deep reading generates comprehensive notes with diagrams and math
 - **Code Analysis** - Automatically analyzes associated GitHub repositories
-- **Beautiful Diagrams** - Auto-generated Mermaid diagrams for architectures and workflows
-- **Math Support** - Full LaTeX rendering with KaTeX
+- **Paper Tracker** - Subscribe to authors/keywords; daily crawl from Semantic Scholar and Twitter/X
+- **Vibe Researcher** - Agentic DAG-based research pipeline: define tasks, auto-execute with Claude, review outputs, publish results
+- **Knowledge Hub** - Collect, tag, and link reusable knowledge assets across papers and projects
+- **SSH Server Management** - Register remote compute nodes; agent runs offload heavy tasks via SSH
 - **Read Tracking** - Mark papers as read/unread, filter your library
 - **Full-Text Search** - Find papers by title, tags, and content
+
+## Architecture
+
+The install script lets you choose your deployment mode. Common options:
+
+- **All-in-one** — backend, frontend, and AI all run on the same machine (local or cloud)
+- **Proxy + local device** — a cheap cloud server (e.g. DigitalOcean) acts as an HTTPS proxy via [FRP](https://github.com/fatedier/frp), forwarding traffic to an always-on local device (WSL/home PC) that runs all services
+
+```
+# Proxy + local device mode
+┌──────────┐     ┌──────────────────────┐     ┌─────────────────────────┐
+│  Browser │────▶│  Cloud Server (proxy) │────▶│  Local Device (WSL/PC)  │
+│          │     │  nginx + frps         │     │  PM2: API + Frontend    │
+└──────────┘     └──────────────────────┘     │  MongoDB, Turso, S3     │
+                                               └─────────────────────────┘
+```
+
+The proxy mode lets heavy AI workloads (Claude Code CLI, Gemini CLI) run on your own hardware with no cloud GPU costs. See [Installation Modes](docs/INSTALLATION_MODES.md) for all options.
 
 ## Quick Start
 
@@ -65,81 +85,61 @@ cd frontend && npm install && npm run dev
 
 1. Open Chrome and go to `chrome://extensions/`
 2. Enable "Developer mode"
-3. Click "Load unpacked" and select the `extension/` folder
+3. Click "Load unpacked" and select the `chrome-extension/` folder
 
 ## How It Works
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Browser    │────▶│   Backend    │────▶│  Gemini AI   │
-│  Extension   │     │    API       │     │   Analysis   │
-└──────────────┘     └──────────────┘     └──────────────┘
-       │                    │                    │
-       │                    ▼                    │
-       │             ┌──────────────┐            │
-       │             │   Database   │            │
-       │             │   (Turso)    │            │
-       │             └──────────────┘            │
-       │                    │                    │
-       ▼                    ▼                    ▼
-┌──────────────────────────────────────────────────────┐
-│                    Web Interface                      │
-│         View Papers, Notes, Diagrams, Code           │
-└──────────────────────────────────────────────────────┘
-```
 
 ### Paper Processing Pipeline
 
 1. **Save** - Chrome extension captures paper metadata and PDF
 2. **Queue** - Paper is added to processing queue
-3. **Analyze** - Gemini AI performs 3-pass deep reading:
+3. **Analyze** - AI performs 3-pass deep reading:
    - Pass 1: Bird's eye scan (structure, key pages)
    - Pass 2: Content understanding (methods, results)
    - Pass 3: Deep analysis (math, diagrams)
-4. **Store** - Notes saved to cloud storage
-5. **View** - Beautiful rendered notes with diagrams and math
+4. **Store** - Notes saved to object storage (S3/MinIO/OSS)
+5. **View** - Rendered notes with Mermaid diagrams and KaTeX math
+
+### Vibe Researcher (ResearchOps)
+
+Define a YAML/JSON DAG workflow. The orchestrator executes each step:
+- `agent.run` — spawns a Claude Code agent on a registered SSH server (or locally)
+- `agent.review` — auto-injected after every `agent.run`; reviews output, runs fix passes on failure
+- `bash.run` — run shell commands on a registered SSH server
+- `checkpoint.hitl` — pause for human review before continuing
+- `report.render` — generate a markdown/HTML report from step outputs
+- `artifact.publish` — commit results back to a git branch
+
+### Paper Tracker
+
+Subscribe to Semantic Scholar author IDs or keyword queries. The tracker runs daily and surfaces new papers in the feed. Twitter/X profiles can also be monitored (Playwright-based, experimental).
 
 ## Documentation
 
 - [Deployment Guide](docs/DEPLOYMENT.md) - How to deploy to production
-- [Usage Guide](docs/USAGE.md) - How to use the application
-- [Configuration Guide](docs/CONFIGURATION.md) - All configuration options
-- [Installation Modes](docs/INSTALLATION_MODES.md) - 4 deployment modes + provider matrix
-- [S3 Setup Guide](docs/S3_SETUP_GUIDE.md) - Object storage setup (S3/MinIO/OSS)
+- [DO + FRP + Tailscale](docs/DO_FRP_TAILSCALE.md) - Proxy + FRP + VPN setup
 - [Tracker Authentication Guide](docs/TRACKER_AUTH.md) - Google Scholar and Twitter/X tracker auth setup
-- [Project Structure Template](docs/PROJECT_STRUCTURE_TEMPLATE.md) - Starter folder layout + `.claude/skills` + `resource/`
-
-## Agent Bootstrap
-
-```bash
-# Pull external research skills into .claude/skills
-./scripts/bootstrap-project-skills.sh
-
-# Generate CLAUDE.md + AGENTS.md for a project
-./scripts/generate-agent-instructions.sh /path/to/project ProjectName
-```
-
-Agent reference rule:
-- Always check `resource/` first for project-specific references.
+- [S3 Setup Guide](docs/S3_SETUP_GUIDE.md) - Object storage setup (S3/MinIO/OSS)
+- [Installation Modes](docs/INSTALLATION_MODES.md) - Deployment modes and provider matrix
+- [Configuration Guide](docs/CONFIGURATION.md) - All configuration options
 
 ## Tech Stack
 
 **Frontend:**
-- React 18
-- Next.js
+- React 18 + Next.js (standalone mode)
 - React Markdown + KaTeX + Mermaid
-- GitHub Pages hosting
+- PM2 on local device, proxied via FRP
 
 **Backend:**
 - Node.js + Express
-- Turso / local sqlite (documents metadata)
-- MongoDB / MongoDB Atlas (ResearchOps metadata)
+- Turso / local SQLite (documents metadata)
+- MongoDB / MongoDB Atlas (ResearchOps run metadata)
 - AWS S3 / MinIO / Aliyun OSS (paper object storage)
 - PM2 process manager
 
 **AI:**
+- Claude Code CLI (agent runs, code analysis, Vibe Researcher)
 - Google Gemini CLI (paper analysis)
-- Claude Code CLI (code analysis)
 
 ## Configuration
 
@@ -201,33 +201,8 @@ X_PLAYWRIGHT_STORAGE_STATE_PATH=/absolute/path/to/x-state.json
 npm run exp:x-papers -- --links "https://x.com/karpathy,https://x.com/ylecun" --out ./x-paper-posts.json
 ```
 
-Tracker Admin now supports Twitter source mode `Playwright (experimental)` with multiple profile links.
+Tracker Admin supports Twitter source mode `Playwright (experimental)` with multiple profile links.
 By default it runs daily (`crawlIntervalHours=24`), archives newly seen post URLs, and avoids re-processing archived posts on later runs.
-
-## Deployment
-
-Quick deploy using the included script:
-
-```bash
-./scripts/deploy.sh deploy
-```
-
-See [Deployment Guide](docs/DEPLOYMENT.md) for detailed instructions.
-
-## Updates
-
-### Recommended Deployment Architecture
-
-Our DigitalOcean server is a low-cost instance ($8/month), which cannot handle multi-user scenarios well. The recommended deployment approach is to use the cloud server as a **lightweight proxy**, and then use [FRP](https://github.com/fatedier/frp) (Fast Reverse Proxy) to forward user requests to a local powerful PC for actual AI processing.
-
-```
-┌──────────┐     ┌─────────────────────┐     ┌──────────────────────┐
-│  Users   │────▶│  Cloud Server ($8)  │────▶│  Local Powerful PC   │
-│          │     │  (Proxy via FRP)     │     │  (AI Processing)     │
-└──────────┘     └─────────────────────┘     └──────────────────────┘
-```
-
-This way, the cloud server only handles routing and lightweight API requests, while all heavy AI workloads (Gemini CLI, Codex CLI, Claude Code) run on your local machine with better hardware.
 
 ## Contributing
 
@@ -240,5 +215,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 - [Gemini](https://deepmind.google/technologies/gemini/) for paper analysis
+- [Claude](https://claude.ai/) for agent-based research automation
 - [Mermaid](https://mermaid.js.org/) for diagram rendering
 - [KaTeX](https://katex.org/) for math rendering
