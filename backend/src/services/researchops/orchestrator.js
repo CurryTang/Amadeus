@@ -12,6 +12,7 @@ const CheckpointModule = require('./modules/checkpoint.module');
 const ReportRenderModule = require('./modules/report-render.module');
 const ArtifactPublishModule = require('./modules/artifact-publish.module');
 const HorizonWatchModule = require('./modules/horizon-watch.module');
+const AgentReviewModule = require('./modules/agent-review.module');
 const workflowSchemaService = require('./workflow-schema.service');
 const { getDb } = require('../../db');
 
@@ -733,6 +734,37 @@ function defaultWorkflow(run = {}) {
   ];
 }
 
+function injectReviewSteps(workflow) {
+  const result = [];
+  const remap = new Map(); // agentStepId → reviewStepId (for dependsOn rewriting)
+
+  for (const step of workflow) {
+    const type = cleanString(step.type || step.moduleType).toLowerCase();
+    result.push(step);
+
+    if (type === 'agent.run' && step.inputs?.skipReview !== true) {
+      const reviewStepId = `${step.id}_review`;
+      result.push({
+        id: reviewStepId,
+        type: 'agent.review',
+        dependsOn: [step.id],
+        inputs: { reviewStepId: step.id },
+      });
+      remap.set(step.id, reviewStepId);
+    }
+  }
+
+  // Rewrite dependsOn for non-review steps: if a step depended on an agent.run,
+  // it now depends on the injected review step instead.
+  return result.map((step) => {
+    if (!Array.isArray(step.dependsOn) || step.dependsOn.length === 0) return step;
+    if (cleanString(step.type || step.moduleType).toLowerCase() === 'agent.review') return step;
+    const rewritten = step.dependsOn.map((dep) => remap.get(dep) ?? dep);
+    if (rewritten.join(',') === step.dependsOn.join(',')) return step;
+    return { ...step, dependsOn: rewritten };
+  });
+}
+
 class ResearchOpsOrchestrator {
   constructor() {
     this.modules = new Map([
@@ -742,6 +774,7 @@ class ResearchOpsOrchestrator {
       ['report.render', new ReportRenderModule()],
       ['artifact.publish', new ArtifactPublishModule()],
       ['horizon.watch', new HorizonWatchModule()],
+      ['agent.review', new AgentReviewModule()],
     ]);
   }
 
@@ -1044,7 +1077,7 @@ class ResearchOpsOrchestrator {
       const normalizedWorkflow = workflowSchemaService.normalizeAndValidateWorkflow(workflowInput, {
         allowEmpty: false,
       });
-      const workflow = workflowSchemaService.topologicallySortWorkflow(normalizedWorkflow);
+      const workflow = injectReviewSteps(workflowSchemaService.topologicallySortWorkflow(normalizedWorkflow));
       const stepOutcomeById = new Map();
 
       for (let index = 0; index < workflow.length; index += 1) {
