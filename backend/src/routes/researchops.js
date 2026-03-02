@@ -468,8 +468,27 @@ function buildSshArgs(server, { connectTimeout = 12 } = {}) {
     '-i', keyPath,
     '-p', String(server.port || 22),
   ];
-  if (String(server.proxy_jump || '').trim()) {
-    args.push('-J', String(server.proxy_jump).trim());
+  const proxyJump = String(server.proxy_jump || '').trim();
+  if (proxyJump) {
+    // Use ProxyCommand instead of -J so options propagate correctly to tunnel
+    // endpoints (e.g. 127.0.0.1:9022). Parses "user@host:port" format.
+    const m = proxyJump.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
+    if (m) {
+      const userAt = m[1] || '';
+      const host = m[2];
+      const port = m[3];
+      const parts = [
+        'ssh', '-F', '/dev/null', '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', `ConnectTimeout=${connectTimeout}`,
+        '-i', keyPath,
+      ];
+      if (port) parts.push('-p', port);
+      parts.push('-W', '%h:%p', `${userAt}${host}`);
+      args.push('-o', `ProxyCommand=${parts.join(' ')}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
   }
   return args;
 }
