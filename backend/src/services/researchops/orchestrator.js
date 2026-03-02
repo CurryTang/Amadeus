@@ -146,8 +146,22 @@ function buildSshArgs(server, { connectTimeout = 15 } = {}) {
     '-i', keyPath,
     '-p', String(server?.port || 22),
   ];
-  if (cleanString(server?.proxy_jump)) {
-    args.push('-J', cleanString(server.proxy_jump));
+  const proxyJump = cleanString(server?.proxy_jump);
+  if (proxyJump) {
+    const m = proxyJump.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
+    if (m) {
+      const userAt = m[1] || '';
+      const host = m[2];
+      const port = m[3];
+      const parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', `ConnectTimeout=${connectTimeout}`, '-i', keyPath];
+      if (port) parts.push('-p', port);
+      parts.push('-W', '%h:%p', `${userAt}${host}`);
+      args.push('-o', `ProxyCommand=${parts.join(' ')}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
   }
   return args;
 }
