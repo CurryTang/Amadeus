@@ -20,6 +20,8 @@ const memory = {
   runSteps: [],
   runArtifacts: [],
   runCheckpoints: [],
+  agentSessions: [],
+  agentSessionMessages: [],
 };
 
 const RUN_STATUS = new Set(['QUEUED', 'PROVISIONING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED']);
@@ -129,6 +131,10 @@ async function ensureMongoIndexes(db) {
     db.collection('researchops_run_artifacts').createIndex({ userId: 1, runId: 1, createdAt: -1 }),
     db.collection('researchops_run_checkpoints').createIndex({ id: 1 }, { unique: true }),
     db.collection('researchops_run_checkpoints').createIndex({ userId: 1, runId: 1, status: 1, createdAt: -1 }),
+    db.collection('researchops_agent_sessions').createIndex({ id: 1 }, { unique: true }),
+    db.collection('researchops_agent_sessions').createIndex({ userId: 1, projectId: 1, updatedAt: -1 }),
+    db.collection('researchops_agent_session_messages').createIndex({ id: 1 }, { unique: true }),
+    db.collection('researchops_agent_session_messages').createIndex({ userId: 1, sessionId: 1, sequence: 1 }),
   ]);
 }
 
@@ -2267,6 +2273,254 @@ async function listSkills(userId = 'czk') {
   }
 }
 
+// ── Agent Sessions ──────────────────────────────────────────────────────────
+
+function agentSessionShape(doc) {
+  return {
+    id: doc.id,
+    userId: doc.userId,
+    projectId: doc.projectId,
+    title: doc.title || null,
+    status: doc.status || 'IDLE',
+    provider: doc.provider || 'codex_cli',
+    model: doc.model || null,
+    reasoningEffort: doc.reasoningEffort || null,
+    serverId: doc.serverId || 'local-default',
+    activeRunId: doc.activeRunId || null,
+    lastRunId: doc.lastRunId || null,
+    lastRunStatus: doc.lastRunStatus || null,
+    lastMessage: doc.lastMessage || null,
+    metadata: doc.metadata || {},
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
+function agentSessionMessageShape(doc) {
+  return {
+    id: doc.id,
+    userId: doc.userId,
+    sessionId: doc.sessionId,
+    sequence: doc.sequence,
+    role: doc.role || 'user',
+    content: doc.content || '',
+    runId: doc.runId || null,
+    status: doc.status || null,
+    attachments: doc.attachments || [],
+    metadata: doc.metadata || {},
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
+async function createAgentSession(userId, payload = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const projectId = cleanString(payload?.projectId);
+  if (!projectId) throw new Error('projectId is required');
+
+  const ts = nowIso();
+  const doc = {
+    id: newId('sess'),
+    userId: uid,
+    projectId,
+    title: cleanString(payload?.title) || null,
+    status: 'IDLE',
+    provider: cleanString(payload?.provider) || 'codex_cli',
+    model: cleanString(payload?.model) || null,
+    reasoningEffort: cleanString(payload?.reasoningEffort) || null,
+    serverId: cleanString(payload?.serverId) || 'local-default',
+    activeRunId: null,
+    lastRunId: null,
+    lastRunStatus: null,
+    lastMessage: null,
+    metadata: payload?.metadata || {},
+    createdAt: ts,
+    updatedAt: ts,
+  };
+
+  if (storeMode === 'mongodb') {
+    await mongoDb.collection('researchops_agent_sessions').insertOne(doc);
+  } else {
+    memory.agentSessions.push(doc);
+  }
+
+  return agentSessionShape(doc);
+}
+
+async function getAgentSession(userId, sessionId) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(sessionId);
+  if (!id) return null;
+
+  if (storeMode === 'mongodb') {
+    const doc = await mongoDb.collection('researchops_agent_sessions').findOne({ id, userId: uid });
+    return doc ? agentSessionShape(doc) : null;
+  }
+
+  const doc = memory.agentSessions.find((item) => item.id === id && item.userId === uid);
+  return doc ? agentSessionShape(doc) : null;
+}
+
+async function updateAgentSession(userId, sessionId, payload = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(sessionId);
+  if (!id) return null;
+
+  const ts = nowIso();
+  const allowedFields = [
+    'status', 'provider', 'model', 'reasoningEffort', 'serverId',
+    'activeRunId', 'lastRunId', 'lastRunStatus', 'lastMessage', 'title',
+  ];
+  const updates = { updatedAt: ts };
+  for (const field of allowedFields) {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) {
+      updates[field] = payload[field];
+    }
+  }
+
+  let updated = null;
+  if (storeMode === 'mongodb') {
+    const result = await mongoDb.collection('researchops_agent_sessions').findOneAndUpdate(
+      { id, userId: uid },
+      { $set: updates },
+      { returnDocument: 'after' }
+    );
+    updated = unwrapFindOneAndUpdate(result);
+  } else {
+    const idx = memory.agentSessions.findIndex((item) => item.id === id && item.userId === uid);
+    if (idx === -1) return null;
+    memory.agentSessions[idx] = { ...memory.agentSessions[idx], ...updates };
+    updated = memory.agentSessions[idx];
+  }
+
+  return updated ? agentSessionShape(updated) : null;
+}
+
+async function listAgentSessions(userId, { projectId = '', limit = 80 } = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const cap = toInt(limit, 80, 1, 500);
+  const pid = cleanString(projectId);
+
+  if (storeMode === 'mongodb') {
+    const query = { userId: uid };
+    if (pid) query.projectId = pid;
+    const docs = await mongoDb.collection('researchops_agent_sessions')
+      .find(query)
+      .sort({ updatedAt: -1 })
+      .limit(cap)
+      .toArray();
+    return docs.map(agentSessionShape);
+  }
+
+  return memory.agentSessions
+    .filter((doc) => doc.userId === uid && (!pid || doc.projectId === pid))
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+    .slice(0, cap)
+    .map(agentSessionShape);
+}
+
+async function createAgentSessionMessage(userId, sessionId, payload = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const sid = cleanString(sessionId);
+  if (!sid) throw new Error('sessionId is required');
+
+  let sequence = 1;
+  if (storeMode === 'mongodb') {
+    const lastMsg = await mongoDb.collection('researchops_agent_session_messages')
+      .findOne({ sessionId: sid, userId: uid }, { sort: { sequence: -1 } });
+    sequence = lastMsg ? lastMsg.sequence + 1 : 1;
+  } else {
+    const existing = memory.agentSessionMessages.filter((m) => m.sessionId === sid && m.userId === uid);
+    if (existing.length > 0) {
+      sequence = Math.max(...existing.map((m) => m.sequence)) + 1;
+    }
+  }
+
+  const ts = nowIso();
+  const doc = {
+    id: newId('msg'),
+    userId: uid,
+    sessionId: sid,
+    sequence,
+    role: cleanString(payload?.role) || 'user',
+    content: typeof payload?.content === 'string' ? payload.content : '',
+    runId: cleanString(payload?.runId) || null,
+    status: cleanString(payload?.status) || null,
+    attachments: Array.isArray(payload?.attachments) ? payload.attachments : [],
+    metadata: payload?.metadata || {},
+    createdAt: ts,
+    updatedAt: ts,
+  };
+
+  if (storeMode === 'mongodb') {
+    await mongoDb.collection('researchops_agent_session_messages').insertOne(doc);
+  } else {
+    memory.agentSessionMessages.push(doc);
+  }
+
+  return agentSessionMessageShape(doc);
+}
+
+async function listAgentSessionMessages(userId, sessionId, { afterSequence = -1, limit = 300 } = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const sid = cleanString(sessionId);
+  if (!sid) return { items: [], total: 0 };
+  const cap = toInt(limit, 300, 1, 1000);
+  const afterSeq = Number.isFinite(Number(afterSequence)) ? Number(afterSequence) : -1;
+
+  if (storeMode === 'mongodb') {
+    const query = { sessionId: sid, userId: uid };
+    if (afterSeq >= 0) query.sequence = { $gt: afterSeq };
+    const docs = await mongoDb.collection('researchops_agent_session_messages')
+      .find(query)
+      .sort({ sequence: 1 })
+      .limit(cap)
+      .toArray();
+    return { items: docs.map(agentSessionMessageShape), total: docs.length };
+  }
+
+  let filtered = memory.agentSessionMessages.filter(
+    (doc) => doc.sessionId === sid && doc.userId === uid
+  );
+  if (afterSeq >= 0) filtered = filtered.filter((doc) => doc.sequence > afterSeq);
+  const items = filtered
+    .sort((a, b) => a.sequence - b.sequence)
+    .slice(0, cap)
+    .map(agentSessionMessageShape);
+  return { items, total: items.length };
+}
+
+async function findAgentSessionMessageByRun(userId, sessionId, runId, { role = '' } = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const sid = cleanString(sessionId);
+  const rid = cleanString(runId);
+  if (!sid || !rid) return null;
+
+  const roleFilter = cleanString(role);
+
+  if (storeMode === 'mongodb') {
+    const query = { sessionId: sid, userId: uid, runId: rid };
+    if (roleFilter) query.role = roleFilter;
+    const doc = await mongoDb.collection('researchops_agent_session_messages').findOne(query);
+    return doc ? agentSessionMessageShape(doc) : null;
+  }
+
+  const doc = memory.agentSessionMessages.find(
+    (item) => item.sessionId === sid
+      && item.userId === uid
+      && item.runId === rid
+      && (!roleFilter || item.role === roleFilter)
+  );
+  return doc ? agentSessionMessageShape(doc) : null;
+}
+
 function getStoreMode() {
   return storeMode;
 }
@@ -2312,4 +2566,11 @@ module.exports = {
   decideRunCheckpoint,
   listSkills,
   syncLocalSkillsToRemote,
+  createAgentSession,
+  getAgentSession,
+  updateAgentSession,
+  listAgentSessions,
+  createAgentSessionMessage,
+  listAgentSessionMessages,
+  findAgentSessionMessageByRun,
 };

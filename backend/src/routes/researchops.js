@@ -23,6 +23,7 @@ const projectInsightsProxy = require('../services/project-insights-proxy.service
 const projectInsightsService = require('../services/project-insights.service');
 const workflowSchemaService = require('../services/researchops/workflow-schema.service');
 const planAgentService = require('../services/researchops/plan-agent.service');
+const interactiveAgentService = require('../services/researchops/interactive-agent.service');
 
 const knowledgeAssetUpload = multer({
   storage: multer.memoryStorage(),
@@ -36,6 +37,11 @@ const proposalUpload = multer({
   limits: {
     fileSize: 25 * 1024 * 1024,
   },
+});
+
+const agentSessionImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 10 },
 });
 
 function parseLimit(raw, fallback = 50, max = 300) {
@@ -3418,6 +3424,148 @@ async function readAgentSessionCache(projectPath) {
     .map((row) => { try { return JSON.parse(row.data); } catch (_) { return null; } })
     .filter(Boolean);
 }
+
+// ── Interactive Agent Bash session routes ─────────────────────────────────────
+
+router.get('/projects/:projectId/agent-sessions', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const userId = getUserId(req);
+    const limit = parseLimit(req.query.limit, 80, 500);
+    const sessions = await interactiveAgentService.listProjectSessions(userId, projectId, { limit });
+    return res.json({ sessions });
+  } catch (error) {
+    console.error('[ResearchOps] listProjectSessions failed:', error);
+    return res.status(500).json({ error: 'Failed to list sessions' });
+  }
+});
+
+router.post('/projects/:projectId/agent-sessions', requireAuth, async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const userId = getUserId(req);
+    const session = await interactiveAgentService.createSession(userId, projectId, req.body || {});
+    return res.json({ session });
+  } catch (error) {
+    console.error('[ResearchOps] createSession failed:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create session' });
+  }
+});
+
+router.get('/agent-sessions/:sid', async (req, res) => {
+  try {
+    const sessionId = String(req.params.sid || '').trim();
+    const userId = getUserId(req);
+    const result = await interactiveAgentService.getSession(userId, sessionId);
+    if (!result) return res.status(404).json({ error: 'Session not found' });
+    return res.json(result);
+  } catch (error) {
+    console.error('[ResearchOps] getSession failed:', error);
+    return res.status(500).json({ error: 'Failed to get session' });
+  }
+});
+
+router.get('/agent-sessions/:sid/messages', async (req, res) => {
+  try {
+    const sessionId = String(req.params.sid || '').trim();
+    const userId = getUserId(req);
+    const afterSequence = Number(req.query.afterSequence ?? -1);
+    const limit = parseLimit(req.query.limit, 300, 1000);
+    const result = await interactiveAgentService.listSessionMessages(userId, sessionId, {
+      afterSequence,
+      limit,
+    });
+    return res.json(result);
+  } catch (error) {
+    console.error('[ResearchOps] listSessionMessages failed:', error);
+    return res.status(500).json({ error: 'Failed to list messages' });
+  }
+});
+
+router.post(
+  '/agent-sessions/:sid/messages',
+  requireAuth,
+  agentSessionImageUpload.array('images', 10),
+  async (req, res) => {
+    try {
+      const sessionId = String(req.params.sid || '').trim();
+      const userId = getUserId(req);
+
+      const content = String(req.body?.content || '').trim();
+      let imageMeta = [];
+      try { imageMeta = JSON.parse(req.body?.imageMeta || '[]'); } catch (_) {}
+
+      const attachments = [];
+      const files = Array.isArray(req.files) ? req.files : [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const meta = imageMeta[i] || {};
+        const filename = String(file.originalname || `image_${i}.png`).trim();
+        const mimeType = String(file.mimetype || 'image/png').trim();
+        try {
+          const objectKey = `agent-sessions/${sessionId}/attachments/${Date.now()}-${i}-${filename}`;
+          await s3Service.uploadBuffer(file.buffer, objectKey, mimeType);
+          const objectUrl = await s3Service.generatePresignedDownloadUrl(objectKey).catch(() => null);
+          attachments.push({
+            kind: 'image',
+            filename,
+            mimeType,
+            sizeBytes: file.size || 0,
+            objectKey,
+            objectUrl: objectUrl || objectKey,
+            note: String(meta.note || '').trim(),
+          });
+        } catch (uploadErr) {
+          console.warn('[ResearchOps] agent-session image upload failed, skipping:', uploadErr.message);
+        }
+      }
+
+      const result = await interactiveAgentService.sendUserMessage(userId, sessionId, {
+        content,
+        attachments,
+        provider: String(req.body?.provider || '').trim(),
+        model: String(req.body?.model || '').trim(),
+        reasoningEffort: String(req.body?.reasoningEffort || '').trim(),
+        serverId: String(req.body?.serverId || '').trim(),
+      });
+      return res.json(result);
+    } catch (error) {
+      console.error('[ResearchOps] sendUserMessage failed:', error);
+      if (error.code === 'SESSION_NOT_FOUND') return res.status(404).json({ error: 'Session not found' });
+      if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+      return res.status(500).json({ error: error.message || 'Failed to send message' });
+    }
+  }
+);
+
+router.post('/agent-sessions/:sid/stop', requireAuth, async (req, res) => {
+  try {
+    const sessionId = String(req.params.sid || '').trim();
+    const userId = getUserId(req);
+
+    const sessionResult = await interactiveAgentService.getSession(userId, sessionId);
+    if (!sessionResult) return res.status(404).json({ error: 'Session not found' });
+
+    const { session } = sessionResult;
+    const activeRunId = String(session?.activeRunId || '').trim();
+    if (activeRunId) {
+      await researchOpsStore.updateRunStatus(userId, activeRunId, 'CANCELLED', 'User stopped interactive session').catch(() => {});
+    }
+
+    await researchOpsStore.updateAgentSession(userId, sessionId, {
+      status: 'IDLE',
+      activeRunId: null,
+      lastRunStatus: activeRunId ? 'CANCELLED' : session.lastRunStatus,
+      lastMessage: 'Session stopped by user.',
+    });
+
+    const updated = await interactiveAgentService.getSession(userId, sessionId);
+    return res.json(updated || { session: null, activeRun: null });
+  } catch (error) {
+    console.error('[ResearchOps] stopSession failed:', error);
+    return res.status(500).json({ error: 'Failed to stop session' });
+  }
+});
 
 // ── Observed agent sessions route ─────────────────────────────────────────────
 
