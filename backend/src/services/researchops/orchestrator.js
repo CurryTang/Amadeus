@@ -154,7 +154,8 @@ function buildSshArgs(server, { connectTimeout = 15 } = {}) {
       const host = m[2];
       const port = m[3];
       const parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes',
-        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
         '-o', `ConnectTimeout=${connectTimeout}`, '-i', keyPath];
       if (port) parts.push('-p', port);
       parts.push('-W', '%h:%p', `${userAt}${host}`);
