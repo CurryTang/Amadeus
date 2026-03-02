@@ -144,6 +144,7 @@ function resolveSharedFsConfig(payload = {}, defaults = {}, { selfId = '' } = {}
 
 function buildSshArgs(server, { connectTimeout = 10 } = {}) {
   const keyPath = keypairService.MANAGED_KEY_PATH;
+  const proxyKeyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
   const sshArgs = [
     '-F', '/dev/null',
     '-o', 'BatchMode=yes',
@@ -153,8 +154,17 @@ function buildSshArgs(server, { connectTimeout = 10 } = {}) {
     '-i', keyPath,
     '-p', String(server.port || 22),
   ];
-  if (String(server.proxy_jump || '').trim()) {
-    sshArgs.push('-J', String(server.proxy_jump).trim());
+  const proxyJump = String(server.proxy_jump || '').trim();
+  if (proxyJump) {
+    const m = proxyJump.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
+    if (m) {
+      const parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', `ConnectTimeout=${connectTimeout}`, '-i', proxyKeyPath];
+      if (m[3]) parts.push('-p', m[3]);
+      parts.push('-W', '%h:%p', `${m[1] || ''}${m[2]}`);
+      sshArgs.push('-o', `ProxyCommand=${parts.join(' ')}`);
+    } else {
+      sshArgs.push('-J', proxyJump);
+    }
   }
   sshArgs.push(`${server.user}@${server.host}`);
   return sshArgs;

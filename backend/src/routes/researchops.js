@@ -1055,22 +1055,10 @@ async function checkLocalPath(projectPath) {
 }
 
 async function checkSshPath(server, projectPath) {
-  const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
   const target = String(projectPath || '').trim();
   if (!target) throw new Error('projectPath is required');
 
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', 'ConnectTimeout=12',
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server.port || 22),
-  ];
-  if (String(server.proxy_jump || '').trim()) {
-    args.push('-J', String(server.proxy_jump).trim());
-  }
+  const args = buildSshArgs(server, { connectTimeout: 12 });
   const script = buildRemotePathResolverScript(
     'if [ -d "$target" ]; then echo "__DIR_EXISTS__:$target"; elif [ -e "$target" ]; then echo "__FILE_EXISTS__:$target"; else echo "__NOT_EXISTS__:$target"; fi',
   );
@@ -1108,22 +1096,10 @@ async function ensureLocalGitRepository(projectPath) {
 }
 
 async function ensureSshPath(server, projectPath) {
-  const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
   const target = String(projectPath || '').trim();
   if (!target) throw new Error('projectPath is required');
 
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', 'ConnectTimeout=15',
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server.port || 22),
-  ];
-  if (String(server.proxy_jump || '').trim()) {
-    args.push('-J', String(server.proxy_jump).trim());
-  }
+  const args = buildSshArgs(server, { connectTimeout: 15 });
   const script = buildRemotePathResolverScript(
     'mkdir -p -- "$target"; if [ -d "$target" ]; then echo "__DIR_READY__:$target"; else echo "__NOT_DIR__:$target"; fi',
   );
@@ -1143,22 +1119,10 @@ async function ensureSshPath(server, projectPath) {
 }
 
 async function ensureSshGitRepository(server, projectPath) {
-  const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
   const target = String(projectPath || '').trim();
   if (!target) throw new Error('projectPath is required');
 
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', 'ConnectTimeout=15',
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server.port || 22),
-  ];
-  if (String(server.proxy_jump || '').trim()) {
-    args.push('-J', String(server.proxy_jump).trim());
-  }
+  const args = buildSshArgs(server, { connectTimeout: 15 });
 
   const script = buildRemotePathResolverScript([
     'if [ ! -d "$target" ]; then echo "__NOT_DIR__:$target"; exit 0; fi',
@@ -3868,18 +3832,7 @@ router.post('/projects/:projectId/kb/add-paper', requireAuth, async (req, res) =
 
           const paperFolderRemote = `${kbFolder}/${sanitizedTitle}`;
           const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
-          const sshBaseArgs = [
-            '-F', '/dev/null',
-            '-o', 'BatchMode=yes',
-            '-o', 'ClearAllForwardings=yes',
-            '-o', 'ConnectTimeout=15',
-            '-o', 'StrictHostKeyChecking=accept-new',
-            '-i', keyPath,
-            '-p', String(server.port || 22),
-          ];
-          if (String(server.proxy_jump || '').trim()) {
-            sshBaseArgs.push('-J', String(server.proxy_jump).trim());
-          }
+          const sshBaseArgs = buildSshArgs(server, { connectTimeout: 15 });
 
           // Create remote directory
           await runCommand('ssh', [
@@ -3888,7 +3841,7 @@ router.post('/projects/:projectId/kb/add-paper', requireAuth, async (req, res) =
             `mkdir -p -- ${JSON.stringify(paperFolderRemote)}`,
           ], { timeoutMs: 20000 });
 
-          // SCP each file
+          // SCP each file — build args with ProxyCommand (scp uses -P for port)
           const scpBaseArgs = [
             '-F', '/dev/null',
             '-o', 'BatchMode=yes',
@@ -3898,8 +3851,17 @@ router.post('/projects/:projectId/kb/add-paper', requireAuth, async (req, res) =
             '-i', keyPath,
             '-P', String(server.port || 22),
           ];
-          if (String(server.proxy_jump || '').trim()) {
-            scpBaseArgs.push('-J', String(server.proxy_jump).trim());
+          {
+            const _pj = String(server.proxy_jump || '').trim();
+            if (_pj) {
+              const _m = _pj.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
+              if (_m) {
+                const _parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15', '-i', keyPath];
+                if (_m[3]) _parts.push('-p', _m[3]);
+                _parts.push('-W', '%h:%p', `${_m[1] || ''}${_m[2]}`);
+                scpBaseArgs.push('-o', `ProxyCommand=${_parts.join(' ')}`);
+              } else { scpBaseArgs.push('-J', _pj); }
+            }
           }
           for (const filename of Object.keys(filesToWrite)) {
             const localFile = path.join(tmpDir, filename);
@@ -5657,15 +5619,7 @@ router.post('/experiments/execute', async (req, res) => {
 // ─── Horizon watch helpers ────────────────────────────────────────────────────
 
 function buildHorizonSshArgs(server, { connectTimeout = 12 } = {}) {
-  const expandHome = (p) => String(p || '').replace(/^~(?=\/|$)/, os.homedir());
-  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-  const args = [
-    '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`, '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath, '-p', String(server?.port || 22),
-  ];
-  if (String(server?.proxy_jump || '').trim()) args.push('-J', String(server.proxy_jump).trim());
-  return args;
+  return buildSshArgs(server, { connectTimeout });
 }
 
 async function getHorizonServer(serverId) {
