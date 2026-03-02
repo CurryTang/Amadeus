@@ -64,6 +64,32 @@ async function getExecServerByRef(ref = '') {
   return result.rows?.[0] || null;
 }
 
+function parseProxyJump(proxyJump = '') {
+  const s = cleanString(proxyJump);
+  if (!s) return null;
+  const m = s.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
+  if (!m) return null;
+  return { userAt: m[1] || '', host: m[2], port: m[3] || null };
+}
+
+// Build a ProxyCommand using the proxy key (server ssh_key_path or id_rsa),
+// so the jump-host connection uses a key authorized on that host.
+function buildProxyCommandArg(proxyJump, proxyKeyPath, connectTimeout) {
+  const parsed = parseProxyJump(proxyJump);
+  if (!parsed) return null;
+  const { userAt, host, port } = parsed;
+  const parts = [
+    'ssh', '-F', '/dev/null',
+    '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', `ConnectTimeout=${connectTimeout}`,
+    '-i', proxyKeyPath,
+  ];
+  if (port) parts.push('-p', port);
+  parts.push('-W', '%h:%p', `${userAt}${host}`);
+  return parts.join(' ');
+}
+
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
   const keyPath = keypairService.MANAGED_KEY_PATH;
   const args = [
@@ -75,8 +101,17 @@ function buildSshArgs(server, { connectTimeout = 12 } = {}) {
     '-i', keyPath,
     '-p', String(server?.port || 22),
   ];
-  if (cleanString(server?.proxy_jump)) {
-    args.push('-J', cleanString(server.proxy_jump));
+  const proxyJump = cleanString(server?.proxy_jump);
+  if (proxyJump) {
+    // Use server's ssh_key_path (or id_rsa) for the proxy/jump-host auth,
+    // since the managed key may only be authorized on the target, not the jump host.
+    const proxyKeyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
+    const proxyCmd = buildProxyCommandArg(proxyJump, proxyKeyPath, connectTimeout);
+    if (proxyCmd) {
+      args.push('-o', `ProxyCommand=${proxyCmd}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
   }
   return args;
 }
@@ -92,8 +127,15 @@ function buildScpArgs(server, { connectTimeout = 12 } = {}) {
     '-i', keyPath,
     '-P', String(server?.port || 22),
   ];
-  if (cleanString(server?.proxy_jump)) {
-    args.push('-J', cleanString(server.proxy_jump));
+  const proxyJump = cleanString(server?.proxy_jump);
+  if (proxyJump) {
+    const proxyKeyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
+    const proxyCmd = buildProxyCommandArg(proxyJump, proxyKeyPath, connectTimeout);
+    if (proxyCmd) {
+      args.push('-o', `ProxyCommand=${proxyCmd}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
   }
   return args;
 }
