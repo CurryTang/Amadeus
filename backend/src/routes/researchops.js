@@ -479,7 +479,8 @@ function buildSshArgs(server, { connectTimeout = 12 } = {}) {
       const port = m[3];
       const parts = [
         'ssh', '-F', '/dev/null', '-o', 'BatchMode=yes',
-        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
         '-o', `ConnectTimeout=${connectTimeout}`,
         '-i', keyPath,
       ];
@@ -3856,7 +3857,7 @@ router.post('/projects/:projectId/kb/add-paper', requireAuth, async (req, res) =
             if (_pj) {
               const _m = _pj.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
               if (_m) {
-                const _parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15', '-i', keyPath];
+                const _parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'ConnectTimeout=15', '-i', keyPath];
                 if (_m[3]) _parts.push('-p', _m[3]);
                 _parts.push('-W', '%h:%p', `${_m[1] || ''}${_m[2]}`);
                 scpBaseArgs.push('-o', `ProxyCommand=${_parts.join(' ')}`);

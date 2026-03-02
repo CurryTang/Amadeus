@@ -158,7 +158,7 @@ function buildSshArgs(server, { connectTimeout = 10 } = {}) {
   if (proxyJump) {
     const m = proxyJump.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
     if (m) {
-      const parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', `ConnectTimeout=${connectTimeout}`, '-i', proxyKeyPath];
+      const parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', `ConnectTimeout=${connectTimeout}`, '-i', proxyKeyPath];
       if (m[3]) parts.push('-p', m[3]);
       parts.push('-W', '%h:%p', `${m[1] || ''}${m[2]}`);
       sshArgs.push('-o', `ProxyCommand=${parts.join(' ')}`);

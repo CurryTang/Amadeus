@@ -81,7 +81,8 @@ function buildProxyCommandArg(proxyJump, proxyKeyPath, connectTimeout) {
   const parts = [
     'ssh', '-F', '/dev/null',
     '-o', 'BatchMode=yes',
-    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'UserKnownHostsFile=/dev/null',
     '-o', `ConnectTimeout=${connectTimeout}`,
     '-i', proxyKeyPath,
   ];
