@@ -837,6 +837,7 @@ class AgentRunModule extends BaseModule {
             cwd,
             remoteCommandBase64,
           ];
+          console.error('[agent-run DEBUG] SSH args:', JSON.stringify(sshArgs));
           const proc = spawn('ssh', sshArgs, {
             env: process.env,
             stdio: ['pipe', 'pipe', 'pipe'],
