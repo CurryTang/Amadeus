@@ -42,6 +42,30 @@ async function getServerByRef(ref = '') {
   return r.rows?.[0] || null;
 }
 
+function parseProxyJump(proxyJump = '') {
+  const s = cleanString(proxyJump);
+  if (!s) return null;
+  const m = s.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
+  if (!m) return null;
+  return { userAt: m[1] || '', host: m[2], port: m[3] || null };
+}
+
+function buildProxyCommand(proxyJump, keyPath, connectTimeout) {
+  const parsed = parseProxyJump(proxyJump);
+  if (!parsed) return null;
+  const { userAt, host, port } = parsed;
+  const parts = [
+    'ssh', '-F', '/dev/null',
+    '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', `ConnectTimeout=${connectTimeout}`,
+    '-i', keyPath,
+  ];
+  if (port) parts.push('-p', port);
+  parts.push('-W', '%h:%p', `${userAt}${host}`);
+  return parts.join(' ');
+}
+
 function buildSshArgs(server, { connectTimeout = 15 } = {}) {
   const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
   const args = [
@@ -53,7 +77,15 @@ function buildSshArgs(server, { connectTimeout = 15 } = {}) {
     '-i', keyPath,
     '-p', String(server?.port || 22),
   ];
-  if (cleanString(server?.proxy_jump)) args.push('-J', cleanString(server.proxy_jump));
+  const proxyJump = cleanString(server?.proxy_jump);
+  if (proxyJump) {
+    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
+    if (proxyCmd) {
+      args.push('-o', `ProxyCommand=${proxyCmd}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
+  }
   return args;
 }
 
@@ -68,7 +100,15 @@ function buildScpArgs(server, { connectTimeout = 15 } = {}) {
     '-i', keyPath,
     '-P', String(server?.port || 22),
   ];
-  if (cleanString(server?.proxy_jump)) args.push('-J', cleanString(server.proxy_jump));
+  const proxyJump = cleanString(server?.proxy_jump);
+  if (proxyJump) {
+    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
+    if (proxyCmd) {
+      args.push('-o', `ProxyCommand=${proxyCmd}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
+  }
   return args;
 }
 

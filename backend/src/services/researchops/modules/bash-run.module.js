@@ -56,6 +56,34 @@ function buildRuntimeEnv(context, inputs = {}) {
   return out;
 }
 
+// Parse a proxy_jump string like "user@host:port" or "user@host" into components.
+function parseProxyJump(proxyJump = '') {
+  const s = cleanString(proxyJump);
+  if (!s) return null;
+  const m = s.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
+  if (!m) return null;
+  return { userAt: m[1] || '', host: m[2], port: m[3] || null };
+}
+
+// Build a ProxyCommand string for the given proxy_jump and key.
+// Uses ProxyCommand instead of -J to ensure StrictHostKeyChecking options
+// propagate correctly for tunnel endpoints (e.g. 127.0.0.1:9022 → scully).
+function buildProxyCommand(proxyJump, keyPath, connectTimeout) {
+  const parsed = parseProxyJump(proxyJump);
+  if (!parsed) return null;
+  const { userAt, host, port } = parsed;
+  const parts = [
+    'ssh', '-F', '/dev/null',
+    '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', `ConnectTimeout=${connectTimeout}`,
+    '-i', keyPath,
+  ];
+  if (port) parts.push('-p', port);
+  parts.push('-W', '%h:%p', `${userAt}${host}`);
+  return parts.join(' ');
+}
+
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
   const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
   const args = [
@@ -67,8 +95,14 @@ function buildSshArgs(server, { connectTimeout = 12 } = {}) {
     '-i', keyPath,
     '-p', String(server?.port || 22),
   ];
-  if (cleanString(server?.proxy_jump)) {
-    args.push('-J', cleanString(server.proxy_jump));
+  const proxyJump = cleanString(server?.proxy_jump);
+  if (proxyJump) {
+    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
+    if (proxyCmd) {
+      args.push('-o', `ProxyCommand=${proxyCmd}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
   }
   return args;
 }
@@ -84,8 +118,14 @@ function buildScpArgs(server, { connectTimeout = 12 } = {}) {
     '-i', keyPath,
     '-P', String(server?.port || 22),
   ];
-  if (cleanString(server?.proxy_jump)) {
-    args.push('-J', cleanString(server.proxy_jump));
+  const proxyJump = cleanString(server?.proxy_jump);
+  if (proxyJump) {
+    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
+    if (proxyCmd) {
+      args.push('-o', `ProxyCommand=${proxyCmd}`);
+    } else {
+      args.push('-J', proxyJump);
+    }
   }
   return args;
 }
