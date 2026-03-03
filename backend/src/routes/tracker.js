@@ -482,19 +482,23 @@ async function annotateSavedStatus(items = []) {
     return items.map((item) => ({ ...item, saved: false }));
   }
 
-  const likeClauses = paperItems.map(() => 'original_url LIKE ?').join(' OR ');
-  const args = paperItems.map((item) => `%arxiv.org%${item.arxivId}%`);
-  const result = await db.execute({
-    sql: `SELECT original_url FROM documents WHERE ${likeClauses}`,
-    args,
-  });
-
+  // SQLite has a max expression depth of ~100; chunk queries to stay safe.
+  const CHUNK_SIZE = 50;
   const savedIds = new Set();
-  for (const row of result.rows || []) {
-    const url = String(row.original_url || '');
-    const match = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/i);
-    if (!match?.[1]) continue;
-    savedIds.add(normalizeArxivId(match[1]));
+  for (let i = 0; i < paperItems.length; i += CHUNK_SIZE) {
+    const chunk = paperItems.slice(i, i + CHUNK_SIZE);
+    const likeClauses = chunk.map(() => 'original_url LIKE ?').join(' OR ');
+    const args = chunk.map((item) => `%arxiv.org%${item.arxivId}%`);
+    const result = await db.execute({
+      sql: `SELECT original_url FROM documents WHERE ${likeClauses}`,
+      args,
+    });
+    for (const row of result.rows || []) {
+      const url = String(row.original_url || '');
+      const match = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/i);
+      if (!match?.[1]) continue;
+      savedIds.add(normalizeArxivId(match[1]));
+    }
   }
 
   return items.map((item) => {
