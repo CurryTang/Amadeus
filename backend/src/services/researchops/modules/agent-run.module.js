@@ -7,6 +7,7 @@ const { getDb } = require('../../../db');
 const config = require('../../../config');
 const { terminateProcessTree } = require('../process-control');
 const keypairService = require('../../keypair.service');
+const superpowers = require('../superpowers');
 
 const TOP_PRIORITY_FILE_REMOVAL_RULE = [
   'TOP-PRIORITY RULE (apply before all other instructions):',
@@ -294,7 +295,7 @@ function spawnRemoteFireAndForget(server, cmd) {
   } catch (_) { /* fire-and-forget */ }
 }
 
-function buildRemoteScript(envVars = {}, tmuxOpts = null) {
+function buildRemoteScript(envVars = {}, tmuxOpts = null, preflightLines = []) {
   const exports = Object.entries(envVars)
     .filter(([key]) => isValidEnvKey(key))
     .map(([key, value]) => `export ${key}=${shellEscape(value)}`);
@@ -320,6 +321,7 @@ function buildRemoteScript(envVars = {}, tmuxOpts = null) {
     'cd "$TARGET_CWD"',
     ...exports,
   ];
+  const safePreflight = Array.isArray(preflightLines) ? preflightLines : [];
 
   if (tmuxOpts && tmuxOpts.sessionName) {
     const { sessionName, logFile, exitFile } = tmuxOpts;
@@ -333,6 +335,7 @@ function buildRemoteScript(envVars = {}, tmuxOpts = null) {
     const runnerB64 = Buffer.from(runnerLines, 'utf8').toString('base64');
     return [
       ...header,
+      ...safePreflight,
       `_RT_SESSION=${shellEscape(sessionName)}`,
       `_RT_LOG=${shellEscape(logFile)}`,
       `_RT_EXIT=${shellEscape(exitFile)}`,
@@ -368,7 +371,7 @@ function buildRemoteScript(envVars = {}, tmuxOpts = null) {
     ].join('\n');
   }
 
-  return [...header, 'bash -lc "$SHELL_CMD"', ''].join('\n');
+  return [...header, ...safePreflight, 'bash -lc "$SHELL_CMD"', ''].join('\n');
 }
 
 function providerToCommand(provider = '') {
@@ -820,7 +823,8 @@ class AgentRunModule extends BaseModule {
       }
     }
 
-    const prompt = buildPrompt(step, run, promptContext);
+    const rawPrompt = buildPrompt(step, run, promptContext);
+    const prompt = superpowers.applySuperpowersPrefix(command, rawPrompt);
     if (args.length === 0) {
       const agentOpts = {
         model: cleanString(inputs.model) || undefined,
@@ -867,7 +871,12 @@ class AgentRunModule extends BaseModule {
             stdio: ['pipe', 'pipe', 'pipe'],
             detached,
           });
-          const remoteScript = buildRemoteScript(runtimeEnv, tmuxOpts);
+          const isRootProc = typeof process.getuid === 'function' && process.getuid() === 0;
+          const claudeModelForPreflight = cleanString(inputs.model) || cleanString(process.env.RESEARCHOPS_CLAUDE_MODEL || config.claudeCli?.model || '');
+          const preflightLines = command === 'claude'
+            ? superpowers.remoteClaudePreflightLines(isRootProc, claudeModelForPreflight)
+            : [];
+          const remoteScript = buildRemoteScript(runtimeEnv, tmuxOpts, preflightLines);
           proc.stdin.on('error', () => {});
           proc.stdin.end(remoteScript);
           return proc;

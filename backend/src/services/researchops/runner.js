@@ -11,6 +11,7 @@ const {
   buildSshArgs,
   spawnRemoteFireAndForget,
 } = require('./modules/bash-run.module');
+const superpowers = require('./superpowers');
 
 const runningProcesses = new Map();
 
@@ -100,14 +101,16 @@ function defaultArgsForProvider(command, prompt) {
     if (reasoningEffort) {
       args.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
     }
-    args.push(prompt);
+    args.push(superpowers.applySuperpowersPrefix(command, prompt));
     return args;
   }
   if (command === 'claude') {
-    const args = [];
     const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
-    if (!isRoot) args.push('--dangerously-skip-permissions');
     const model = defaultClaudeModel();
+    // Fire-and-forget preflight: install superpowers plugin before main run.
+    superpowers.runLocalClaudePreflight(model);
+    const args = [];
+    if (!isRoot) args.push('--dangerously-skip-permissions');
     if (model) args.push('--model', model);
     args.push('-p', prompt);
     return args;
