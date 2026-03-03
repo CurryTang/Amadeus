@@ -148,6 +148,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [savingIds, setSavingIds] = useState(new Set());
+  const [shuffled, setShuffled] = useState(false);
 
   // Filters
   const [activeCategory, setActiveCategory] = useState(() => {
@@ -208,6 +209,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
     append = false,
     forceRefresh = false,
     forceCrawl = false,
+    shuffle = false,
   } = {}) => {
     // Try client-side cache first for initial page only
     if (!append && offset === 0 && !forceRefresh && !forceCrawl && !debug) {
@@ -229,6 +231,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         limit: PAGE_SIZE,
         offset,
         ...((debug || forceRefresh || forceCrawl) ? { debug: '1' } : {}),
+        ...(shuffle && offset === 0 ? { shuffle: '1' } : {}),
       };
       const res = await axios.get(`${apiUrl}/tracker/feed`, { params });
       const {
@@ -239,6 +242,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         total: apiTotal,
         warming,
         message,
+        shuffled: isShuffled,
       } = res.data;
       const nextPage = data || [];
 
@@ -272,7 +276,12 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
       setHasMore(Boolean(apiHasMore));
       setTotal(Number.isFinite(apiTotal) ? apiTotal : nextPage.length);
       setCached(isCached && !(forceRefresh || forceCrawl));
-      if (!append && (!isCached || forceRefresh || forceCrawl)) {
+      if (!append) setShuffled(Boolean(isShuffled));
+      // Always write client cache on initial page load (not append).
+      // Previously this was skipped when server returned cached:true, which
+      // meant every tab switch re-fetched from the server instead of using
+      // the 24h localStorage cache.
+      if (!append) {
         writeClientCache(nextPage, ft, {
           hasMore: Boolean(apiHasMore),
           total: Number.isFinite(apiTotal) ? apiTotal : nextPage.length,
@@ -323,7 +332,8 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
     setPapers([]);
     setHasMore(false);
     setTotal(0);
-    fetchFeed({ offset: 0, append: false, forceRefresh: true, forceCrawl: true });
+    setShuffled(false);
+    fetchFeed({ offset: 0, append: false, forceRefresh: true, forceCrawl: true, shuffle: true });
   };
 
   const handleLoadMore = () => {
@@ -385,6 +395,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
             <span className="latest-papers-cache-info">
               {cached ? 'Cached' : 'Live'} · {new Date(fetchedAt).toLocaleString()}
               {` · ${displayCount}`}
+              {shuffled && <span className="latest-shuffled-badge"> · Reordered</span>}
             </span>
           )}
         </div>

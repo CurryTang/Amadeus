@@ -893,6 +893,7 @@ startFeedRefreshScheduler();
 router.get('/feed', async (req, res) => {
   try {
     const debug = req.query.debug === '1';
+    const shuffleRequested = req.query.shuffle === '1';
     const staleRunTriggered = !debug ? maybeTriggerStaleTrackerRun('feed_request') : false;
     const parsedLimit = parseInt(req.query.limit || '5', 10);
     const parsedOffset = parseInt(req.query.offset || '0', 10);
@@ -981,19 +982,46 @@ router.get('/feed', async (req, res) => {
       }
     }
 
-    const sourceData = Array.isArray(snapshot.data) ? snapshot.data : [];
+    let sourceData = Array.isArray(snapshot.data) ? snapshot.data : [];
+    let shuffled = false;
+
+    // Weighted shuffle: triggered on refresh requests with 30% probability.
+    // Saved papers are penalized so they drift toward later positions.
+    if (shuffleRequested && offset === 0 && Math.random() < 0.3) {
+      try {
+        const annotatedAll = await withTimeout(
+          () => annotateSavedStatus(sourceData),
+          FEED_PAGE_ANNOTATE_TIMEOUT_MS * 3,
+          'feed_saved_status_shuffle'
+        );
+        sourceData = annotatedAll
+          .map((item) => ({ item, _w: Math.random() + (item.saved ? -0.5 : 0.1) }))
+          .sort((a, b) => b._w - a._w)
+          .map(({ item }) => item);
+        shuffled = true;
+      } catch (shuffleError) {
+        console.warn('[tracker] shuffle annotation failed, using default order:', shuffleError.message || shuffleError);
+      }
+    }
+
     const rawPageData = sourceData.slice(offset, offset + limit);
     let pageData = [];
-    try {
-      pageData = await withTimeout(
-        () => annotateSavedStatus(rawPageData),
-        FEED_PAGE_ANNOTATE_TIMEOUT_MS,
-        'feed_saved_status'
-      );
-    } catch (annotateError) {
-      console.warn('[tracker] annotateSavedStatus timed out/faulted:', annotateError.message || annotateError);
-      pageData = rawPageData.map((item) => ({ ...item, saved: Boolean(item?.saved) }));
+    if (shuffled) {
+      // Already annotated during shuffle — no need to re-annotate the page
+      pageData = rawPageData;
+    } else {
+      try {
+        pageData = await withTimeout(
+          () => annotateSavedStatus(rawPageData),
+          FEED_PAGE_ANNOTATE_TIMEOUT_MS,
+          'feed_saved_status'
+        );
+      } catch (annotateError) {
+        console.warn('[tracker] annotateSavedStatus timed out/faulted:', annotateError.message || annotateError);
+        pageData = rawPageData.map((item) => ({ ...item, saved: Boolean(item?.saved) }));
+      }
     }
+
     const fetchedAtIso = snapshot.fetchedAt
       ? new Date(snapshot.fetchedAt).toISOString()
       : new Date(now).toISOString();
@@ -1011,6 +1039,7 @@ router.get('/feed', async (req, res) => {
       sourceCount: Number(snapshot.sourceCount || 0) || 0,
       refreshInProgress: feedRefreshRunning,
       staleRunTriggered,
+      shuffled,
     });
   } catch (e) {
     console.error('[tracker] GET /feed error:', e);
