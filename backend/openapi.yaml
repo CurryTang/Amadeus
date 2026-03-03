@@ -1,0 +1,898 @@
+openapi: "3.1.0"
+info:
+  title: Auto Researcher ResearchOps API
+  version: "2.0"
+  description: |
+    API for the auto-researcher vibe research platform.
+
+    ## Authentication
+    Include the `X-Auth-Token` header on all requests.
+    Example: `X-Auth-Token: <your-token>`
+
+    ## Base URL
+    Production: `https://your-domain.example.com/api/researchops`
+
+    ## Agent Usage
+    This spec is machine-readable. Fetch `/api/researchops/openapi` to get tool definitions.
+    All responses follow the envelope: `{ ok: true, data: {...}, meta: {...} }` for success,
+    `{ ok: false, error: { code, message, details } }` for errors.
+    Match on `error.code` (not `error.message`) for programmatic error handling.
+
+tags:
+  - name: runs
+    description: Research run lifecycle management
+  - name: projects
+    description: Project workspace management
+  - name: knowledge
+    description: Knowledge assets and groups
+  - name: autopilot
+    description: Automated iteration sessions
+  - name: dashboard
+    description: Dashboard and ideas
+
+components:
+  securitySchemes:
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: X-Auth-Token
+  schemas:
+    RunSpec:
+      type: object
+      required: [projectId]
+      properties:
+        projectId: { type: string }
+        serverId: { type: string, default: local-default }
+        runType: { type: string, enum: [AGENT, EXPERIMENT, QUICK_BASH], default: AGENT }
+        provider: { type: string, default: codex_cli }
+        mode: { type: string, enum: [headless, interactive], default: headless }
+        workflow:
+          type: array
+          items:
+            type: object
+            required: [id, type]
+            properties:
+              id: { type: string }
+              type: { type: string, enum: [agent.run, bash.run, checkpoint.hitl, report.render, artifact.publish] }
+              inputs: { type: object }
+        skillRefs:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              version: { type: string }
+        contextRefs:
+          type: object
+          properties:
+            knowledgeGroupIds: { type: array, items: { type: integer } }
+            knowledgeAssetIds: { type: array, items: { type: integer } }
+    Run:
+      type: object
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        status: { type: string, enum: [QUEUED, PROVISIONING, RUNNING, SUCCEEDED, FAILED, CANCELLED] }
+        runType: { type: string }
+        serverId: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        metadata: { type: object }
+        resultSnippet: { type: string, nullable: true, description: "Short preview of the last meaningful output or error" }
+    KnowledgeAsset:
+      type: object
+      properties:
+        id: { type: integer }
+        assetType: { type: string, enum: [insight, document, file, note, report] }
+        title: { type: string }
+        summary: { type: string }
+        bodyMd: { type: string }
+        tags: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        projectPath: { type: string }
+        serverId: { type: string }
+        createdAt: { type: string, format: date-time }
+    Envelope:
+      type: object
+      properties:
+        ok: { type: boolean, const: true }
+        data: { type: object }
+        meta:
+          type: object
+          properties:
+            ts: { type: string, format: date-time }
+            v: { type: integer, const: 2 }
+    ErrorEnvelope:
+      type: object
+      properties:
+        ok: { type: boolean, const: false }
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - RUN_NOT_FOUND
+                - PROJECT_NOT_FOUND
+                - ASSET_NOT_FOUND
+                - QUEUE_FULL
+                - RUN_NOT_QUEUED
+                - RUN_ALREADY_RUNNING
+                - CHECKPOINT_REQUIRED
+                - CHECKPOINT_EXPIRED
+                - SSH_UNREACHABLE
+                - SSH_AUTH_FAILED
+                - ARTIFACT_NOT_FOUND
+                - ARTIFACT_EXPIRED
+                - VALIDATION_ERROR
+                - UNAUTHORIZED
+                - INTERNAL_ERROR
+            message: { type: string }
+            details: { type: object }
+
+security:
+  - tokenAuth: []
+
+paths:
+  /researchops/health:
+    get:
+      tags: [runs]
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          status: { type: string, const: ok }
+
+  /researchops/runs/enqueue-v2:
+    post:
+      tags: [runs]
+      summary: Enqueue a new v2 research run
+      description: |
+        Creates a new research run and immediately triggers dispatch.
+        The run will begin executing as soon as a worker slot is available.
+        Returns HTTP 201 with the created run object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunSpec' }
+            example:
+              projectId: "proj_abc"
+              serverId: "local-default"
+              runType: "AGENT"
+              workflow:
+                - id: "step_1"
+                  type: "agent.run"
+                  inputs:
+                    prompt: "Implement experiment X and report results"
+      responses:
+        "201":
+          description: Run enqueued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          run: { $ref: '#/components/schemas/Run' }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /researchops/runs:
+    get:
+      tags: [runs]
+      summary: List runs (paginated)
+      parameters:
+        - name: projectId
+          in: query
+          description: Filter by project ID
+          schema: { type: string }
+        - name: status
+          in: query
+          description: Filter by run status
+          schema: { type: string, enum: [QUEUED, PROVISIONING, RUNNING, SUCCEEDED, FAILED, CANCELLED] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 300 }
+        - name: cursor
+          in: query
+          description: Pagination cursor from previous response nextCursor
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Run' }
+                          hasMore: { type: boolean }
+                          nextCursor: { type: string, nullable: true }
+
+  /researchops/runs/{runId}:
+    get:
+      tags: [runs]
+      summary: Get a single run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Run detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          run: { $ref: '#/components/schemas/Run' }
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    delete:
+      tags: [runs]
+      summary: Delete a run record
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Run deleted
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /researchops/runs/{runId}/cancel:
+    post:
+      tags: [runs]
+      summary: Cancel a running or queued run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Run cancelled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          cancelled: { type: boolean, const: true }
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /researchops/runs/{runId}/retry:
+    post:
+      tags: [runs]
+      summary: Retry a failed run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          description: Retry run enqueued
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /researchops/runs/{runId}/events:
+    get:
+      tags: [runs]
+      summary: Stream run events (SSE)
+      description: |
+        Server-Sent Events stream of run lifecycle events.
+        Each event is JSON with shape: `{ eventType, message, payload, ts }`.
+        eventType values: `LOG_LINE`, `STATUS_CHANGED`, `STEP_STARTED`, `STEP_COMPLETED`,
+        `CHECKPOINT_CREATED`, `ARTIFACT_PUBLISHED`, `DONE`.
+        Subscribe while status is RUNNING; close connection on DONE or terminal status.
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /researchops/runs/{runId}/steps:
+    get:
+      tags: [runs]
+      summary: List workflow step execution records for a run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Step records
+
+  /researchops/runs/{runId}/artifacts:
+    get:
+      tags: [runs]
+      summary: List artifacts for a run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of artifacts
+
+  /researchops/runs/{runId}/artifacts/{artifactId}/download:
+    get:
+      tags: [runs]
+      summary: Download a run artifact (proxied through backend)
+      description: |
+        By default, proxies the S3 object through the backend (no AccessDenied issues).
+        Pass `?redirect=true` or `?presign=true` for a 302 presigned URL redirect instead.
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: artifactId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: redirect
+          in: query
+          description: Return presigned S3 URL redirect instead of proxying
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Artifact binary content (proxied)
+        "302":
+          description: Redirect to presigned S3 URL (when redirect=true)
+        "404":
+          description: Artifact not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /researchops/runs/{runId}/checkpoints:
+    get:
+      tags: [runs]
+      summary: List HITL checkpoints for a run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of checkpoints
+
+  /researchops/runs/{runId}/checkpoints/{checkpointId}/decision:
+    post:
+      tags: [runs]
+      summary: Approve or reject a HITL checkpoint
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: checkpointId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT] }
+                feedback: { type: string }
+      responses:
+        "200":
+          description: Decision recorded
+
+  /researchops/runs/{runId}/report:
+    get:
+      tags: [runs]
+      summary: Get the rendered report for a completed run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Run report
+
+  /researchops/projects:
+    get:
+      tags: [projects]
+      summary: List all projects
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Project' }
+    post:
+      tags: [projects]
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                projectPath: { type: string, description: "Absolute path on the target server" }
+                serverId: { type: string, default: local-default }
+            example:
+              name: "My Research Project"
+              projectPath: "~/projects/my-research"
+              serverId: "local-default"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          project: { $ref: '#/components/schemas/Project' }
+
+  /researchops/projects/{projectId}:
+    get:
+      tags: [projects]
+      summary: Get project details
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          project: { $ref: '#/components/schemas/Project' }
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    patch:
+      tags: [projects]
+      summary: Update project settings
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                projectPath: { type: string }
+                serverId: { type: string }
+      responses:
+        "200":
+          description: Project updated
+    delete:
+      tags: [projects]
+      summary: Delete a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Project deleted
+
+  /researchops/projects/{projectId}/workspace:
+    get:
+      tags: [projects]
+      summary: Get project workspace info (venv, server files, recent runs)
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Workspace summary
+
+  /researchops/projects/{projectId}/files/tree:
+    get:
+      tags: [projects]
+      summary: Get the file tree of the project directory
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: depth
+          in: query
+          schema: { type: integer, default: 3 }
+      responses:
+        "200":
+          description: File tree
+
+  /researchops/projects/{projectId}/files/content:
+    get:
+      tags: [projects]
+      summary: Get the content of a file in the project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: File content
+
+  /researchops/projects/{projectId}/files/search:
+    get:
+      tags: [projects]
+      summary: Search files in the project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Search results
+
+  /researchops/knowledge/assets:
+    get:
+      tags: [knowledge]
+      summary: List knowledge assets
+      parameters:
+        - name: projectId
+          in: query
+          schema: { type: string }
+        - name: assetType
+          in: query
+          schema: { type: string, enum: [insight, document, file, note, report] }
+        - name: groupId
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: List of knowledge assets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/KnowledgeAsset' }
+    post:
+      tags: [knowledge]
+      summary: Create a text knowledge asset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, assetType]
+              properties:
+                title: { type: string }
+                assetType: { type: string, enum: [insight, document, file, note, report] }
+                bodyMd: { type: string }
+                summary: { type: string }
+                tags: { type: array, items: { type: string } }
+                projectId: { type: string }
+            example:
+              title: "Key finding: attention scaling"
+              assetType: "insight"
+              bodyMd: "The factorized attention achieves O(L + C) memory scaling."
+              tags: ["attention", "scaling"]
+      responses:
+        "201":
+          description: Asset created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        properties:
+                          asset: { $ref: '#/components/schemas/KnowledgeAsset' }
+
+  /researchops/knowledge/assets/{assetId}:
+    get:
+      tags: [knowledge]
+      summary: Get a knowledge asset
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Asset detail
+        "404":
+          description: Asset not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    patch:
+      tags: [knowledge]
+      summary: Update a knowledge asset
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                bodyMd: { type: string }
+                summary: { type: string }
+                tags: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: Asset updated
+    delete:
+      tags: [knowledge]
+      summary: Delete a knowledge asset
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Asset deleted
+
+  /researchops/knowledge/assets/upload:
+    post:
+      tags: [knowledge]
+      summary: Upload a file as a knowledge asset (multipart/form-data)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                title: { type: string }
+                assetType: { type: string }
+                projectId: { type: string }
+      responses:
+        "201":
+          description: Asset uploaded and created
+
+  /researchops/knowledge-groups:
+    get:
+      tags: [knowledge]
+      summary: List knowledge groups
+      responses:
+        "200":
+          description: List of groups
+    post:
+      tags: [knowledge]
+      summary: Create a knowledge group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "201":
+          description: Group created
+
+  /researchops/dashboard:
+    get:
+      tags: [dashboard]
+      summary: Combined dashboard (projects, runs, queue, ideas, skills)
+      responses:
+        "200":
+          description: Dashboard summary
+
+  /researchops/ideas:
+    get:
+      tags: [dashboard]
+      summary: List research ideas
+      responses:
+        "200":
+          description: List of ideas
+    post:
+      tags: [dashboard]
+      summary: Create a research idea
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+                priority: { type: string, enum: [low, medium, high] }
+      responses:
+        "201":
+          description: Idea created
+
+  /researchops/projects/{projectId}/autopilot/start:
+    post:
+      tags: [autopilot]
+      summary: Start an autopilot session for a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                maxIterations: { type: integer, default: 5 }
+                objective: { type: string }
+      responses:
+        "201":
+          description: Autopilot session started
+
+  /researchops/autopilot/{sessionId}:
+    get:
+      tags: [autopilot]
+      summary: Get autopilot session status
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Session status
+
+  /researchops/autopilot/{sessionId}/stop:
+    post:
+      tags: [autopilot]
+      summary: Stop an autopilot session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Session stopped
+
+  /researchops/kb/search:
+    post:
+      tags: [knowledge]
+      summary: Semantic search across knowledge base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string }
+                projectId: { type: string }
+                groupIds: { type: array, items: { type: integer } }
+                limit: { type: integer, default: 10 }
+      responses:
+        "200":
+          description: Search results ranked by relevance
