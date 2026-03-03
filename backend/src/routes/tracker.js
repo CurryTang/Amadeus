@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
+const fsPromises = require('fs/promises');
+const path = require('path');
+const os = require('os');
 const { requireAuth } = require('../middleware/auth');
 const config = require('../config');
 const paperTracker = require('../services/paper-tracker.service');
@@ -1214,6 +1217,28 @@ router.get('/twitter/playwright/setup-status', requireAuth, async (req, res) => 
   } catch (e) {
     console.error('[tracker] GET /twitter/playwright/setup-status error:', e);
     res.status(500).json({ error: e.message || 'Failed to inspect twitter playwright setup' });
+  }
+});
+
+// POST /api/tracker/twitter/playwright/session-upload — upload a Playwright session file from client
+router.post('/twitter/playwright/session-upload', requireAuth, async (req, res) => {
+  try {
+    const sessionJson = req.body?.sessionJson;
+    if (!sessionJson || typeof sessionJson !== 'object' || Array.isArray(sessionJson)) {
+      return res.status(400).json({ error: 'sessionJson must be a JSON object' });
+    }
+    if (!Array.isArray(sessionJson.cookies) && !Array.isArray(sessionJson.origins)) {
+      return res.status(400).json({ error: 'Invalid Playwright session: expected cookies or origins array' });
+    }
+    const targetDir = path.join(os.homedir(), '.playwright');
+    const targetPath = path.join(targetDir, 'x-session.json');
+    await fsPromises.mkdir(targetDir, { recursive: true });
+    await fsPromises.writeFile(targetPath, JSON.stringify(sessionJson, null, 2), 'utf8');
+    const stat = await fsPromises.stat(targetPath);
+    return res.json({ path: targetPath, size: stat.size });
+  } catch (e) {
+    console.error('[tracker] POST /twitter/playwright/session-upload error:', e);
+    return res.status(500).json({ error: e.message || 'Failed to save session file' });
   }
 });
 
