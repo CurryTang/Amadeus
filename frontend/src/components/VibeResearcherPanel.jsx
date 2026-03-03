@@ -7,6 +7,7 @@ import VibeRunHistory from './vibe/VibeRunHistory';
 import VibeTreeCanvas from './vibe/VibeTreeCanvas';
 import VibePlanEditor from './vibe/VibePlanEditor';
 import VibeNodeWorkbench from './vibe/VibeNodeWorkbench';
+import QuickBashModal from './vibe/QuickBashModal';
 
 const SSH_BLOCKING_ERROR_CODES = new Set([
   'SSH_SERVER_NOT_FOUND',
@@ -366,6 +367,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [showEnqueueRunModal, setShowEnqueueRunModal] = useState(false);
   const [showKnowledgeHubModal, setShowKnowledgeHubModal] = useState(false);
   const [showSkillsModal, setShowSkillsModal] = useState(false);
+  const [showQuickBash, setShowQuickBash] = useState(false);
   const [showInsertStepModal, setShowInsertStepModal] = useState(false);
   const [insertStepJson, setInsertStepJson] = useState('');
   const [showCheckpointEditModal, setShowCheckpointEditModal] = useState(false);
@@ -3259,6 +3261,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                   onPause={() => setTreeControl('pause')}
                   onResume={() => setTreeControl('resume')}
                   onAbort={() => setTreeControl('abort')}
+                  onQuickBash={() => setShowQuickBash(true)}
                 />
                 {treeError && <div className="vibe-error">{treeError}</div>}
                 {treeLoading && !treePlan && <div className="vibe-card-note">Loading tree workspace...</div>}
@@ -4780,6 +4783,16 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
             </div>
           </article>
         </div>
+      )}
+
+      {showQuickBash && (
+        <QuickBashModal
+          apiUrl={apiUrl}
+          headers={headers}
+          projectId={selectedProjectId}
+          serverId={selectedProject?.serverId || 'local-default'}
+          onClose={() => setShowQuickBash(false)}
+        />
       )}
     </section>
   );

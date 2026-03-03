@@ -8759,3 +8759,77 @@ button.vibe-skill-chip.is-active {
     justify-content: space-between;
   }
 }
+
+/* QuickBashModal */
+.vibe-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.vibe-modal-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.vibe-modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #8b949e);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.vibe-modal-close-btn:hover {
+  color: var(--color-text, #e6edf3);
+}
+
+.vibe-quick-bash-modal {
+  min-width: 480px;
+  max-width: 640px;
+}
+
+.vibe-quick-bash-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.vibe-quick-bash-input {
+  flex: 1;
+}
+
+.vibe-quick-bash-output {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vibe-quick-bash-log {
+  min-height: 120px;
+  max-height: 280px;
+}
+
+.vibe-quick-bash-status {
+  font-size: 0.8rem;
+  margin: 0;
+  color: var(--color-text-muted, #8b949e);
+}
+.vibe-quick-bash-status.is-ok {
+  color: var(--color-success, #3fb950);
+}
+.vibe-quick-bash-status.is-error {
+  color: var(--color-danger, #f85149);
+}
+
+.vibe-quick-bash-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.vibe-quick-bash-btn {
+  white-space: nowrap;
+}
