@@ -17,11 +17,23 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 // API URL strategy:
 // - Development: prefer local proxy (/api) unless overridden with NEXT_PUBLIC_DEV_API_URL.
 // - Production: use NEXT_PUBLIC_API_URL when provided, otherwise default public endpoint.
-const IS_DEV = process.env.NODE_ENV !== 'production';
-const DEV_API_URL = process.env.NEXT_PUBLIC_DEV_API_URL || '/api';
-const PROD_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://your-domain.example.com/api';
+const ENV = (
+  (typeof import.meta !== 'undefined' && import.meta?.env)
+  || (typeof process !== 'undefined' && process?.env)
+  || {}
+);
+// Check MODE and NODE_ENV independently so import.meta.env (Vite) doesn't shadow
+// process.env.NODE_ENV (Next.js). In Next.js, import.meta.env exists but has no MODE/NODE_ENV.
+const IS_DEV = (() => {
+  const viteMode = typeof import.meta !== 'undefined' ? (import.meta?.env?.MODE || '') : '';
+  const nodeEnv = typeof process !== 'undefined' ? (process?.env?.NODE_ENV || '') : '';
+  const mode = viteMode || nodeEnv;
+  return mode ? mode.toLowerCase() !== 'production' : true;
+})();
+const DEV_API_URL = ENV.NEXT_PUBLIC_DEV_API_URL || ENV.VITE_DEV_API_URL || '/api';
+const PROD_API_URL = ENV.NEXT_PUBLIC_API_URL || ENV.VITE_API_URL || 'https://your-domain.example.com/api';
 const API_URL = IS_DEV ? DEV_API_URL : PROD_API_URL;
-const API_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_API_TIMEOUT_MS || 15000);
+const API_TIMEOUT_MS = Number(ENV.NEXT_PUBLIC_API_TIMEOUT_MS || ENV.VITE_API_TIMEOUT_MS || 15000);
 
 function getApiErrorMessage(err, fallback) {
   if (err?.response?.status === 500) {
