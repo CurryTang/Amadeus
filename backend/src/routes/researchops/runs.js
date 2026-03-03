@@ -4,7 +4,8 @@ const express = require('express');
 const router = express.Router();
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
+const { promises: fsPromises } = require('fs');
 const { requireAuth } = require('../../middleware/auth');
 const s3Service = require('../../services/s3.service');
 const researchOpsStore = require('../../services/researchops/store');
@@ -21,7 +22,7 @@ const {
 } = require('../../services/ssh-auth.service');
 const {
   parseLimit, parseOffset, parseBoolean, cleanString,
-  getUserId, sanitizeError, withArtifactDownloadUrl,
+  getUserId, sanitizeError, withArtifactDownloadUrl, expandHome,
 } = require('./shared');
 
 // ---------------------------------------------------------------------------
@@ -265,8 +266,9 @@ router.post('/runs/enqueue-v2', async (req, res) => {
     });
 
     // BUG-3 FIX: trigger immediate dispatch
+    const userId = getUserId(req);
     setImmediate(() => {
-      researchOpsRunner.leaseAndExecuteNext(getUserId(req), serverId, { allowUnregisteredServer: true })
+      researchOpsRunner.leaseAndExecuteNext(userId, serverId, { allowUnregisteredServer: true })
         .catch((err) => console.error('[runs/enqueue-v2] immediate dispatch failed:', err.message));
     });
 
@@ -374,7 +376,7 @@ router.post('/runs/:runId/retry', async (req, res) => {
   }
 });
 
-router.delete('/runs/:runId', requireAuth, async (req, res) => {
+router.delete('/runs/:runId', async (req, res) => {
   try {
     const result = await researchOpsStore.deleteRun(getUserId(req), req.params.runId);
     if (!result.deleted) {
@@ -388,7 +390,7 @@ router.delete('/runs/:runId', requireAuth, async (req, res) => {
   }
 });
 
-router.delete('/projects/:projectId/runs', requireAuth, async (req, res) => {
+router.delete('/projects/:projectId/runs', async (req, res) => {
   try {
     const result = await researchOpsStore.clearProjectRuns(getUserId(req), req.params.projectId, {
       status: req.query.status || '',
@@ -546,7 +548,7 @@ router.post('/runs/:runId/checkpoints/:checkpointId/decision', async (req, res) 
         decision: normalizedDecision,
         note: req.body?.note,
         edits: req.body?.edits,
-        decidedBy: req.userId || 'czk',
+        decidedBy: getUserId(req),
       }
     );
     if (!checkpoint) return res.status(404).json({ error: 'Checkpoint not found' });
@@ -569,7 +571,7 @@ router.post('/runs/:runId/checkpoints/:checkpointId/decision', async (req, res) 
         action: normalizedDecision || null,
         note: req.body?.note || null,
         edits: req.body?.edits && typeof req.body.edits === 'object' ? req.body.edits : null,
-        decidedBy: req.userId || 'czk',
+        decidedBy: getUserId(req),
       },
     }]);
 
@@ -818,7 +820,7 @@ router.get('/runner/running', (req, res) => {
 
 // GET /api/researchops/runs/:runId/horizon-status
 // Returns current status from the watchdog status file + tmux alive check.
-router.get('/runs/:runId/horizon-status', requireAuth, async (req, res) => {
+router.get('/runs/:runId/horizon-status', async (req, res) => {
   try {
     const userId = getUserId(req);
     const runId = String(req.params.runId || '').trim();
@@ -854,14 +856,11 @@ router.get('/runs/:runId/horizon-status', requireAuth, async (req, res) => {
       }
     } else {
       // local
-      const expandHome = (p) => p.replace(/^~/, os.homedir());
       try {
-        const { promises: fsPromises } = require('fs');
         const raw = await fsPromises.readFile(expandHome(statusFile), 'utf8');
         statusJson = JSON.parse(raw.trim());
       } catch (_) {}
       try {
-        const { execFile } = require('child_process');
         recentLog = await new Promise((resolve) => {
           execFile('tail', ['-60', expandHome(logFile)], (e, out) => resolve(out || ''));
         });
@@ -888,7 +887,7 @@ router.get('/runs/:runId/horizon-status', requireAuth, async (req, res) => {
 
 // POST /api/researchops/runs/:runId/horizon-cancel
 // Kills the tmux session on the target server.
-router.post('/runs/:runId/horizon-cancel', requireAuth, async (req, res) => {
+router.post('/runs/:runId/horizon-cancel', async (req, res) => {
   try {
     const userId = getUserId(req);
     const runId = String(req.params.runId || '').trim();
@@ -909,7 +908,6 @@ router.post('/runs/:runId/horizon-cancel', requireAuth, async (req, res) => {
       ], { timeoutMs: 15000 });
     } else {
       try {
-        const { execFile } = require('child_process');
         await new Promise((resolve) => {
           execFile('tmux', ['kill-session', '-t', session], () => resolve());
         });
