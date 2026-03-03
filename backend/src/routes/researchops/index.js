@@ -12,7 +12,7 @@ router.use(requireAuth);
 router.get('/health', (req, res) => res.ok({ status: 'ok' }));
 
 // Sub-routers are mounted here as domain files are created:
-// router.use('/', require('./runs'));
+router.use('/', require('./runs'));
 // router.use('/', require('./projects'));
 // router.use('/', require('./knowledge'));
 // router.use('/', require('./autopilot'));
