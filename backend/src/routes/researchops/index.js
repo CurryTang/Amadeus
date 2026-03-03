@@ -25,10 +25,10 @@ router.get('/openapi', (req, res) => {
   }
 });
 
-router.use(requireAuth);
-
-// Health check
+// Health check — no auth required
 router.get('/health', (req, res) => res.ok({ status: 'ok' }));
+
+router.use(requireAuth);
 
 // Sub-routers are mounted here as domain files are created:
 router.use('/', require('./runs'));
