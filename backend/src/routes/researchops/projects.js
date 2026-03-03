@@ -1771,25 +1771,22 @@ async function getLocalFileList(rootPath) {
   const cached = fileListCache.get(rootPath);
   if (cached && Date.now() < cached.expiresAt) return cached.files;
 
+  // Use plain find: include both files and directories, skip .git entirely.
+  // Intentionally avoids git ls-files so .gitignored paths are still visible.
   let files = [];
   try {
-    const tracked = await runCommand('git', ['-C', rootPath, 'ls-files'], { timeoutMs: 10000 });
-    const untracked = await runCommand(
-      'git', ['-C', rootPath, 'ls-files', '--others', '--exclude-standard'], { timeoutMs: 10000 }
-    ).catch(() => ({ stdout: '' }));
+    const result = await runCommand('find', [
+      rootPath, '-mindepth', '1',
+      '-not', '-path', `${rootPath}/.git/*`,
+      '-not', '-name', '.git',
+      '(', '-type', 'f', '-o', '-type', 'd', ')',
+    ], { timeoutMs: 25000 });
     files = [...new Set(
-      `${tracked.stdout || ''}\n${untracked.stdout || ''}`
-        .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      String(result.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+        .map((fp) => path.relative(rootPath, fp).replace(/\\/g, '/'))
+        .filter(Boolean)
     )];
-  } catch (_) {
-    try {
-      const fallback = await runCommand('find', [rootPath, '-type', 'f'], { timeoutMs: 25000 });
-      files = [...new Set(
-        String(fallback.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-          .map((fp) => path.relative(rootPath, fp).replace(/\\/g, '/'))
-      )];
-    } catch (__) { /* ignore */ }
-  }
+  } catch (_) { /* ignore */ }
 
   fileListCache.set(rootPath, { files, expiresAt: Date.now() + FILE_LIST_TTL_MS });
   return files;
@@ -1812,11 +1809,12 @@ async function getSshFileList(server, projectPath) {
   const cached = fileListCache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) return cached.files;
 
-  // Fetch all relative file paths from the remote in one SSH call
+  // Fetch all relative paths (files + dirs) from the remote in one SSH call.
+  // Intentionally uses plain find — no git ls-files — so .gitignored paths are visible.
   const script = [
     'root="$1"',
     'if [ ! -d "$root" ]; then echo "__NOT_DIR__"; exit 0; fi',
-    'find "$root" -type f 2>/dev/null | while IFS= read -r f; do printf "%s\\n" "${f#$root/}"; done',
+    'find "$root" -mindepth 1 -not -path "*/.git/*" -not -name ".git" \\( -type f -o -type d \\) 2>/dev/null | while IFS= read -r f; do printf "%s\\n" "${f#${root}/}"; done',
   ].join('\n');
   const { stdout } = await runSshScript(server, script, [String(projectPath || '').trim()], 35000);
   if (String(stdout || '').includes('__NOT_DIR__')) {
@@ -1834,17 +1832,14 @@ async function searchSshProjectFiles(server, projectPath, query, limit = 20) {
   if (!q) return [];
   const cap = parseLimit(limit, 20, 100);
   const rootPath = String(projectPath || '').trim();
+  // Plain find: files + directories, no git, no .gitignore filtering.
   const script = [
     'root="$1"',
     'query="$2"',
     'cap="$3"',
     'if [ ! -d "$root" ]; then echo "__NOT_DIR__"; exit 0; fi',
     'if [ -z "$query" ]; then exit 0; fi',
-    'if [ -d "$root/.git" ] && command -v git >/dev/null 2>&1; then',
-    '  { git -C "$root" ls-files 2>/dev/null; git -C "$root" ls-files --others --exclude-standard 2>/dev/null; } | grep -iF -- "$query" | head -n "$cap"',
-    'else',
-    '  find "$root" -type f 2>/dev/null | sed "s#^$root/##" | grep -iF -- "$query" | head -n "$cap"',
-    'fi',
+    'find "$root" -mindepth 1 -not -path "*/.git/*" -not -name ".git" \\( -type f -o -type d \\) 2>/dev/null | sed "s|^${root}/||" | grep -iF -- "$query" | head -n "$cap"',
   ].join('\n');
 
   try {
