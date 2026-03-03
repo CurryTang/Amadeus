@@ -7534,6 +7534,32 @@ button.vibe-skill-chip.is-active {
   text-align: center;
 }
 
+.vibe-run-snippet {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--color-text-muted, #8b949e);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+  margin-top: 2px;
+}
+
+.vibe-run-rerun-btn {
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  color: var(--color-accent, #58a6ff);
+  border-radius: 3px;
+  opacity: 0.6;
+  user-select: none;
+  line-height: 1;
+}
+.vibe-run-rerun-btn:hover {
+  opacity: 1;
+  background: rgba(88, 166, 255, 0.1);
+}
+
 /* Branch filter */
 .vibe-run-branch-filter {
   display: flex;

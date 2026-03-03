@@ -2,6 +2,348 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import GitLogEntry from '../models/GitLogEntry';
 import VibeKnowledgeHubModal from './VibeKnowledgeHubModal';
+import VibeHomeView from './vibe/VibeHomeView';
+import VibeRunHistory from './vibe/VibeRunHistory';
+import VibeTreeCanvas from './vibe/VibeTreeCanvas';
+import VibePlanEditor from './vibe/VibePlanEditor';
+import VibeNodeWorkbench from './vibe/VibeNodeWorkbench';
+
+const SSH_BLOCKING_ERROR_CODES = new Set([
+  'SSH_SERVER_NOT_FOUND',
+  'SSH_AUTH_FAILED',
+  'SSH_HOST_UNREACHABLE',
+  'SSH_TIMEOUT',
+  'SSH_COMMAND_FAILED',
+  'REMOTE_PATH_NOT_FOUND',
+  'REMOTE_NOT_DIRECTORY',
+]);
+const SSH_POLL_COOLDOWN_MS = 120000;
+const TREE_ENDPOINT_COOLDOWN_MS = 15 * 60 * 1000;
+const KB_LOCATOR_ENDPOINT_COOLDOWN_MS = 30 * 60 * 1000;
+const kbLocatorEndpointCooldown = new Map();
+const KB_RESOURCE_SEED_PATHS = [
+  'paper_assets_index.md',
+  'paper_assets_index.json',
+  'notes.md',
+  'research_questions.md',
+  'proposal_zh.md',
+];
+const CODE_CHAT_SEED_PATHS = [
+  'README.md',
+  'docs/',
+  'src/',
+  'scripts/',
+  'configs/',
+  'tests/',
+];
+const KB_RESOURCE_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'to',
+  'for',
+  'of',
+  'in',
+  'on',
+  'with',
+  'from',
+  'about',
+  'how',
+  'what',
+  'which',
+  'when',
+  'where',
+  'why',
+  'is',
+  'are',
+  'be',
+  'can',
+  'should',
+  'could',
+  'would',
+  'please',
+  'compare',
+  'comparison',
+  'differences',
+  'difference',
+  'scope',
+  'summarize',
+  'summary',
+  'cite',
+  'citation',
+  'citations',
+  'path',
+  'paths',
+  'file',
+  'files',
+  'resource',
+  'resources',
+  'between',
+  'across',
+]);
+
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getApiErrorCode(error) {
+  return cleanString(error?.response?.data?.code || '').toUpperCase();
+}
+
+function getApiStatus(error) {
+  const status = Number(error?.response?.status || 0);
+  return Number.isFinite(status) ? status : 0;
+}
+
+function createEmptyTreePlan(projectName = '') {
+  return {
+    version: 1,
+    project: cleanString(projectName) || 'AutoResearch',
+    vars: {},
+    nodes: [],
+  };
+}
+
+function createEmptyTreeState() {
+  return {
+    nodes: {},
+    runs: {},
+    queue: {
+      paused: false,
+      pausedReason: '',
+      updatedAt: null,
+      items: [],
+    },
+    search: {},
+    updatedAt: null,
+  };
+}
+
+function isTreeEndpointUnavailable(error) {
+  const status = getApiStatus(error);
+  if (status !== 404) return false;
+  const code = getApiErrorCode(error);
+  return !['PROJECT_NOT_FOUND', 'SSH_SERVER_NOT_FOUND'].includes(code);
+}
+
+function toProjectAccessDiagnostic(error, fallback) {
+  const code = getApiErrorCode(error);
+  const message = cleanString(error?.response?.data?.error || error?.message || fallback || 'Request failed');
+  const detailByCode = {
+    SSH_SERVER_NOT_FOUND: 'SSH server mapping is missing. Re-select the server by id/name in project settings.',
+    SSH_AUTH_FAILED: 'SSH key authentication failed. Run SSH test and authorize the managed key on the target host.',
+    SSH_HOST_UNREACHABLE: 'Remote SSH host is unreachable. Check FRP tunnel, host, and SSH port.',
+    SSH_TIMEOUT: 'SSH request timed out. Verify network route and host load, then retry.',
+    REMOTE_PATH_NOT_FOUND: 'Configured remote project path does not exist on the SSH host.',
+    REMOTE_NOT_DIRECTORY: 'Configured remote path exists but is not a directory.',
+  };
+  if (!code) return message;
+  const detail = detailByCode[code] || '';
+  return detail ? `${code}: ${message} (${detail})` : `${code}: ${message}`;
+}
+
+function isSshAccessFailure(error) {
+  const code = cleanString(error?.response?.data?.code || '').toUpperCase();
+  if (code && SSH_BLOCKING_ERROR_CODES.has(code)) return true;
+  const status = Number(error?.response?.status || 0);
+  if (status === 401 || status === 502) return true;
+  const message = cleanString(error?.response?.data?.error || error?.message || '').toUpperCase();
+  return message.includes('SSH_') || message.includes('REMOTE_PATH');
+}
+
+function isKbLocatorEndpointInCooldown(projectId = '') {
+  const pid = cleanString(projectId);
+  if (!pid) return false;
+  const until = Number(kbLocatorEndpointCooldown.get(pid) || 0);
+  return Number.isFinite(until) && until > Date.now();
+}
+
+function markKbLocatorEndpointCooldown(projectId = '') {
+  const pid = cleanString(projectId);
+  if (!pid) return;
+  kbLocatorEndpointCooldown.set(pid, Date.now() + KB_LOCATOR_ENDPOINT_COOLDOWN_MS);
+}
+
+function tokenizeKbResourceQuery(query = '', maxTokens = 8) {
+  const normalized = String(query || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-./\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return [];
+  const rawTokens = normalized
+    .split(' ')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => item.length >= 2)
+    .filter((item) => !KB_RESOURCE_STOPWORDS.has(item));
+  const out = [];
+  const seen = new Set();
+  for (const token of rawTokens) {
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+    if (out.length >= maxTokens) break;
+  }
+  return out;
+}
+
+function scoreKbResourcePath(relativePath = '', query = '', tokens = []) {
+  const rel = String(relativePath || '').trim();
+  if (!rel) return 0;
+  const relLower = rel.toLowerCase();
+  const segments = relLower.split('/').filter(Boolean);
+  const fileLower = segments[segments.length - 1] || relLower;
+  const extMatch = fileLower.match(/\.[a-z0-9]+$/i);
+  const ext = extMatch ? extMatch[0].toLowerCase() : '';
+  const depth = segments.length;
+  const q = String(query || '').trim().toLowerCase();
+  const paperIntent = /\b(paper|benchmark|bench|compare|comparison|scope|dataset|datasets|result|results|analysis|review|evidence|citation)\b/.test(q);
+  const codeIntent = /\b(code|script|implementation|api|function|class|module|debug|fix|patch)\b/.test(q);
+  let score = 0;
+  if (q && relLower.includes(q)) score += 9;
+  tokens.forEach((token) => {
+    if (!token) return;
+    if (relLower.includes(token)) {
+      score += 2;
+      if (fileLower.includes(token)) score += 1.2;
+      if (fileLower.startsWith(token)) score += 0.8;
+    }
+  });
+  if (KB_RESOURCE_SEED_PATHS.some((seed) => seed.toLowerCase() === fileLower)) score += 1.8;
+  if (fileLower === 'readme.md') score += 4.6;
+  if (fileLower.endsWith('meta.json')) score += 1.8;
+  if (relLower.includes('/arxiv_source/meta.json')) score += 2.2;
+  if (fileLower.endsWith('.pdf')) score += 3.4;
+  if (fileLower === 'paper.pdf') score += 4.0;
+  if (fileLower.endsWith('bench.pdf')) score += 2.0;
+  if (fileLower.endsWith('.md')) score += 0.9;
+  if (depth <= 2) score += 1.4;
+  if (depth > 4) score -= (depth - 4) * 0.45;
+  if (relLower.includes('/arxiv_source/src/')) score -= 3.4;
+  if (fileLower.endsWith('.pdf') && relLower.includes('/arxiv_source/src/')) score -= 3.2;
+  if (/(^|\/)(fig|figs|images|img|plots)\//.test(relLower)) score -= 3.4;
+  if (fileLower.includes('favicon')) score -= 3.0;
+  if (fileLower.includes('source.bundle')) score -= 4.2;
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.sty'].includes(ext)) score -= 2.6;
+  if (['.tex', '.bib', '.bst', '.bbl', '.cls', '.aux', '.log', '.toc', '.out'].includes(ext)) score -= 3.4;
+  if (paperIntent && ['.md', '.pdf', '.json', '.txt'].includes(ext)) score += 2.2;
+  if (paperIntent && ['.py', '.sh', '.ipynb'].includes(ext)) score -= 1.6;
+  if (codeIntent && ['.py', '.sh', '.ipynb'].includes(ext)) score += 1.4;
+  return Number(score.toFixed(3));
+}
+
+function isEligibleKbResourcePath(relativePath = '') {
+  const rel = String(relativePath || '').trim();
+  if (!rel) return false;
+  const relLower = rel.toLowerCase();
+  const fileLower = relLower.split('/').filter(Boolean).pop() || relLower;
+  const extMatch = fileLower.match(/\.[a-z0-9]+$/i);
+  const ext = extMatch ? extMatch[0].toLowerCase() : '';
+  if (relLower.includes('/arxiv_source/src/')) return false;
+  if (/(^|\/)(fig|figs|images|img|plots|assets)\//.test(relLower)) return false;
+  if (fileLower.includes('source.bundle') || fileLower.includes('favicon')) return false;
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.sty', '.ipynb'].includes(ext)) return false;
+  if (['.tex', '.bib', '.bst', '.bbl', '.cls', '.aux', '.log', '.toc', '.out'].includes(ext)) return false;
+  return true;
+}
+
+function rankKbResourceCandidates(paths = [], query = '', tokens = [], limit = 12) {
+  const cap = Math.min(Math.max(Number(limit) || 12, 1), 50);
+  const scored = new Map();
+  paths.forEach((item) => {
+    const filePath = String(item || '').trim();
+    if (!filePath) return;
+    if (!isEligibleKbResourcePath(filePath)) return;
+    const score = scoreKbResourcePath(filePath, query, tokens);
+    if (score <= 0) return;
+    if (!scored.has(filePath) || score > scored.get(filePath)) {
+      scored.set(filePath, score);
+    }
+  });
+  const ranked = Array.from(scored.entries())
+    .map(([path, score]) => ({ path, score }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.path.localeCompare(b.path);
+    });
+  const perFolderLimit = 3;
+  const folderCount = new Map();
+  const out = [];
+  for (const item of ranked) {
+    const topFolder = String(item.path || '').split('/')[0] || item.path;
+    const used = folderCount.get(topFolder) || 0;
+    if (used >= perFolderLimit) continue;
+    folderCount.set(topFolder, used + 1);
+    out.push(item);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+function isEligibleCodePath(relativePath = '') {
+  const rel = String(relativePath || '').trim();
+  if (!rel) return false;
+  const relLower = rel.toLowerCase();
+  const fileLower = relLower.split('/').filter(Boolean).pop() || relLower;
+  const extMatch = fileLower.match(/\.[a-z0-9]+$/i);
+  const ext = extMatch ? extMatch[0].toLowerCase() : '';
+  if (
+    relLower.startsWith('.git/')
+    || relLower.startsWith('resource/')
+    || relLower.startsWith('.researchops/state.json')
+  ) return false;
+  if (/(^|\/)(node_modules|dist|build|coverage|\.next|out|\.venv|venv|__pycache__)($|\/)/.test(relLower)) return false;
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.mp4', '.mov', '.zip', '.tar', '.gz', '.pdf', '.bin'].includes(ext)) return false;
+  return true;
+}
+
+function scoreCodePath(relativePath = '', query = '', tokens = []) {
+  const rel = String(relativePath || '').trim();
+  if (!rel) return 0;
+  const relLower = rel.toLowerCase();
+  const fileLower = relLower.split('/').filter(Boolean).pop() || relLower;
+  const extMatch = fileLower.match(/\.[a-z0-9]+$/i);
+  const ext = extMatch ? extMatch[0].toLowerCase() : '';
+  const q = String(query || '').toLowerCase();
+  let score = 0;
+  if (q && relLower.includes(q)) score += 8.5;
+  tokens.forEach((token) => {
+    if (!token) return;
+    if (relLower.includes(token)) score += 2.4;
+    if (fileLower.includes(token)) score += 1.1;
+  });
+  if (/(^|\/)(src|scripts|configs|tests|docs)\//.test(relLower)) score += 1.6;
+  if (fileLower === 'readme.md') score += 3.2;
+  if (fileLower === 'package.json' || fileLower === 'pyproject.toml') score += 2.4;
+  if (['.py', '.ts', '.tsx', '.js', '.jsx', '.sh', '.yaml', '.yml', '.json', '.toml', '.md'].includes(ext)) score += 1.8;
+  if (['.lock', '.log', '.tmp', '.cache'].includes(ext)) score -= 2.8;
+  if (relLower.startsWith('resource/')) score -= 4.0;
+  return Number(score.toFixed(3));
+}
+
+function rankCodePathCandidates(paths = [], query = '', tokens = [], limit = 10) {
+  const cap = Math.min(Math.max(Number(limit) || 10, 1), 40);
+  const scored = new Map();
+  paths.forEach((item) => {
+    const filePath = String(item || '').trim();
+    if (!filePath || !isEligibleCodePath(filePath)) return;
+    const score = scoreCodePath(filePath, query, tokens);
+    if (score <= 0) return;
+    if (!scored.has(filePath) || score > scored.get(filePath)) {
+      scored.set(filePath, score);
+    }
+  });
+  return Array.from(scored.entries())
+    .map(([path, score]) => ({ path, score }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.path.localeCompare(b.path);
+    })
+    .slice(0, cap);
+}
 
 function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [projects, setProjects] = useState([]);
@@ -43,6 +385,11 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [changedFilesLoading, setChangedFilesLoading] = useState(false);
   const [changedFilesError, setChangedFilesError] = useState('');
   const selectedProjectRef = useRef('');
+  const sshPollCooldownRef = useRef(new Map());
+  const treeEndpointCooldownRef = useRef(new Map());
+  const projectInsightsInFlightRef = useRef(new Set());
+  const projectFileTreeInFlightRef = useRef(new Set());
+  const treeWorkspaceInFlightRef = useRef(new Set());
 
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
@@ -83,11 +430,19 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [projectFileContent, setProjectFileContent] = useState(null);
   const [projectFileContentLoading, setProjectFileContentLoading] = useState(false);
   const [projectFileContentError, setProjectFileContentError] = useState('');
+  const [projectFilesDisplayLimit, setProjectFilesDisplayLimit] = useState(20);
+  const [kbFileTree, setKbFileTree] = useState(null);
+  const [kbFileTreeLoading, setKbFileTreeLoading] = useState(false);
+  const [kbFileTreeError, setKbFileTreeError] = useState('');
+  const [kbFileContent, setKbFileContent] = useState(null);
+  const [kbFileContentLoading, setKbFileContentLoading] = useState(false);
+  const [kbFileContentError, setKbFileContentError] = useState('');
   const [aiEditTarget, setAiEditTarget] = useState('');
   const [aiEditInstruction, setAiEditInstruction] = useState('');
   const [aiEditBusy, setAiEditBusy] = useState(false);
   const [fileMentionOptions, setFileMentionOptions] = useState([]);
   const [fileMentionLoading, setFileMentionLoading] = useState(false);
+  const [codeChatPrompt, setCodeChatPrompt] = useState('');
   const [proposalUploadBusy, setProposalUploadBusy] = useState(false);
   const [showKickoffPromptGenerate, setShowKickoffPromptGenerate] = useState(false);
   const [kickoffAiPrompt, setKickoffAiPrompt] = useState('');
@@ -101,7 +456,75 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [autopilotSession, setAutopilotSession] = useState(null);
   const autopilotPollRef = useRef(null);
 
+  const [treePlan, setTreePlan] = useState(null);
+  const [treeValidation, setTreeValidation] = useState(null);
+  const [treeState, setTreeState] = useState(null);
+  const [treeLoading, setTreeLoading] = useState(false);
+  const [treeError, setTreeError] = useState('');
+  const [treeRootSummary, setTreeRootSummary] = useState(null);
+  const [selectedNodeId, setSelectedNodeId] = useState('');
+  const selectedNodeIdRef = useRef('');
+  const [planMode, setPlanMode] = useState('view');
+  const [planViewMode, setPlanViewMode] = useState('canvas');
+  const [runAllScope, setRunAllScope] = useState('active_path');
+  const [searchData, setSearchData] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [rootBootstrapBusy, setRootBootstrapBusy] = useState(false);
+
+  const [runHistoryItems, setRunHistoryItems] = useState([]);
+  const [runHistoryCursor, setRunHistoryCursor] = useState('');
+  const [runHistoryHasMore, setRunHistoryHasMore] = useState(false);
+  const [runHistoryLoading, setRunHistoryLoading] = useState(false);
+  const [runHistoryLoadingMore, setRunHistoryLoadingMore] = useState(false);
+  const runHistoryCursorRef = useRef('');
+  const runHistoryHasMoreRef = useRef(false);
+  const runHistoryLoadingMoreRef = useRef(false);
+  const loadProjectInsightsRef = useRef(null);
+  const loadProjectFileTreeRef = useRef(null);
+  const loadTreeWorkspaceRef = useRef(null);
+  const loadRunHistoryPageRef = useRef(null);
+
+  const [bottomLeftTab, setBottomLeftTab] = useState('knowledge');
+
   const headers = useMemo(() => getAuthHeaders?.() || {}, [getAuthHeaders]);
+  const isProjectPollingBlocked = useCallback((projectId) => {
+    const key = cleanString(projectId);
+    if (!key) return false;
+    const until = Number(sshPollCooldownRef.current.get(key) || 0);
+    return until > Date.now();
+  }, []);
+
+  const markProjectPollingBlocked = useCallback((projectId) => {
+    const key = cleanString(projectId);
+    if (!key) return;
+    sshPollCooldownRef.current.set(key, Date.now() + SSH_POLL_COOLDOWN_MS);
+  }, []);
+
+  const clearProjectPollingBlock = useCallback((projectId) => {
+    const key = cleanString(projectId);
+    if (!key) return;
+    sshPollCooldownRef.current.delete(key);
+  }, []);
+
+  const isTreeEndpointCooldown = useCallback((projectId) => {
+    const key = cleanString(projectId);
+    if (!key) return false;
+    const until = Number(treeEndpointCooldownRef.current.get(key) || 0);
+    return until > Date.now();
+  }, []);
+
+  const markTreeEndpointCooldown = useCallback((projectId) => {
+    const key = cleanString(projectId);
+    if (!key) return;
+    treeEndpointCooldownRef.current.set(key, Date.now() + TREE_ENDPOINT_COOLDOWN_MS);
+  }, []);
+
+  const clearTreeEndpointCooldown = useCallback((projectId) => {
+    const key = cleanString(projectId);
+    if (!key) return;
+    treeEndpointCooldownRef.current.delete(key);
+  }, []);
+
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     setError('');
@@ -196,13 +619,33 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     gitLogLimitRef.current = gitLogLimit;
   }, [gitLogLimit]);
 
-  const loadProjectInsights = useCallback(async (projectId, { silent = false, gitLimit = null } = {}) => {
+  useEffect(() => {
+    runHistoryCursorRef.current = runHistoryCursor;
+  }, [runHistoryCursor]);
+
+  useEffect(() => {
+    runHistoryHasMoreRef.current = runHistoryHasMore;
+  }, [runHistoryHasMore]);
+
+  useEffect(() => {
+    runHistoryLoadingMoreRef.current = runHistoryLoadingMore;
+  }, [runHistoryLoadingMore]);
+
+  useEffect(() => {
+    selectedNodeIdRef.current = selectedNodeId;
+  }, [selectedNodeId]);
+
+  const loadProjectInsights = useCallback(async (projectId, { silent = false, gitLimit = null, force = false } = {}) => {
     const targetProjectId = String(projectId || '').trim();
     if (!targetProjectId) return;
+    if (!force && isProjectPollingBlocked(targetProjectId)) return;
     const normalizedGitLimitRaw = Number.isFinite(Number(gitLimit))
       ? Number(gitLimit)
       : Number(gitLogLimitRef.current);
     const normalizedGitLimit = Math.min(Math.max(Math.floor(normalizedGitLimitRaw) || 5, 1), 200);
+    const inFlightKey = `${targetProjectId}:${normalizedGitLimit}`;
+    if (projectInsightsInFlightRef.current.has(inFlightKey)) return;
+    projectInsightsInFlightRef.current.add(inFlightKey);
 
     if (!silent) {
       setGitLoading(true);
@@ -211,62 +654,81 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     setGitError('');
     setChangedFilesError('');
 
-    const [gitResult, changedFilesResult] = await Promise.allSettled([
-      axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/git-log`, {
-        headers,
-        params: { limit: normalizedGitLimit },
-      }),
-      axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/changed-files`, {
-        headers,
-        params: { limit: 200 },
-      }),
-    ]);
+    try {
+      const [gitResult, changedFilesResult] = await Promise.allSettled([
+        axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/git-log`, {
+          headers,
+          params: { limit: normalizedGitLimit },
+        }),
+        axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/changed-files`, {
+          headers,
+          params: { limit: 200 },
+        }),
+      ]);
 
-    if (selectedProjectRef.current !== targetProjectId) return;
+      if (selectedProjectRef.current !== targetProjectId) return;
 
-    if (gitResult.status === 'fulfilled') {
-      const payload = gitResult.value?.data || {};
-      const commits = Array.isArray(payload.commits)
-        ? payload.commits.map((item) => GitLogEntry.fromApi(item))
-        : [];
-      setGitProgress({ ...payload, commits });
-      setGitError('');
-    } else {
-      console.error('Failed to load project git progress:', gitResult.reason);
-      setGitProgress(null);
-      setGitError(
-        gitResult.reason?.response?.data?.error
-        || gitResult.reason?.message
-        || 'Failed to load git progress'
-      );
+      if (gitResult.status === 'fulfilled') {
+        const payload = gitResult.value?.data || {};
+        const commits = Array.isArray(payload.commits)
+          ? payload.commits.map((item) => GitLogEntry.fromApi(item))
+          : [];
+        setGitProgress({ ...payload, commits });
+        setGitError('');
+        clearProjectPollingBlock(targetProjectId);
+      } else {
+        const code = getApiErrorCode(gitResult.reason);
+        if (!silent || !SSH_BLOCKING_ERROR_CODES.has(code)) {
+          console.error('Failed to load project git progress:', gitResult.reason);
+        }
+        setGitProgress(null);
+        setGitError(toProjectAccessDiagnostic(gitResult.reason, 'Failed to load git progress'));
+        if (SSH_BLOCKING_ERROR_CODES.has(code)) {
+          markProjectPollingBlocked(targetProjectId);
+        }
+      }
+
+      if (changedFilesResult.status === 'fulfilled') {
+        setChangedFiles(changedFilesResult.value?.data || null);
+        setChangedFilesError('');
+      } else {
+        const code = getApiErrorCode(changedFilesResult.reason);
+        if (!silent || !SSH_BLOCKING_ERROR_CODES.has(code)) {
+          console.error('Failed to load project changed files:', changedFilesResult.reason);
+        }
+        setChangedFiles(null);
+        setChangedFilesError(toProjectAccessDiagnostic(changedFilesResult.reason, 'Failed to load changed files'));
+        if (SSH_BLOCKING_ERROR_CODES.has(code)) {
+          markProjectPollingBlocked(targetProjectId);
+        }
+      }
+    } finally {
+      projectInsightsInFlightRef.current.delete(inFlightKey);
+      if (!silent) {
+        setGitLoading(false);
+        setChangedFilesLoading(false);
+      }
     }
-
-    if (changedFilesResult.status === 'fulfilled') {
-      setChangedFiles(changedFilesResult.value?.data || null);
-      setChangedFilesError('');
-    } else {
-      console.error('Failed to load project changed files:', changedFilesResult.reason);
-      setChangedFiles(null);
-      setChangedFilesError(
-        changedFilesResult.reason?.response?.data?.error
-        || changedFilesResult.reason?.message
-        || 'Failed to load changed files'
-      );
-    }
-
-    if (!silent) {
-      setGitLoading(false);
-      setChangedFilesLoading(false);
-    }
-  }, [apiUrl, headers]);
+  }, [
+    apiUrl,
+    clearProjectPollingBlock,
+    headers,
+    isProjectPollingBlocked,
+    markProjectPollingBlocked,
+  ]);
 
   const loadProjectFileTree = useCallback(async (
     projectId,
     relativePath = '',
-    { silent = false } = {}
+    { silent = false, force = false } = {}
   ) => {
     const targetProjectId = String(projectId || '').trim();
     if (!targetProjectId) return;
+    if (!force && isProjectPollingBlocked(targetProjectId)) return;
+    const normalizedRelativePath = cleanString(relativePath);
+    const inFlightKey = `${targetProjectId}:${normalizedRelativePath}`;
+    if (projectFileTreeInFlightRef.current.has(inFlightKey)) return;
+    projectFileTreeInFlightRef.current.add(inFlightKey);
     if (!silent) {
       setProjectFileTreeLoading(true);
       setFilesLoading(true);
@@ -284,19 +746,33 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       if (selectedProjectRef.current !== targetProjectId) return;
       setProjectFileTree(response.data || null);
       setFilesError('');
+      clearProjectPollingBlock(targetProjectId);
     } catch (err) {
-      console.error('Failed to load project file tree:', err);
+      const code = getApiErrorCode(err);
+      if (!silent || !SSH_BLOCKING_ERROR_CODES.has(code)) {
+        console.error('Failed to load project file tree:', err);
+      }
       setProjectFileTree(null);
-      const message = err?.response?.data?.error || err?.message || 'Failed to load project files';
-      setProjectFileTreeError(message);
-      setFilesError(message);
+      const diagnostic = toProjectAccessDiagnostic(err, 'Failed to load project files');
+      setProjectFileTreeError(diagnostic);
+      setFilesError(diagnostic);
+      if (SSH_BLOCKING_ERROR_CODES.has(code)) {
+        markProjectPollingBlocked(targetProjectId);
+      }
     } finally {
+      projectFileTreeInFlightRef.current.delete(inFlightKey);
       if (!silent) {
         setProjectFileTreeLoading(false);
         setFilesLoading(false);
       }
     }
-  }, [apiUrl, headers]);
+  }, [
+    apiUrl,
+    clearProjectPollingBlock,
+    headers,
+    isProjectPollingBlocked,
+    markProjectPollingBlocked,
+  ]);
 
   const loadProjectFileContent = useCallback(async (projectId, relativePath) => {
     const targetProjectId = String(projectId || '').trim();
@@ -318,9 +794,54 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     } catch (err) {
       console.error('Failed to load project file content:', err);
       setProjectFileContent(null);
-      setProjectFileContentError(err?.response?.data?.error || err?.message || 'Failed to read file');
+      const code = String(err?.response?.data?.code || '').trim();
+      const message = err?.response?.data?.error || err?.message || 'Failed to read file';
+      setProjectFileContentError(code ? `${code}: ${message}` : message);
     } finally {
       setProjectFileContentLoading(false);
+    }
+  }, [apiUrl, headers]);
+
+  const loadKbFileTree = useCallback(async (projectId, relativePath = '') => {
+    const targetProjectId = String(projectId || '').trim();
+    if (!targetProjectId) return;
+    setKbFileTreeLoading(true);
+    setKbFileTreeError('');
+    try {
+      const response = await axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/files/tree`, {
+        headers,
+        params: { path: relativePath || '', scope: 'kb', limit: 240 },
+      });
+      setKbFileTree(response.data || null);
+    } catch (err) {
+      console.error('Failed to load KB file tree:', err);
+      setKbFileTree(null);
+      setKbFileTreeError(err?.response?.data?.error || err?.message || 'Failed to load KB files');
+    } finally {
+      setKbFileTreeLoading(false);
+    }
+  }, [apiUrl, headers]);
+
+  const loadKbFileContent = useCallback(async (projectId, relativePath) => {
+    const targetProjectId = String(projectId || '').trim();
+    const safePath = String(relativePath || '').trim();
+    if (!targetProjectId || !safePath) return;
+    setKbFileContentLoading(true);
+    setKbFileContentError('');
+    try {
+      const response = await axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/files/content`, {
+        headers,
+        params: { path: safePath, scope: 'kb', maxBytes: 180000 },
+      });
+      setKbFileContent(response.data || null);
+    } catch (err) {
+      console.error('Failed to load KB file content:', err);
+      setKbFileContent(null);
+      const code = String(err?.response?.data?.code || '').trim();
+      const message = err?.response?.data?.error || err?.message || 'Failed to read file';
+      setKbFileContentError(code ? `${code}: ${message}` : message);
+    } finally {
+      setKbFileContentLoading(false);
     }
   }, [apiUrl, headers]);
 
@@ -350,6 +871,132 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
   }, [apiUrl, headers]);
 
+  const locateKbResourcePaths = useCallback(async (projectId, query, { limit = 12 } = {}) => {
+    const targetProjectId = String(projectId || '').trim();
+    const q = String(query || '').trim();
+    if (!targetProjectId || !q) return { paths: [], items: [] };
+    const cap = Math.min(Math.max(Number(limit) || 12, 1), 30);
+    if (!isKbLocatorEndpointInCooldown(targetProjectId)) {
+      try {
+        const response = await axios.get(
+          `${apiUrl}/researchops/projects/${targetProjectId}/kb/resource-locate`,
+          {
+            headers,
+            params: { q, limit: cap, includePreview: false },
+            timeout: 6500,
+          }
+        );
+        const items = Array.isArray(response.data?.items) ? response.data.items : [];
+        const paths = items
+          .map((item) => String(item?.path || item || '').trim())
+          .filter(Boolean)
+          .slice(0, cap);
+        return { paths, items };
+      } catch (locatorError) {
+        if (Number(locatorError?.response?.status || 0) === 404) {
+          markKbLocatorEndpointCooldown(targetProjectId);
+        } else {
+          console.warn('KB resource locator request failed, fallback to files/search:', locatorError?.message || locatorError);
+        }
+      }
+    }
+
+    try {
+      const tokens = tokenizeKbResourceQuery(q, 8);
+      const candidates = [];
+      const terms = [q, ...tokens].slice(0, 6);
+      for (const term of terms) {
+        let response = null;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          response = await axios.get(
+            `${apiUrl}/researchops/projects/${targetProjectId}/files/search`,
+            {
+              headers,
+              params: {
+                scope: 'kb',
+                q: term,
+                limit: 30,
+              },
+              timeout: 9000,
+            }
+          );
+        } catch (searchError) {
+          if (isSshAccessFailure(searchError)) {
+            return { paths: KB_RESOURCE_SEED_PATHS.slice(0, Math.min(5, cap)), items: [] };
+          }
+          continue;
+        }
+        const items = Array.isArray(response?.data?.items) ? response.data.items : [];
+        items.forEach((relativePath) => {
+          const filePath = String(relativePath || '').trim();
+          if (!filePath) return;
+          candidates.push(filePath);
+        });
+      }
+
+      const ranked = rankKbResourceCandidates(candidates, q, tokens, cap);
+
+      let paths = ranked.map((item) => item.path);
+      if (paths.length === 0) {
+        paths = KB_RESOURCE_SEED_PATHS.slice(0, cap);
+      }
+      return { paths, items: ranked };
+    } catch (fallbackError) {
+      console.warn('KB resource fallback search failed:', fallbackError?.message || fallbackError);
+      return { paths: KB_RESOURCE_SEED_PATHS.slice(0, Math.min(5, cap)), items: [] };
+    }
+  }, [apiUrl, headers]);
+
+  const locateCodePaths = useCallback(async (projectId, query, { limit = 10 } = {}) => {
+    const targetProjectId = String(projectId || '').trim();
+    const q = String(query || '').trim();
+    if (!targetProjectId || !q) return { paths: [], items: [] };
+    const cap = Math.min(Math.max(Number(limit) || 10, 1), 30);
+    const tokens = tokenizeKbResourceQuery(q, 8);
+    const candidates = [];
+    const terms = [q, ...tokens].slice(0, 6);
+    try {
+      for (const term of terms) {
+        let response = null;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          response = await axios.get(
+            `${apiUrl}/researchops/projects/${targetProjectId}/files/search`,
+            {
+              headers,
+              params: {
+                scope: 'project',
+                q: term,
+                limit: 24,
+              },
+              timeout: 9000,
+            }
+          );
+        } catch (searchError) {
+          if (isSshAccessFailure(searchError)) {
+            return { paths: CODE_CHAT_SEED_PATHS.slice(0, Math.min(cap, 5)), items: [] };
+          }
+          continue;
+        }
+        const items = Array.isArray(response?.data?.items) ? response.data.items : [];
+        items.forEach((relativePath) => {
+          const filePath = String(relativePath || '').trim();
+          if (!filePath) return;
+          candidates.push(filePath);
+        });
+      }
+      const ranked = rankCodePathCandidates(candidates, q, tokens, cap);
+      const paths = ranked.length > 0
+        ? ranked.map((item) => item.path)
+        : CODE_CHAT_SEED_PATHS.slice(0, cap);
+      return { paths, items: ranked };
+    } catch (error) {
+      console.warn('Code path auto-locate failed:', error?.message || error);
+      return { paths: CODE_CHAT_SEED_PATHS.slice(0, Math.min(cap, 5)), items: [] };
+    }
+  }, [apiUrl, headers]);
+
   const loadRunReport = useCallback(async (runId, { silent = false } = {}) => {
     const targetRunId = String(runId || '').trim();
     if (!targetRunId) {
@@ -372,6 +1019,211 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       if (!silent) setRunReportLoading(false);
     }
   }, [apiUrl, headers]);
+
+  const loadTreeWorkspace = useCallback(async (projectId, { silent = false, force = false } = {}) => {
+    const targetProjectId = String(projectId || '').trim();
+    if (!targetProjectId) return;
+    if (!force && isProjectPollingBlocked(targetProjectId)) return;
+    if (!force && isTreeEndpointCooldown(targetProjectId)) return;
+    const inFlightKey = targetProjectId;
+    if (!force && treeWorkspaceInFlightRef.current.has(inFlightKey)) return;
+    treeWorkspaceInFlightRef.current.add(inFlightKey);
+    if (!silent) setTreeLoading(true);
+    setTreeError('');
+    try {
+      const [planRes, stateRes] = await Promise.allSettled([
+        axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/tree/plan`, { headers }),
+        axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/tree/state`, { headers }),
+      ]);
+      if (selectedProjectRef.current !== targetProjectId) return;
+
+      const failures = [];
+      if (planRes.status === 'fulfilled') {
+        const planPayload = planRes.value?.data?.plan || createEmptyTreePlan();
+        setTreePlan(planPayload);
+        setTreeValidation(planRes.value?.data?.validation || null);
+        setTreeRootSummary(planRes.value?.data?.rootSummary || null);
+        if (!selectedNodeIdRef.current && Array.isArray(planPayload?.nodes) && planPayload.nodes.length > 0) {
+          setSelectedNodeId(String(planPayload.nodes[0].id || ''));
+        } else if (!Array.isArray(planPayload?.nodes) || planPayload.nodes.length === 0) {
+          setSelectedNodeId('');
+        }
+      } else {
+        if (isTreeEndpointUnavailable(planRes.reason)) {
+          setTreePlan((prev) => prev || createEmptyTreePlan());
+          setTreeValidation((prev) => prev || { valid: true, errors: [], warnings: [] });
+          setTreeRootSummary(null);
+        }
+        failures.push(planRes.reason);
+      }
+
+      if (stateRes.status === 'fulfilled') {
+        setTreeState(stateRes.value?.data?.state || createEmptyTreeState());
+      } else {
+        if (isTreeEndpointUnavailable(stateRes.reason)) {
+          setTreeState((prev) => prev || createEmptyTreeState());
+        }
+        failures.push(stateRes.reason);
+      }
+
+      if (failures.length === 0) {
+        clearTreeEndpointCooldown(targetProjectId);
+        clearProjectPollingBlock(targetProjectId);
+        return;
+      }
+
+      if (failures.every((failure) => isTreeEndpointUnavailable(failure))) {
+        markTreeEndpointCooldown(targetProjectId);
+        setTreeError('');
+        return;
+      }
+
+      const primaryFailure = failures[0];
+      const code = getApiErrorCode(primaryFailure);
+      setTreeError(toProjectAccessDiagnostic(primaryFailure, 'Failed to load tree workspace'));
+      if (SSH_BLOCKING_ERROR_CODES.has(code)) {
+        markProjectPollingBlocked(targetProjectId);
+      }
+    } catch (err) {
+      const code = getApiErrorCode(err);
+      if (!silent || !SSH_BLOCKING_ERROR_CODES.has(code)) {
+        console.error('Failed to load tree workspace:', err);
+      }
+      if (isTreeEndpointUnavailable(err)) {
+        markTreeEndpointCooldown(targetProjectId);
+        setTreePlan((prev) => prev || createEmptyTreePlan());
+        setTreeState((prev) => prev || createEmptyTreeState());
+        setTreeValidation((prev) => prev || { valid: true, errors: [], warnings: [] });
+        setTreeError('');
+      } else {
+        setTreeError(toProjectAccessDiagnostic(err, 'Failed to load tree workspace'));
+      }
+      setTreeRootSummary(null);
+      if (SSH_BLOCKING_ERROR_CODES.has(code)) {
+        markProjectPollingBlocked(targetProjectId);
+      }
+    } finally {
+      treeWorkspaceInFlightRef.current.delete(inFlightKey);
+      if (!silent) setTreeLoading(false);
+    }
+  }, [
+    apiUrl,
+    clearProjectPollingBlock,
+    clearTreeEndpointCooldown,
+    headers,
+    isProjectPollingBlocked,
+    isTreeEndpointCooldown,
+    markProjectPollingBlocked,
+    markTreeEndpointCooldown,
+  ]);
+
+  const applyPlanPatches = useCallback(async (patches = []) => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId || !Array.isArray(patches) || patches.length === 0) return null;
+    const response = await axios.post(
+      `${apiUrl}/researchops/projects/${projectId}/tree/plan/patches`,
+      { patches },
+      { headers }
+    );
+    const nextPlan = response.data?.plan || null;
+    setTreePlan(nextPlan);
+    setTreeValidation(response.data?.validation || null);
+    await loadTreeWorkspace(projectId, { silent: true });
+    return response.data || null;
+  }, [apiUrl, headers, loadTreeWorkspace, selectedProjectId]);
+
+  const savePlanDsl = useCallback(async (nextPlan) => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId || !nextPlan || typeof nextPlan !== 'object') return null;
+    const response = await axios.put(
+      `${apiUrl}/researchops/projects/${projectId}/tree/plan`,
+      { plan: nextPlan },
+      { headers }
+    );
+    setTreePlan(response.data?.plan || null);
+    setTreeValidation(response.data?.validation || null);
+    await loadTreeWorkspace(projectId, { silent: true });
+    return response.data || null;
+  }, [apiUrl, headers, loadTreeWorkspace, selectedProjectId]);
+
+  const validatePlanDsl = useCallback(async (nextPlan) => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId || !nextPlan || typeof nextPlan !== 'object') return null;
+    const response = await axios.post(
+      `${apiUrl}/researchops/projects/${projectId}/tree/plan/validate`,
+      { plan: nextPlan },
+      { headers }
+    );
+    setTreeValidation(response.data?.validation || null);
+    return response.data || null;
+  }, [apiUrl, headers, selectedProjectId]);
+
+  const loadRunHistoryPage = useCallback(async (projectId, { reset = false } = {}) => {
+    const targetProjectId = String(projectId || '').trim();
+    if (!targetProjectId) return;
+    if (reset) {
+      setRunHistoryLoading(true);
+      setRunHistoryCursor('');
+      runHistoryCursorRef.current = '';
+      setRunHistoryHasMore(false);
+      runHistoryHasMoreRef.current = false;
+    } else {
+      if (!runHistoryHasMoreRef.current || runHistoryLoadingMoreRef.current) return;
+      setRunHistoryLoadingMore(true);
+      runHistoryLoadingMoreRef.current = true;
+    }
+    try {
+      const cursor = reset ? '' : cleanString(runHistoryCursorRef.current);
+      const response = await axios.get(`${apiUrl}/researchops/runs`, {
+        headers,
+        params: {
+          projectId: targetProjectId,
+          limit: 20,
+          ...(reset ? {} : (cursor ? { cursor } : {})),
+        },
+      });
+      if (selectedProjectRef.current !== targetProjectId) return;
+      const items = Array.isArray(response.data?.items) ? response.data.items : [];
+      const nextCursor = String(response.data?.nextCursor || '').trim();
+      const hasMore = Boolean(response.data?.hasMore);
+      setRunHistoryItems((prev) => {
+        if (reset) return items;
+        const existing = new Set(prev.map((item) => item.id));
+        const merged = [...prev];
+        items.forEach((item) => {
+          if (!existing.has(item.id)) merged.push(item);
+        });
+        return merged;
+      });
+      setRunHistoryCursor(nextCursor);
+      runHistoryCursorRef.current = nextCursor;
+      setRunHistoryHasMore(hasMore);
+      runHistoryHasMoreRef.current = hasMore;
+    } catch (err) {
+      console.error('Failed to load run history page:', err);
+      setError(err?.response?.data?.error || err?.message || 'Failed to load run history');
+    } finally {
+      setRunHistoryLoading(false);
+      setRunHistoryLoadingMore(false);
+      runHistoryLoadingMoreRef.current = false;
+    }
+  }, [apiUrl, headers]);
+
+  useEffect(() => {
+    loadProjectInsightsRef.current = loadProjectInsights;
+  }, [loadProjectInsights]);
+
+  useEffect(() => {
+    loadProjectFileTreeRef.current = loadProjectFileTree;
+  }, [loadProjectFileTree]);
+
+  useEffect(() => {
+    loadTreeWorkspaceRef.current = loadTreeWorkspace;
+  }, [loadTreeWorkspace]);
+
+  useEffect(() => {
+    loadRunHistoryPageRef.current = loadRunHistoryPage;
+  }, [loadRunHistoryPage]);
 
   useEffect(() => {
     selectedProjectRef.current = selectedProjectId;
@@ -397,6 +1249,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       loadAll({ silent: true });
       if (selectedProjectRef.current) {
         loadProjectInsights(selectedProjectRef.current, { silent: true });
+        loadTreeWorkspace(selectedProjectRef.current, { silent: true });
       }
       if (selectedRunId) {
         loadRunReport(selectedRunId, { silent: true });
@@ -405,6 +1258,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     return () => clearInterval(interval);
   }, [
     loadAll,
+    loadTreeWorkspace,
     loadProjectInsights,
     loadRunReport,
     selectedRunId,
@@ -559,6 +1413,65 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
   }, [apiUrl, headers, loadAll, selectedProjectId, todoDetails, todoTitle]);
 
+  const extractTodoSuggestionsFromGenerator = useCallback((payload = {}) => {
+    const dslSteps = Array.isArray(payload?.todoDsl?.steps) ? payload.todoDsl.steps : [];
+    if (dslSteps.length > 0) {
+      return dslSteps
+        .map((step, index) => {
+          const titleRaw = String(step?.title || '').trim() || `Step ${index + 1}`;
+          const objective = String(step?.objective || '').trim() || titleRaw;
+          const acceptance = Array.isArray(step?.acceptance) ? step.acceptance.filter(Boolean) : [];
+          const knowledgeRefs = Array.isArray(step?.references?.knowledge) ? step.references.knowledge : [];
+          const codeRefs = Array.isArray(step?.references?.codebase) ? step.references.codebase : [];
+          const stepPlan = {
+            step_id: String(step?.step_id || `step_${String(index + 1).padStart(2, '0')}`),
+            kind: String(step?.kind || 'experiment'),
+            objective,
+            assumptions: Array.isArray(step?.assumptions) ? step.assumptions : [],
+            acceptance,
+            commands: Array.isArray(step?.commands) ? step.commands : [],
+            checks: Array.isArray(step?.checks) ? step.checks : [],
+            depends_on: Array.isArray(step?.depends_on) ? step.depends_on : [],
+            references: {
+              knowledge: knowledgeRefs.map((item) => ({
+                id: item?.id,
+                title: item?.title,
+                source: item?.source,
+              })),
+              codebase: codeRefs.map((item) => ({
+                path: item?.path,
+                source: item?.source,
+              })),
+            },
+          };
+          const targetHint = acceptance.length ? `Targets: ${acceptance.slice(0, 2).join(' | ')}` : '';
+          const refHint = `Refs: ${knowledgeRefs.length} KB, ${codeRefs.length} code`;
+          return {
+            title: titleRaw.length > 120 ? `${titleRaw.slice(0, 117)}...` : titleRaw,
+            hypothesis: [objective, targetHint, refHint].filter(Boolean).join(' '),
+            experimentPlan: JSON.stringify(stepPlan, null, 2),
+            summarySuffix: refHint,
+          };
+        })
+        .slice(0, 8);
+    }
+
+    const plan = payload?.plan || {};
+    const rawNodes = Array.isArray(plan.nodes) ? plan.nodes : [];
+    return rawNodes
+      .map((node, index) => {
+        const label = String(node?.label || node?.title || '').trim() || `Planned step ${index + 1}`;
+        const detail = String(node?.description || node?.goal || label).trim();
+        return {
+          title: label.length > 120 ? `${label.slice(0, 117)}...` : label,
+          hypothesis: detail,
+          experimentPlan: '',
+          summarySuffix: 'Refs: 0 KB, 0 code',
+        };
+      })
+      .slice(0, 8);
+  }, []);
+
   const handleGenerateTodos = useCallback(async () => {
     const instruction = todoPrompt.trim();
     if (!selectedProjectId || !instruction) {
@@ -567,19 +1480,12 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
     setTodoBusy(true);
     try {
-      const response = await axios.post(`${apiUrl}/researchops/plan/generate`, { instruction }, { headers });
-      const plan = response.data?.plan || {};
-      const rawNodes = Array.isArray(plan.nodes) ? plan.nodes : [];
-      const suggestions = rawNodes
-        .map((node, index) => {
-          const label = String(node?.label || '').trim() || `Planned step ${index + 1}`;
-          const detail = String(node?.description || node?.goal || label).trim();
-          return {
-            title: label.length > 120 ? `${label.slice(0, 117)}...` : label,
-            hypothesis: detail,
-          };
-        })
-        .slice(0, 5);
+      const response = await axios.post(
+        `${apiUrl}/researchops/plan/generate`,
+        { instruction, projectId: selectedProjectId, todoMode: true },
+        { headers }
+      );
+      const suggestions = extractTodoSuggestionsFromGenerator(response.data || {});
 
       if (suggestions.length === 0) {
         throw new Error('No TODO suggestions were generated from the plan');
@@ -592,7 +1498,8 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
           projectId: selectedProjectId,
           title: suggestion.title,
           hypothesis: suggestion.hypothesis,
-          summary: `LLM-generated TODO from prompt (${createdAtIso})`,
+          summary: `TODO DSL-generated from prompt (${createdAtIso}) · ${suggestion.summarySuffix}`,
+          experimentPlan: suggestion.experimentPlan || '',
           status: 'OPEN',
         },
         { headers }
@@ -607,7 +1514,61 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     } finally {
       setTodoBusy(false);
     }
-  }, [apiUrl, headers, loadAll, selectedProjectId, todoPrompt]);
+  }, [apiUrl, extractTodoSuggestionsFromGenerator, headers, loadAll, selectedProjectId, todoPrompt]);
+
+  const handleClearCurrentTodos = useCallback(async () => {
+    if (!selectedProjectId || todoBusy) return;
+    setTodoBusy(true);
+    setError('');
+    try {
+      await axios.post(
+        `${apiUrl}/researchops/projects/${selectedProjectId}/todos/clear`,
+        { status: 'COMPLETED' },
+        { headers }
+      );
+      await loadAll({ silent: true });
+      setError('');
+    } catch (err) {
+      console.error('Failed to clear project todos:', err);
+      setError(err?.response?.data?.error || err?.message || 'Failed to clear project TODOs');
+    } finally {
+      setTodoBusy(false);
+    }
+  }, [apiUrl, headers, loadAll, selectedProjectId, todoBusy]);
+
+  const handleGenerateRootNodeFromCodebase = useCallback(async () => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId || rootBootstrapBusy) return;
+    setRootBootstrapBusy(true);
+    setError('');
+    try {
+      const response = await axios.post(
+        `${apiUrl}/researchops/projects/${projectId}/tree/root-node`,
+        { force: true, attachOrphans: true },
+        { headers }
+      );
+      setTreePlan(response.data?.plan || null);
+      setTreeValidation(response.data?.validation || null);
+      setTreeRootSummary({
+        generated: Boolean(response.data?.generated),
+        summary: String(response.data?.summary || ''),
+        achievements: Array.isArray(response.data?.achievements) ? response.data.achievements : [],
+        rootNodeId: String(response.data?.rootNode?.id || 'baseline_root'),
+        snapshot: response.data?.snapshot || null,
+      });
+      if (response.data?.rootNode?.id) {
+        setSelectedNodeId(String(response.data.rootNode.id));
+      }
+      await loadTreeWorkspace(projectId, { silent: true });
+    } catch (err) {
+      console.error('Failed to generate root node from codebase:', err);
+      const code = String(err?.response?.data?.code || '').trim();
+      const message = err?.response?.data?.error || err?.message || 'Failed to generate root node';
+      setError(code ? `${code}: ${message}` : message);
+    } finally {
+      setRootBootstrapBusy(false);
+    }
+  }, [apiUrl, headers, loadTreeWorkspace, rootBootstrapBusy, selectedProjectId]);
 
   const openTodoModal = useCallback(() => {
     setError('');
@@ -665,19 +1626,12 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
     setTodoBusy(true);
     try {
-      const response = await axios.post(`${apiUrl}/researchops/plan/generate`, { instruction }, { headers });
-      const plan = response.data?.plan || {};
-      const rawNodes = Array.isArray(plan.nodes) ? plan.nodes : [];
-      const suggestions = rawNodes
-        .map((node, index) => {
-          const label = String(node?.label || '').trim() || `Planned step ${index + 1}`;
-          const detail = String(node?.description || node?.goal || label).trim();
-          return {
-            title: label.length > 120 ? `${label.slice(0, 117)}...` : label,
-            hypothesis: detail,
-          };
-        })
-        .slice(0, 5);
+      const response = await axios.post(
+        `${apiUrl}/researchops/plan/generate`,
+        { instruction, projectId: selectedProjectId, todoMode: true },
+        { headers }
+      );
+      const suggestions = extractTodoSuggestionsFromGenerator(response.data || {});
       if (suggestions.length === 0) {
         throw new Error('No tasks were generated from the description');
       }
@@ -688,7 +1642,8 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
           projectId: selectedProjectId,
           title: suggestion.title,
           hypothesis: suggestion.hypothesis,
-          summary: `LLM-generated TODO from prompt (${createdAtIso})`,
+          summary: `TODO DSL-generated from prompt (${createdAtIso}) · ${suggestion.summarySuffix}`,
+          experimentPlan: suggestion.experimentPlan || '',
           status: 'OPEN',
         },
         { headers }
@@ -702,7 +1657,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     } finally {
       setTodoBusy(false);
     }
-  }, [apiUrl, headers, kickoffAiPrompt, loadAll, selectedProjectId]);
+  }, [apiUrl, extractTodoSuggestionsFromGenerator, headers, kickoffAiPrompt, loadAll, selectedProjectId]);
 
   const startAutopilotPoll = useCallback((sessionId) => {
     if (autopilotPollRef.current) clearInterval(autopilotPollRef.current);
@@ -870,7 +1825,8 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     if (!selectedProjectId) return;
     setProjectFileContent(null);
     setProjectFileContentError('');
-    loadProjectFileTree(selectedProjectId, relativePath);
+    setProjectFilesDisplayLimit(20);
+    loadProjectFileTree(selectedProjectId, relativePath, { force: true });
   }, [loadProjectFileTree, selectedProjectId]);
 
   const handleOpenProjectFile = useCallback((relativePath) => {
@@ -878,6 +1834,18 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     setAiEditTarget(`@${relativePath}`);
     loadProjectFileContent(selectedProjectId, relativePath);
   }, [loadProjectFileContent, selectedProjectId]);
+
+  const handleOpenKbFolder = useCallback((relativePath = '') => {
+    if (!selectedProjectId) return;
+    setKbFileContent(null);
+    setKbFileContentError('');
+    loadKbFileTree(selectedProjectId, relativePath);
+  }, [loadKbFileTree, selectedProjectId]);
+
+  const handleOpenKbFile = useCallback((relativePath) => {
+    if (!selectedProjectId || !relativePath) return;
+    loadKbFileContent(selectedProjectId, relativePath);
+  }, [loadKbFileContent, selectedProjectId]);
 
   const handleSubmitAiEdit = useCallback(async () => {
     if (!selectedProjectId || aiEditBusy) return;
@@ -1162,6 +2130,326 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
   }, [apiUrl, headers, insertStepJson, loadAll, loadRunReport, selectedRunId]);
 
+  const runTreeNodeStep = useCallback(async (nodeId, options = {}) => {
+    const projectId = String(selectedProjectId || '').trim();
+    const safeNodeId = String(nodeId || '').trim();
+    if (!projectId || !safeNodeId) return;
+    setSubmitting(true);
+    setTreeError('');
+    try {
+      const response = await axios.post(
+        `${apiUrl}/researchops/projects/${projectId}/tree/nodes/${safeNodeId}/run-step`,
+        options,
+        { headers }
+      );
+      if (!options?.preflightOnly) {
+        await Promise.all([
+          loadAll({ silent: true }),
+          loadTreeWorkspace(projectId, { silent: true }),
+          loadRunHistoryPage(projectId, { reset: true }),
+        ]);
+      }
+      return response.data || null;
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      const blockedBy = Array.isArray(err?.response?.data?.blockedBy) ? err.response.data.blockedBy : [];
+      const message = err?.response?.data?.error || err?.message || 'Failed to run node step';
+      if (code === 'NODE_BLOCKED' && blockedBy.length > 0) {
+        setTreeError(`${code}: ${message} (${blockedBy.map((item) => item.depId || item.check || item.type).join(', ')})`);
+      } else {
+        setTreeError(code ? `${code}: ${message}` : message);
+      }
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [apiUrl, headers, loadAll, loadRunHistoryPage, loadTreeWorkspace, selectedProjectId]);
+
+  const runTreeAll = useCallback(async (options = {}) => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId) return;
+    const fromNodeId = String(options?.fromNodeId || selectedNodeId || '').trim();
+    setSubmitting(true);
+    try {
+      await axios.post(
+        `${apiUrl}/researchops/projects/${projectId}/tree/run-all`,
+        {
+          fromNodeId: fromNodeId || undefined,
+          scope: runAllScope || 'active_path',
+        },
+        { headers }
+      );
+      await Promise.all([
+        loadAll({ silent: true }),
+        loadTreeWorkspace(projectId, { silent: true }),
+        loadRunHistoryPage(projectId, { reset: true }),
+      ]);
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      const message = err?.response?.data?.error || err?.message || 'Failed to run all steps';
+      setTreeError(code ? `${code}: ${message}` : message);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [apiUrl, headers, loadAll, loadRunHistoryPage, loadTreeWorkspace, runAllScope, selectedNodeId, selectedProjectId]);
+
+  const handleDeleteRun = useCallback(async (runId) => {
+    try {
+      await axios.delete(`${apiUrl}/researchops/runs/${runId}`, { headers });
+      await loadRunHistoryPage(selectedProjectId, { reset: true });
+    } catch (err) {
+      console.error('Failed to delete run:', err);
+    }
+  }, [apiUrl, headers, loadRunHistoryPage, selectedProjectId]);
+
+  const handleClearRuns = useCallback(async (status = '') => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId) return;
+    try {
+      await axios.delete(`${apiUrl}/researchops/projects/${projectId}/runs${status ? `?status=${status}` : ''}`, { headers });
+      await loadRunHistoryPage(projectId, { reset: true });
+    } catch (err) {
+      console.error('Failed to clear run history:', err);
+    }
+  }, [apiUrl, headers, loadRunHistoryPage, selectedProjectId]);
+
+  const handleRerunRun = useCallback(async (runId) => {
+    try {
+      const resp = await axios.get(
+        `${apiUrl}/researchops/runs/${encodeURIComponent(runId)}`,
+        { headers }
+      );
+      const originalRun = resp.data?.data?.run || resp.data?.run;
+      if (!originalRun) return;
+      await axios.post(
+        `${apiUrl}/researchops/runs/enqueue-v2`,
+        {
+          projectId: originalRun.projectId,
+          serverId: originalRun.serverId,
+          runType: originalRun.runType,
+          provider: originalRun.provider,
+          workflow: originalRun.workflow || [],
+          skillRefs: originalRun.skillRefs || [],
+          contextRefs: originalRun.contextRefs || {},
+          metadata: { ...(originalRun.metadata || {}), rerunOf: runId },
+        },
+        { headers }
+      );
+      await loadRunHistoryPage(selectedProjectId, { reset: true });
+    } catch (err) {
+      console.error('[VibePanel] re-run failed:', err);
+    }
+  }, [apiUrl, headers, loadRunHistoryPage, selectedProjectId]);
+
+  const setTreeControl = useCallback(async (action) => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId) return;
+    setSubmitting(true);
+    try {
+      await axios.post(`${apiUrl}/researchops/projects/${projectId}/tree/control/${action}`, {}, { headers });
+      await loadTreeWorkspace(projectId, { silent: true });
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      const message = err?.response?.data?.error || err?.message || `Failed to ${action} queue`;
+      setTreeError(code ? `${code}: ${message}` : message);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [apiUrl, headers, loadTreeWorkspace, selectedProjectId]);
+
+  const handleLoadSearchNode = useCallback(async (nodeId, { refresh = true } = {}) => {
+    const projectId = String(selectedProjectId || '').trim();
+    const safeNodeId = String(nodeId || '').trim();
+    if (!projectId || !safeNodeId) return;
+    setSearchLoading(true);
+    try {
+      const response = await axios.get(
+        `${apiUrl}/researchops/projects/${projectId}/tree/nodes/${safeNodeId}/search`,
+        {
+          headers,
+          params: refresh ? { refresh: true } : {},
+        }
+      );
+      setSearchData(response.data?.search || null);
+      return response.data?.search || null;
+    } catch (err) {
+      setTreeError(err?.response?.data?.error || err?.message || 'Failed to load search node');
+      return null;
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [apiUrl, headers, selectedProjectId]);
+
+  const promoteSearchWinner = useCallback(async (nodeId) => {
+    const projectId = String(selectedProjectId || '').trim();
+    const safeNodeId = String(nodeId || '').trim();
+    if (!projectId || !safeNodeId) return;
+    setSubmitting(true);
+    try {
+      const latest = await handleLoadSearchNode(safeNodeId, { refresh: true });
+      const trials = Array.isArray(latest?.trials) ? latest.trials : [];
+      const winner = trials
+        .filter((trial) => ['PASSED', 'SUCCEEDED'].includes(String(trial?.status || '').toUpperCase()))
+        .sort((a, b) => Number(b.reward || 0) - Number(a.reward || 0))[0];
+      if (!winner?.id) {
+        setTreeError('No promotable PASSED trial found for this search node.');
+        return;
+      }
+      await axios.post(
+        `${apiUrl}/researchops/projects/${projectId}/tree/nodes/${safeNodeId}/promote/${winner.id}`,
+        {},
+        { headers }
+      );
+      await loadTreeWorkspace(projectId, { silent: true });
+    } catch (err) {
+      setTreeError(err?.response?.data?.error || err?.message || 'Failed to promote search winner');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [apiUrl, handleLoadSearchNode, headers, loadTreeWorkspace, selectedProjectId]);
+
+  const handleTreeNodeAction = useCallback(async (action, node) => {
+    const nodeId = String(node?.id || '').trim();
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId || !nodeId) return;
+    const parentId = String(node?.parent || '').trim();
+    const random = () => Math.random().toString(36).slice(2, 8);
+
+    try {
+      if (action === 'run_step' || action === 'rerun') {
+        await runTreeNodeStep(nodeId, { force: action === 'rerun' });
+        return;
+      }
+      if (action === 'run_step_preflight') {
+        await runTreeNodeStep(nodeId, { preflightOnly: true });
+        return;
+      }
+      if (action === 'run_step_force') {
+        await runTreeNodeStep(nodeId, { force: true });
+        return;
+      }
+      if (action === 'approve_gate') {
+        await axios.post(`${apiUrl}/researchops/projects/${projectId}/tree/nodes/${nodeId}/approve`, {}, { headers });
+        await loadTreeWorkspace(projectId, { silent: true });
+        return;
+      }
+      if (action === 'promote') {
+        await promoteSearchWinner(nodeId);
+        return;
+      }
+      if (action === 'continue_from') {
+        setSelectedNodeId(nodeId);
+        await runTreeAll({ fromNodeId: nodeId });
+        return;
+      }
+      if (action === 'create_patch_node') {
+        await applyPlanPatches([{
+          op: 'add_node',
+          node: {
+            id: `${nodeId}_patch_${random()}`,
+            parent: nodeId,
+            title: `Patch for ${node.title || nodeId}`,
+            kind: 'patch',
+            commands: [],
+            checks: [],
+            assumption: [],
+            target: [],
+          },
+        }]);
+        return;
+      }
+      if (action === 'add_child') {
+        await applyPlanPatches([{
+          op: 'add_node',
+          node: {
+            id: `${nodeId}_child_${random()}`,
+            parent: nodeId,
+            title: `Child of ${node.title || nodeId}`,
+            kind: 'experiment',
+            commands: [],
+            checks: [],
+            assumption: [],
+            target: [],
+          },
+        }]);
+        return;
+      }
+      if (action === 'add_branch') {
+        await applyPlanPatches([{
+          op: 'add_node',
+          node: {
+            id: `${nodeId}_branch_${random()}`,
+            parent: parentId || undefined,
+            title: `Branch from ${node.title || nodeId}`,
+            kind: 'experiment',
+            commands: [],
+            checks: [],
+            assumption: [],
+            target: [],
+          },
+        }]);
+        return;
+      }
+      if (action === 'insert') {
+        const insertId = `${nodeId}_insert_${random()}`;
+        await applyPlanPatches([
+          {
+            op: 'add_node',
+            node: {
+              id: insertId,
+              parent: parentId || undefined,
+              title: `Inserted before ${node.title || nodeId}`,
+              kind: 'experiment',
+              commands: [],
+              checks: [],
+              assumption: [],
+              target: [],
+            },
+          },
+          {
+            op: 'move_node',
+            nodeId,
+            parentId: insertId,
+          },
+        ]);
+        return;
+      }
+      if (action === 'duplicate') {
+        await applyPlanPatches([{
+          op: 'duplicate_node',
+          nodeId,
+          newNodeId: `${nodeId}_copy_${random()}`,
+        }]);
+        return;
+      }
+      if (action === 'convert_search') {
+        await applyPlanPatches([{
+          op: 'set_field',
+          nodeId,
+          path: 'kind',
+          value: 'search',
+        }]);
+        return;
+      }
+    } catch (err) {
+      // Error already surfaced by called helper.
+    }
+  }, [apiUrl, applyPlanPatches, headers, loadTreeWorkspace, promoteSearchWinner, runTreeAll, runTreeNodeStep, selectedProjectId]);
+
+  const handleSaveNodeCommands = useCallback(async (nodeId, commands = []) => {
+    try {
+      await applyPlanPatches([{
+        op: 'set_field',
+        nodeId,
+        path: 'commands',
+        value: commands,
+      }]);
+    } catch (err) {
+      const message = err?.response?.data?.error || err?.message || 'Failed to save commands';
+      setTreeError(message);
+    }
+  }, [applyPlanPatches]);
+
   const projectStats = useMemo(() => {
     const stats = new Map();
     projects.forEach((project) => {
@@ -1184,15 +2472,17 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   );
 
   const selectedProjectTodos = useMemo(() => (
-    [...selectedProjectIdeas].sort((a, b) => {
-      const aStatus = String(a.status || '').trim().toUpperCase();
-      const bStatus = String(b.status || '').trim().toUpperCase();
-      const aDone = aStatus === 'DONE' || aStatus === 'COMPLETED';
-      const bDone = bStatus === 'DONE' || bStatus === 'COMPLETED';
-      if (aDone !== bDone) return aDone ? 1 : -1;
-      return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
-    })
+    [...selectedProjectIdeas]
+      .filter((idea) => {
+        const status = String(idea.status || '').trim().toUpperCase();
+        return status !== 'DONE' && status !== 'COMPLETED';
+      })
+      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
   ), [selectedProjectIdeas]);
+
+  const selectedProjectCompletedTodoCount = useMemo(() => (
+    Math.max(selectedProjectIdeas.length - selectedProjectTodos.length, 0)
+  ), [selectedProjectIdeas.length, selectedProjectTodos.length]);
 
   const selectedProjectQueue = useMemo(
     () => queue.filter((run) => run.projectId === selectedProjectId),
@@ -1204,6 +2494,21 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     [runs, selectedProjectId]
   );
 
+  const visibleRuns = useMemo(() => (
+    runHistoryItems.length > 0 ? runHistoryItems : selectedProjectRuns
+  ), [runHistoryItems, selectedProjectRuns]);
+
+  const selectedTreeNode = useMemo(() => {
+    if (!selectedNodeId || !Array.isArray(treePlan?.nodes)) return null;
+    return treePlan.nodes.find((node) => String(node.id || '').trim() === String(selectedNodeId).trim()) || null;
+  }, [selectedNodeId, treePlan]);
+
+  const selectedTreeNodeState = useMemo(() => (
+    selectedNodeId && treeState?.nodes && typeof treeState.nodes === 'object'
+      ? (treeState.nodes[selectedNodeId] || null)
+      : null
+  ), [selectedNodeId, treeState]);
+
   const knowledgeBaseFolder = String(selectedProject?.kbFolderPath || '').trim();
 
   const projectTreeEntries = useMemo(
@@ -1214,6 +2519,13 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const projectCurrentPath = String(projectFileTree?.currentPath || '').trim();
   const projectParentPath = String(projectFileTree?.parentPath || '').trim();
   const projectRootPath = String(projectFileTree?.rootPath || '').trim();
+
+  const kbTreeEntries = useMemo(
+    () => (Array.isArray(kbFileTree?.entries) ? kbFileTree.entries : []),
+    [kbFileTree]
+  );
+  const kbCurrentPath = String(kbFileTree?.currentPath || '').trim();
+  const kbParentPath = String(kbFileTree?.parentPath || '').trim();
 
   const runReportView = useMemo(() => {
     const manifest = runReport?.manifest && typeof runReport.manifest === 'object'
@@ -1274,18 +2586,92 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
 
   const IMPLEMENT_SKILL_PREFIX = 'You are a coding implementation agent working on this project. Implement the following request carefully, following project conventions. Run tests if a test suite exists and report results.\n\n';
   const EXPERIMENT_SKILL_PREFIX = 'You are an experiment planning agent. Based on the request below, determine the exact bash command(s) to run the experiment. Write CONTINUATION.json to $RESEARCHOPS_TMPDIR to schedule the experiment run, then exit. Do NOT run the experiment yourself — only write the plan.\n\nUser request:\n';
+  const TODO_MANAGER_SKILL_PREFIX = 'You are a project TODO management specialist. Focus on task triage, prioritization, actionability, and safe status transitions. If requested, propose the next executable TODO and concise implementation steps.\n\nUser request:\n';
+  const RESOURCE_KB_SKILL_PREFIX = [
+    'You are a resource-aware research assistant for this project.',
+    'Primary source of truth is the project resource repository under `resource/`.',
+    'Always start by reading these files if present: `resource/paper_assets_index.md`, `resource/notes.md`, `resource/research_questions.md`.',
+    'Then open the most relevant paper folders (README/meta/source snippets) to answer the request.',
+    'Return concise findings with explicit file-path citations and mark unknowns clearly.',
+    '',
+    'User request:',
+  ].join('\n');
+  const CODE_CHAT_SKILL_PREFIX = [
+    'You are a codebase-aware engineering assistant for this project.',
+    'Always inspect the auto-located code paths first, then answer with concrete implementation/debug guidance.',
+    'If proposing code changes, reference exact file paths and keep edits scoped.',
+    'Return concise actionable output and mark unknowns explicitly.',
+    '',
+    'User request:',
+  ].join('\n');
 
-  const handleLaunchAgent = async (event) => {
+  const handleLaunchAgent = async (event, options = {}) => {
     if (event) event.preventDefault();
-    if (!selectedProjectId || !runPrompt.trim()) return;
-    if (agentSkill === 'custom') { openEnqueueRunModal(); return; }
+    const selectedSkill = cleanString(options?.skill || agentSkill) || 'implement';
+    const promptText = cleanString(options?.prompt || runPrompt);
+    if (!selectedProjectId || !promptText) return;
+    if (selectedSkill === 'custom') { openEnqueueRunModal(); return; }
     setSubmitting(true);
     setError('');
     try {
       const defaultCwd = String(selectedProject?.projectPath || '').trim();
       const sourceServerId = String(selectedProject?.serverId || '').trim();
-      const prefix = agentSkill === 'experiment' ? EXPERIMENT_SKILL_PREFIX : IMPLEMENT_SKILL_PREFIX;
-      const fullPrompt = `${prefix}${runPrompt.trim()}`;
+      let locatedKb = { paths: [], items: [] };
+      let locatedCode = { paths: [], items: [] };
+      if (selectedSkill === 'resource_kb') {
+        locatedKb = await locateKbResourcePaths(selectedProjectId, promptText, { limit: 12 });
+      }
+      if (selectedSkill === 'code_chat') {
+        locatedCode = await locateCodePaths(selectedProjectId, promptText, { limit: 12 });
+      }
+      const prefix = selectedSkill === 'experiment'
+        ? EXPERIMENT_SKILL_PREFIX
+        : (selectedSkill === 'todo_manager'
+          ? TODO_MANAGER_SKILL_PREFIX
+          : (selectedSkill === 'resource_kb'
+            ? RESOURCE_KB_SKILL_PREFIX
+            : (selectedSkill === 'code_chat' ? CODE_CHAT_SKILL_PREFIX : IMPLEMENT_SKILL_PREFIX)));
+      const kbAutoLocateBlock = selectedSkill === 'resource_kb'
+        ? [
+          '',
+          'Auto-located resource files for this request (open these first):',
+          ...(locatedKb.paths.length
+            ? locatedKb.paths.slice(0, 12).map((item) => `- resource/${item}`)
+            : KB_RESOURCE_SEED_PATHS.map((item) => `- resource/${item}`)),
+        ].join('\n')
+        : '';
+      const codeAutoLocateBlock = selectedSkill === 'code_chat'
+        ? [
+          '',
+          'Auto-located code files for this request (inspect these first):',
+          ...(locatedCode.paths.length
+            ? locatedCode.paths.slice(0, 12).map((item) => `- ${item}`)
+            : CODE_CHAT_SEED_PATHS.map((item) => `- ${item}`)),
+        ].join('\n')
+        : '';
+      const fullPrompt = `${prefix}${promptText}${kbAutoLocateBlock}${codeAutoLocateBlock}`;
+      const selectedSkillRef = selectedSkill === 'todo_manager'
+        ? { id: 'project-todo-manager', name: 'project-todo-manager' }
+        : (selectedSkill === 'resource_kb'
+          ? { id: 'skill_resource-kb-researcher', name: 'resource-kb-researcher' }
+          : (selectedSkill === 'experiment'
+            ? { id: 'experiment', name: 'experiment' }
+            : { id: 'implement', name: 'implement' }));
+      const runContextRefs = {
+        knowledgeGroupIds: selectedProject?.knowledgeGroupIds || [],
+        ...(selectedSkill === 'resource_kb'
+          ? {
+            kbResourceQuery: promptText,
+            kbResourcePaths: locatedKb.paths,
+          }
+          : {}),
+        ...(selectedSkill === 'code_chat'
+          ? {
+            codeQuery: promptText,
+            codePaths: locatedCode.paths,
+          }
+          : {}),
+      };
       const workflow = [
         { id: 'agent_main', type: 'agent.run', inputs: { prompt: fullPrompt, provider: runProvider } },
         { id: 'report', type: 'report.render', inputs: { format: 'md+json' } },
@@ -1298,17 +2684,39 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
         schemaVersion: '2.0',
         mode: 'headless',
         workflow,
-        contextRefs: { knowledgeGroupIds: selectedProject?.knowledgeGroupIds || [] },
+        skillRefs: selectedSkillRef ? [selectedSkillRef] : [],
+        contextRefs: runContextRefs,
         metadata: {
-          prompt: runPrompt.trim(),
-          agentSkill,
+          prompt: promptText,
+          agentSkill: selectedSkill,
+          ...(selectedSkill === 'resource_kb'
+            ? {
+              kbResourceQuery: promptText,
+              kbResourcePaths: locatedKb.paths,
+              kbResourceLocator: 'auto',
+              kbResourceCandidateCount: Array.isArray(locatedKb?.items) ? locatedKb.items.length : 0,
+            }
+            : {}),
+          ...(selectedSkill === 'code_chat'
+            ? {
+              codeQuery: promptText,
+              codePaths: locatedCode.paths,
+              codeLocator: 'files/search',
+              codeCandidateCount: Array.isArray(locatedCode?.items) ? locatedCode.items.length : 0,
+            }
+            : {}),
           ...(defaultCwd ? { cwd: defaultCwd } : {}),
           ...(sourceServerId ? { cwdSourceServerId: sourceServerId } : {}),
           ...(pinnedAssetIds.length ? { pinnedAssetIds } : {}),
         },
       };
       await axios.post(`${apiUrl}/researchops/runs/enqueue-v2`, payload, { headers });
-      setRunPrompt('');
+      if (!options?.prompt) {
+        setRunPrompt('');
+      }
+      if (selectedSkill === 'code_chat') {
+        setCodeChatPrompt('');
+      }
       await loadAll();
     } catch (err) {
       setError(err?.response?.data?.error || err?.message || 'Failed to launch agent');
@@ -1340,6 +2748,23 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     setError('');
     setShowKnowledgeHubModal(true);
   };
+
+  const openCodeChatInLauncher = useCallback((promptSeed = '') => {
+    const prompt = cleanString(promptSeed);
+    setAgentSkill('code_chat');
+    if (prompt) {
+      setRunPrompt(prompt);
+    }
+    requestAnimationFrame(() => {
+      const input = document.getElementById('vibe-launcher-input');
+      if (input && typeof input.focus === 'function') {
+        input.focus();
+        if (typeof input.scrollIntoView === 'function') {
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    });
+  }, []);
 
   const closeKnowledgeHubModal = () => {
     if (submitting) return;
@@ -1381,6 +2806,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
 
   useEffect(() => {
     if (!selectedProjectId) {
+      sshPollCooldownRef.current.clear();
       setGitLogLimit(5);
       setGitProgress(null);
       setGitError('');
@@ -1392,12 +2818,42 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       setProjectFileTreeError('');
       setProjectFileContent(null);
       setProjectFileContentError('');
+      setKbFileTree(null);
+      setKbFileTreeLoading(false);
+      setKbFileTreeError('');
+      setKbFileContent(null);
+      setKbFileContentError('');
+      setTreePlan(null);
+      setTreeValidation(null);
+      setTreeState(null);
+      setTreeError('');
+      setTreeLoading(false);
+      setSelectedNodeId('');
+      setSearchData(null);
+      setRunHistoryItems([]);
+      setRunHistoryCursor('');
+      runHistoryCursorRef.current = '';
+      setRunHistoryHasMore(false);
+      runHistoryHasMoreRef.current = false;
+      setRunHistoryLoading(false);
+      setRunHistoryLoadingMore(false);
+      runHistoryLoadingMoreRef.current = false;
       return;
     }
     setGitLogLimit(5);
-    loadProjectInsights(selectedProjectId, { gitLimit: 5 });
-    loadProjectFileTree(selectedProjectId, '');
-  }, [selectedProjectId, loadProjectInsights, loadProjectFileTree]);
+    loadProjectInsightsRef.current?.(selectedProjectId, { gitLimit: 5, force: true });
+    loadProjectFileTreeRef.current?.(selectedProjectId, '', { force: true });
+    // Keep workspace refresh silent to avoid persistent loading banner flicker.
+    loadTreeWorkspaceRef.current?.(selectedProjectId, { silent: true, force: true });
+    loadRunHistoryPageRef.current?.(selectedProjectId, { reset: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (bottomLeftTab === 'knowledge' && selectedProjectId && !kbFileTree && !kbFileTreeLoading) {
+      loadKbFileTree(selectedProjectId, '');
+    }
+  }, [bottomLeftTab, selectedProjectId, kbFileTree, kbFileTreeLoading, loadKbFileTree]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -1405,22 +2861,30 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       setRunReport(null);
       return;
     }
-    if (selectedProjectRuns.length === 0) {
+    if (visibleRuns.length === 0) {
       setSelectedRunId('');
       setRunReport(null);
       return;
     }
     setSelectedRunId((prev) => (
-      prev && selectedProjectRuns.some((run) => run.id === prev)
+      prev && visibleRuns.some((run) => run.id === prev)
         ? prev
-        : selectedProjectRuns[0].id
+        : visibleRuns[0].id
     ));
-  }, [selectedProjectId, selectedProjectRuns]);
+  }, [selectedProjectId, visibleRuns]);
 
   useEffect(() => {
     if (!selectedRunId) return;
     loadRunReport(selectedRunId);
   }, [selectedRunId, loadRunReport]);
+
+  useEffect(() => {
+    if (!selectedTreeNode || selectedTreeNode.kind !== 'search') {
+      setSearchData(null);
+      return;
+    }
+    handleLoadSearchNode(selectedTreeNode.id, { refresh: true });
+  }, [handleLoadSearchNode, selectedTreeNode]);
 
   useEffect(() => {
     if (selectedProject) return;
@@ -1438,6 +2902,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     setProjectFileContentError('');
     setAiEditTarget('');
     setAiEditInstruction('');
+    setCodeChatPrompt('');
     setKbSyncJob(null);
   }, [selectedProject]);
 
@@ -1559,8 +3024,8 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
               type="button"
               className="vibe-workspace-chip"
               onClick={() => {
-                loadProjectInsights(selectedProject.id);
-                loadProjectFileTree(selectedProject.id, projectCurrentPath || '');
+                loadProjectInsights(selectedProject.id, { force: true });
+                loadProjectFileTree(selectedProject.id, projectCurrentPath || '', { force: true });
               }}
               disabled={submitting || gitLoading || filesLoading || changedFilesLoading}
             >
@@ -1617,6 +3082,27 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
               </button>
               <button
                 type="button"
+                className={`vibe-skill-chip${agentSkill === 'todo_manager' ? ' is-active' : ''}`}
+                onClick={() => setAgentSkill('todo_manager')}
+              >
+                TODO Manager
+              </button>
+              <button
+                type="button"
+                className={`vibe-skill-chip${agentSkill === 'resource_kb' ? ' is-active' : ''}`}
+                onClick={() => setAgentSkill('resource_kb')}
+              >
+                Resource KB
+              </button>
+              <button
+                type="button"
+                className={`vibe-skill-chip${agentSkill === 'code_chat' ? ' is-active' : ''}`}
+                onClick={() => setAgentSkill('code_chat')}
+              >
+                Code Chat
+              </button>
+              <button
+                type="button"
                 className={`vibe-skill-chip${agentSkill === 'custom' ? ' is-active' : ''}`}
                 onClick={() => setAgentSkill('custom')}
               >
@@ -1626,16 +3112,26 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
             <p className="vibe-skill-desc">
               {agentSkill === 'implement' && 'Coding agent implements your request directly in the project.'}
               {agentSkill === 'experiment' && 'Agent plans a bash experiment, schedules it to run, then analyzes results automatically.'}
+              {agentSkill === 'todo_manager' && 'Specialized skill for project-management TODO triage, prioritization, and next-action execution.'}
+              {agentSkill === 'resource_kb' && 'Specialized agent for mining project resource/ papers, notes, and metadata with explicit file-path citations.'}
+              {agentSkill === 'code_chat' && 'Code-aware chat that auto-locates relevant files/scripts/configs before responding.'}
               {agentSkill === 'custom' && 'Open the advanced run builder to configure a custom workflow.'}
             </p>
             <form onSubmit={handleLaunchAgent} className="vibe-launcher-form">
               <textarea
                 className="vibe-launcher-textarea"
+                id="vibe-launcher-input"
                 placeholder={
                   agentSkill === 'implement'
                     ? 'What should the agent implement or fix?  (Enter to launch, Shift+Enter for new line)'
                     : agentSkill === 'experiment'
                       ? 'Describe the experiment to run…  (Enter to launch)'
+                    : agentSkill === 'todo_manager'
+                        ? 'Ask about project TODO management: prioritize, clear, summarize, or execute-next…'
+                      : agentSkill === 'resource_kb'
+                        ? 'Ask questions over resource/ (papers, notes, RFMBench/RelBench evidence, code links)…'
+                      : agentSkill === 'code_chat'
+                        ? 'Ask the agent to inspect or explain code; it will auto-locate relevant files first…'
                       : 'Describe the task…'
                 }
                 value={runPrompt}
@@ -1686,6 +3182,401 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
             </form>
           </div>
 
+          <div className="vibe-tree-layout">
+            <section className="vibe-tree-layout-project-row vibe-card vibe-card--neo">
+              <div className="vibe-card-head">
+                <h3>Project Management</h3>
+                <span className="vibe-card-note">
+                  {selectedProjectTodos.length} open · {selectedProjectCompletedTodoCount} done
+                </span>
+              </div>
+              <div className={`vibe-pm-row-strip${selectedProjectTodos.length === 0 ? ' is-empty' : ''}`}>
+                {selectedProjectTodos.length === 0 ? (
+                  <p className="vibe-empty">No open TODOs. Add one or generate from proposal.</p>
+                ) : (
+                  selectedProjectTodos.slice(0, 36).map((idea) => (
+                    <article key={idea.id} className="vibe-pm-task-card">
+                      <div className="vibe-pm-task-head">
+                        <strong title={idea.title}>{idea.title}</strong>
+                        <code>{String(idea.status || 'OPEN').toUpperCase()}</code>
+                      </div>
+                      <p title={idea.hypothesis}>{idea.hypothesis}</p>
+                      <div className="vibe-pm-task-actions">
+                        <button
+                          type="button"
+                          className="vibe-secondary-btn"
+                          onClick={() => handleToggleTodoStatus(idea)}
+                          disabled={todoBusy}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+              <div className="vibe-inline-actions vibe-pm-actions">
+                <button type="button" className="vibe-secondary-btn" onClick={openTodoModal} disabled={todoBusy}>
+                  + New TODO
+                </button>
+                <button type="button" className="vibe-secondary-btn" onClick={handleClearCurrentTodos} disabled={todoBusy || selectedProjectTodos.length === 0}>
+                  {todoBusy ? 'Clearing…' : 'Clear Current TODOs'}
+                </button>
+                <button
+                  type="button"
+                  className="vibe-secondary-btn"
+                  onClick={handleGenerateRootNodeFromCodebase}
+                  disabled={rootBootstrapBusy || !selectedProjectId}
+                >
+                  {rootBootstrapBusy ? 'Generating…' : 'Summarize Codebase -> Root'}
+                </button>
+                <button type="button" className="vibe-secondary-btn" onClick={() => setShowAutopilotModal(true)}>
+                  Autopilot
+                </button>
+              </div>
+              {treeRootSummary?.summary && (
+                <p className="vibe-card-note vibe-root-summary" title={treeRootSummary.summary}>
+                  {treeRootSummary.summary}
+                </p>
+              )}
+            </section>
+
+            <div className="vibe-tree-canvas-workbench-split">
+              <section className="vibe-tree-layout-tree-row">
+                <VibePlanEditor
+                  plan={treePlan}
+                  validation={treeValidation}
+                  mode={planMode}
+                  viewMode={planViewMode}
+                  queueState={treeState?.queue || null}
+                  runScope={runAllScope}
+                  onModeChange={setPlanMode}
+                  onViewModeChange={setPlanViewMode}
+                  onRunScopeChange={setRunAllScope}
+                  onApplyDsl={savePlanDsl}
+                  onValidateDsl={validatePlanDsl}
+                  onRunAll={() => runTreeAll()}
+                  onPause={() => setTreeControl('pause')}
+                  onResume={() => setTreeControl('resume')}
+                  onAbort={() => setTreeControl('abort')}
+                />
+                {treeError && <div className="vibe-error">{treeError}</div>}
+                {treeLoading && !treePlan && <div className="vibe-card-note">Loading tree workspace...</div>}
+                <VibeTreeCanvas
+                  plan={treePlan || { nodes: [] }}
+                  treeState={treeState || { nodes: {} }}
+                  mode={planMode}
+                  selectedNodeId={selectedNodeId}
+                  onSelectNode={setSelectedNodeId}
+                  onNodeAction={handleTreeNodeAction}
+                />
+              </section>
+
+              {selectedTreeNode && (
+                <section className="vibe-tree-layout-workbench-panel">
+                  <VibeNodeWorkbench
+                    node={selectedTreeNode}
+                    nodeState={selectedTreeNodeState}
+                    mode={planMode}
+                    runReport={runReport}
+                    runReportLoading={runReportLoading}
+                    searchData={searchData}
+                    searchLoading={searchLoading}
+                    onSaveCommands={handleSaveNodeCommands}
+                    onLoadSearch={handleLoadSearchNode}
+                  />
+                </section>
+              )}
+            </div>
+          </div>
+
+          <div className="vibe-tree-bottom">
+            <section className="vibe-tree-bottom-left vibe-card vibe-card--neo">
+              <div className="vibe-card-head">
+                <h3>{bottomLeftTab === 'knowledge' ? 'Knowledge Base' : 'Project Files'}</h3>
+                <div className="vibe-inline-actions">
+                  <button
+                    type="button"
+                    className={`vibe-plan-chip${bottomLeftTab === 'knowledge' ? ' is-active' : ''}`}
+                    onClick={() => setBottomLeftTab('knowledge')}
+                  >
+                    Knowledge Base
+                  </button>
+                  <button
+                    type="button"
+                    className={`vibe-plan-chip${bottomLeftTab === 'files' ? ' is-active' : ''}`}
+                    onClick={() => setBottomLeftTab('files')}
+                  >
+                    Project Files
+                  </button>
+                </div>
+              </div>
+
+              {bottomLeftTab === 'knowledge' ? (
+                <>
+                  <div className="vibe-kb-folder-row">
+                    <span className="vibe-card-note">KB Folder:</span>
+                    <code>{knowledgeBaseFolder || '(not set)'}</code>
+                  </div>
+                  <div className="vibe-kb-actions">
+                    <button type="button" className="vibe-secondary-btn" onClick={handleOpenPaperList} disabled={submitting}>Paper List</button>
+                    <button type="button" className="vibe-secondary-btn" onClick={handleSetKnowledgeBaseFolder} disabled={submitting}>Set KB Folder</button>
+                    <button type="button" className="vibe-secondary-btn" onClick={openKnowledgeHubModal} disabled={submitting}>Chat with KB</button>
+                  </div>
+                  {knowledgeBaseFolder ? (
+                    <>
+                      <div className="vibe-inline-actions vibe-files-actions">
+                        <button type="button" className="vibe-secondary-btn" onClick={() => handleOpenKbFolder('')} disabled={kbFileTreeLoading || !kbCurrentPath}>Root</button>
+                        <button type="button" className="vibe-secondary-btn" onClick={() => handleOpenKbFolder(kbParentPath)} disabled={kbFileTreeLoading || !kbCurrentPath}>Up</button>
+                        <button type="button" className="vibe-secondary-btn" onClick={() => handleOpenKbFolder(kbCurrentPath)} disabled={kbFileTreeLoading}>Refresh</button>
+                      </div>
+                      <div className="vibe-tree-files-layout">
+                        <div className="vibe-tree-files-browser">
+                          {kbFileTreeLoading ? (
+                            <p className="vibe-empty">Loading KB files...</p>
+                          ) : kbFileTreeError ? (
+                            <p className="vibe-empty vibe-card-error">{kbFileTreeError}</p>
+                          ) : (
+                            <div className="vibe-list vibe-git-file-list">
+                              {kbTreeEntries.length === 0 ? (
+                                <p className="vibe-empty">Folder is empty.</p>
+                              ) : (
+                                kbTreeEntries.map((entry) => (
+                                  <button
+                                    key={`kb-${entry.relativePath}-${entry.type}`}
+                                    type="button"
+                                    className="vibe-list-item vibe-file-node"
+                                    onClick={() => (
+                                      entry.type === 'directory'
+                                        ? handleOpenKbFolder(entry.relativePath)
+                                        : handleOpenKbFile(entry.relativePath)
+                                    )}
+                                  >
+                                    <div className="vibe-list-main">
+                                      <strong>{entry.name}</strong>
+                                      <span>{entry.type === 'directory' ? 'Directory' : 'File'}</span>
+                                    </div>
+                                    <code>{entry.type === 'directory' ? 'dir' : 'file'}</code>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="vibe-tree-files-side">
+                          <div className="vibe-git-file-preview">
+                            <h4>Preview</h4>
+                            {kbFileContentLoading ? (
+                              <p className="vibe-empty">Loading file content...</p>
+                            ) : kbFileContentError ? (
+                              <p className="vibe-empty vibe-card-error">{kbFileContentError}</p>
+                            ) : kbFileContent?.relativePath ? (
+                              <>
+                                <div className="vibe-git-file-preview-head">
+                                  <code>{kbFileContent.relativePath}</code>
+                                  <span className="vibe-card-note">
+                                    {kbFileContent.truncated ? 'Partial preview' : 'Full preview'}
+                                  </span>
+                                </div>
+                                <pre className="vibe-report-pre vibe-report-pre-small vibe-file-preview-content">
+                                  {kbFileContent.content || ''}
+                                </pre>
+                              </>
+                            ) : (
+                              <p className="vibe-empty">Click a file to read its content.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="vibe-empty">No KB folder configured. Click &quot;Set KB Folder&quot; to sync a paper group or use the existing resource/ folder.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  {projectRootPath && <code className="vibe-git-file-root">{projectRootPath}</code>}
+                  <div className="vibe-inline-actions vibe-files-actions">
+                    <button type="button" className="vibe-secondary-btn" onClick={() => handleOpenFolderPath('')} disabled={projectFileTreeLoading || !projectCurrentPath}>Root</button>
+                    <button type="button" className="vibe-secondary-btn" onClick={() => handleOpenFolderPath(projectParentPath)} disabled={projectFileTreeLoading || !projectCurrentPath}>Up</button>
+                    <button type="button" className="vibe-secondary-btn" onClick={() => handleOpenFolderPath(projectCurrentPath)} disabled={projectFileTreeLoading}>Refresh</button>
+                    <button
+                      type="button"
+                      className="vibe-secondary-btn"
+                      onClick={() => openCodeChatInLauncher(
+                        projectFileContent?.relativePath
+                          ? `Analyze this code path and explain what to improve: @${projectFileContent.relativePath}`
+                          : ''
+                      )}
+                      disabled={submitting}
+                    >
+                      Chat with Code
+                    </button>
+                  </div>
+                  <div className="vibe-tree-files-layout">
+                    <div className="vibe-tree-files-browser">
+                      {projectFileTreeLoading ? (
+                        <p className="vibe-empty">Loading project files...</p>
+                      ) : projectFileTreeError ? (
+                        <p className="vibe-empty vibe-card-error">{projectFileTreeError}</p>
+                      ) : (
+                        <div className="vibe-list vibe-git-file-list">
+                          {projectTreeEntries.length === 0 ? (
+                            <p className="vibe-empty">Folder is empty.</p>
+                          ) : (
+                            <>
+                              {projectTreeEntries.slice(0, projectFilesDisplayLimit).map((entry) => (
+                                <button
+                                  key={`${entry.relativePath}-${entry.type}`}
+                                  type="button"
+                                  className="vibe-list-item vibe-file-node"
+                                  onClick={() => (
+                                    entry.type === 'directory'
+                                      ? handleOpenFolderPath(entry.relativePath)
+                                      : handleOpenProjectFile(entry.relativePath)
+                                  )}
+                                >
+                                  <div className="vibe-list-main">
+                                    <strong>{entry.name}</strong>
+                                    <span>{entry.type === 'directory' ? 'Directory' : 'File'}</span>
+                                  </div>
+                                  <code>{entry.type === 'directory' ? 'dir' : 'file'}</code>
+                                </button>
+                              ))}
+                              {projectTreeEntries.length > projectFilesDisplayLimit && (
+                                <button
+                                  type="button"
+                                  className="vibe-secondary-btn vibe-load-more-btn"
+                                  onClick={() => setProjectFilesDisplayLimit((prev) => prev + 20)}
+                                >
+                                  Load More ({projectTreeEntries.length - projectFilesDisplayLimit} more)
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {projectFileTree?.truncated && projectTreeEntries.length <= projectFilesDisplayLimit && (
+                        <p className="vibe-card-note">Showing first {projectTreeEntries.length} items.</p>
+                      )}
+                    </div>
+                    <div className="vibe-tree-files-side">
+                      <div className="vibe-git-file-preview">
+                        <h4>Preview</h4>
+                        {projectFileContentLoading ? (
+                          <p className="vibe-empty">Loading file content...</p>
+                        ) : projectFileContentError ? (
+                          <p className="vibe-empty vibe-card-error">{projectFileContentError}</p>
+                        ) : projectFileContent?.relativePath ? (
+                          <>
+                            <div className="vibe-git-file-preview-head">
+                              <code>{projectFileContent.relativePath}</code>
+                              <span className="vibe-card-note">
+                                {projectFileContent.truncated ? 'Partial preview' : 'Full preview'}
+                              </span>
+                            </div>
+                            <pre className="vibe-report-pre vibe-report-pre-small vibe-file-preview-content">
+                              {projectFileContent.content || ''}
+                            </pre>
+                          </>
+                        ) : (
+                          <p className="vibe-empty">Click a file to read its content.</p>
+                        )}
+                      </div>
+                      <div className="vibe-git-file-ai">
+                        <h4>AI Edit</h4>
+                        <input
+                          placeholder="@path/to/file.py"
+                          value={aiEditTarget}
+                          onChange={(event) => setAiEditTarget(event.target.value)}
+                        />
+                        {(fileMentionLoading || fileMentionOptions.length > 0) && (
+                          <div className="vibe-file-mention-list">
+                            {fileMentionLoading ? (
+                              <span className="vibe-card-note">Searching files...</span>
+                            ) : (
+                              fileMentionOptions.map((item) => (
+                                <button
+                                  key={`mention-${item}`}
+                                  type="button"
+                                  className="vibe-secondary-btn"
+                                  onClick={() => applyFileMentionSelection(item)}
+                                >
+                                  @{item}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                        <textarea
+                          rows={3}
+                          placeholder="Describe one augmentation for this file"
+                          value={aiEditInstruction}
+                          onChange={(event) => setAiEditInstruction(event.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="vibe-secondary-btn"
+                          onClick={handleSubmitAiEdit}
+                          disabled={aiEditBusy || !aiEditTarget.trim() || !aiEditInstruction.trim()}
+                        >
+                          {aiEditBusy ? 'Queuing...' : 'Ask Agent'}
+                        </button>
+                      </div>
+                      <div className="vibe-file-chat">
+                        <div className="vibe-file-chat-header">
+                          <h4>Chat with Code</h4>
+                          <span className="vibe-card-note">Auto-locates relevant files before running.</span>
+                        </div>
+                        <textarea
+                          rows={3}
+                          placeholder="Ask code-level questions: architecture, bug root cause, refactor plan, etc."
+                          value={codeChatPrompt}
+                          onChange={(event) => setCodeChatPrompt(event.target.value)}
+                        />
+                        <div className="vibe-inline-actions">
+                          <button
+                            type="button"
+                            className="vibe-secondary-btn"
+                            onClick={() => handleLaunchAgent(null, { skill: 'code_chat', prompt: codeChatPrompt })}
+                            disabled={submitting || !codeChatPrompt.trim()}
+                          >
+                            {submitting ? 'Launching…' : 'Launch Code Chat'}
+                          </button>
+                          <button
+                            type="button"
+                            className="vibe-secondary-btn"
+                            onClick={() => openCodeChatInLauncher(codeChatPrompt)}
+                            disabled={!codeChatPrompt.trim()}
+                          >
+                            Open in Launcher
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="vibe-tree-bottom-right">
+              <VibeRunHistory
+                runs={visibleRuns}
+                selectedRunId={selectedRunId}
+                onSelectRun={setSelectedRunId}
+                hasMore={runHistoryHasMore}
+                loadingMore={runHistoryLoading || runHistoryLoadingMore}
+                onLoadMore={() => loadRunHistoryPage(selectedProjectId, { reset: false })}
+                onDeleteRun={handleDeleteRun}
+                onClearFailed={() => handleClearRuns('FAILED')}
+                onClearAll={() => handleClearRuns()}
+                onRerunRun={handleRerunRun}
+              />
+            </section>
+          </div>
+
+          {false && (
+          <>
           <div className="vibe-workspace-grid vibe-workspace-grid--neo">
             <article className="vibe-card vibe-card--neo vibe-card--knowledge">
               <div className="vibe-card-head">
@@ -1705,20 +3596,23 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                 </div>
               )}
               <div className="vibe-list">
-                {knowledgeGroups.slice(0, 6).map((group) => (
-                  <div key={`group-preview-${group.id}`} className="vibe-list-item">
-                    <div className="vibe-list-main">
-                      <strong>{group.name}</strong>
-                      <span>{group.documentCount || 0} papers</span>
+                {knowledgeGroups
+                  .filter((group) => linkedKnowledgeGroupIds.includes(Number(group.id)))
+                  .slice(0, 6)
+                  .map((group) => (
+                    <div key={`group-preview-${group.id}`} className="vibe-list-item">
+                      <div className="vibe-list-main">
+                        <strong>{group.name}</strong>
+                        <span>{group.documentCount || 0} papers</span>
+                      </div>
+                      <code>#{group.id}</code>
                     </div>
-                    <code>#{group.id}</code>
-                  </div>
-                ))}
-                {knowledgeGroups.length === 0 && (
+                  ))}
+                {linkedKnowledgeGroupIds.length === 0 && (
                   <p className="vibe-empty">
                     {knowledgeGroupsLoading
                       ? 'Loading paper groups...'
-                      : 'No paper groups found yet. Use Paper List to create/import a group, then set KB folder.'}
+                      : 'No KB groups linked to this project yet. Use Paper List to create/import a group, then set KB folder.'}
                   </p>
                 )}
               </div>
@@ -2166,7 +4060,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                           const nextLimit = Math.min((Number(gitLogLimitRef.current) || 5) + 5, 200);
                           setGitLogLimit(nextLimit);
                           if (selectedProjectId) {
-                            loadProjectInsights(selectedProjectId, { gitLimit: nextLimit });
+                            loadProjectInsights(selectedProjectId, { gitLimit: nextLimit, force: true });
                           }
                         }}
                         disabled={gitLoading}
@@ -2315,126 +4209,30 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
             </article>
           </div>
 
-          <div className="vibe-run-history">
-            <div className="vibe-run-history-head">
-              <h3>Run History</h3>
-              <span className="vibe-card-note">{selectedProjectRuns.length} runs</span>
-            </div>
-            {selectedProjectRuns.length === 0 ? (
-              <p className="vibe-empty">No runs yet. Launch an agent above to get started.</p>
-            ) : (
-              <div className="vibe-run-history-list">
-                {selectedProjectRuns.slice(0, 30).map((run) => {
-                  const isActive = run.id === selectedRunId;
-                  const ts = run.createdAt ? new Date(run.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-                  const prompt = String(run.metadata?.prompt || run.metadata?.experimentCommand || '').slice(0, 80);
-                  const skill = run.metadata?.agentSkill || run.runType?.toLowerCase() || 'agent';
-                  const parentId = run.metadata?.parentRunId;
-                  const statusClass = {
-                    SUCCEEDED: 'vibe-run-status--ok',
-                    FAILED: 'vibe-run-status--fail',
-                    RUNNING: 'vibe-run-status--running',
-                    QUEUED: 'vibe-run-status--queued',
-                    CANCELLED: 'vibe-run-status--cancel',
-                  }[run.status] || '';
-                  return (
-                    <button
-                      key={run.id}
-                      type="button"
-                      className={`vibe-run-row${isActive ? ' is-active' : ''}`}
-                      onClick={() => setSelectedRunId(run.id)}
-                    >
-                      <span className={`vibe-run-status ${statusClass}`}>{run.status}</span>
-                      <span className="vibe-run-skill">{skill}</span>
-                      <span className="vibe-run-prompt">{prompt || run.id}</span>
-                      <span className="vibe-run-ts">{ts}</span>
-                      {parentId && <span className="vibe-run-chain" title={`Continuation of ${parentId}`}>↩</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <VibeRunHistory
+            runs={selectedProjectRuns}
+            selectedRunId={selectedRunId}
+            onSelectRun={setSelectedRunId}
+            onDeleteRun={handleDeleteRun}
+            onClearFailed={() => handleClearRuns('FAILED')}
+            onClearAll={() => handleClearRuns()}
+            onRerunRun={handleRerunRun}
+          />
+          </>
+          )}
         </div>
       ) : (
-        <div className="vibe-home">
-          <div className="vibe-home-head">
-            <h3>Project Workspace</h3>
-            <p>Select an existing project to enter its workspace. New project opens in this view until you click it.</p>
-          </div>
-
-          <div className="vibe-project-grid" role="list" aria-label="Projects">
-            <button
-              type="button"
-              className="vibe-project-card vibe-project-create"
-              onClick={openCreateProjectModal}
-              disabled={submitting}
-              aria-label="Add new project"
-            >
-              <span className="vibe-project-plus">+</span>
-              <strong>Add New Project</strong>
-              <span>Create project details after click</span>
-            </button>
-
-            {projects.map((project) => {
-              const stats = projectStats.get(project.id) || { ideas: 0, queued: 0 };
-              return (
-                <button
-                  key={project.id}
-                  type="button"
-                  className="vibe-project-card"
-                  onClick={() => setSelectedProjectId(project.id)}
-                >
-                  <div className="vibe-project-card-top">
-                    <h3>{project.name}</h3>
-                    <code>{project.id}</code>
-                  </div>
-                  <p>{project.description || 'No description provided yet.'}</p>
-                  <div className="vibe-project-metrics">
-                    <span>{stats.ideas} ideas</span>
-                    <span>{stats.queued} queued</span>
-                    <span>{project.locationType === 'ssh' ? 'SSH' : 'Local'}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {projects.length === 0 && (
-            <div className="vibe-select-project-hint">
-              No projects yet. Click "Add New Project" to create your first one.
-            </div>
-          )}
-
-          <article className="vibe-card vibe-skill-card">
-            <div className="vibe-skill-header">
-              <h3>Merged Skills ({skills.length})</h3>
-              <button
-                type="button"
-                className="vibe-secondary-btn"
-                onClick={handleSyncSkills}
-                disabled={syncingSkills || submitting}
-              >
-                {syncingSkills ? 'Syncing…' : 'Sync Remote Skills'}
-              </button>
-            </div>
-            <div className="vibe-skill-list">
-              {skills.length === 0 ? (
-                <p className="vibe-empty">No skills found. Sync from object storage or add local `skills/*/SKILL.md`.</p>
-              ) : (
-                skills.map((skill) => (
-                  <span
-                    key={skill.id}
-                    className="vibe-skill-chip"
-                    title={`${skill.source || 'unknown'}${skill.version ? ` · v${skill.version}` : ''}`}
-                  >
-                    {skill.name}
-                  </span>
-                ))
-              )}
-            </div>
-          </article>
-        </div>
+        <VibeHomeView
+          loading={loading}
+          projects={projects}
+          projectStats={projectStats}
+          onCreateProject={openCreateProjectModal}
+          onSelectProject={setSelectedProjectId}
+          submitting={submitting}
+          skills={skills}
+          onSyncSkills={handleSyncSkills}
+          syncingSkills={syncingSkills}
+        />
       )}
 
       {showSkillsModal && selectedProject && (
