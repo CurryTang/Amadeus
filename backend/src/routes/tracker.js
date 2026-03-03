@@ -994,8 +994,10 @@ router.get('/feed', async (req, res) => {
           FEED_PAGE_ANNOTATE_TIMEOUT_MS * 3,
           'feed_saved_status_shuffle'
         );
+        // Saved papers get a large negative offset so they always fall below unsaved.
+        // Unsaved papers: Math.random() in [0, 1]. Saved: Math.random() - 100 in [-100, -99].
         sourceData = annotatedAll
-          .map((item) => ({ item, _w: Math.random() + (item.saved ? -0.5 : 0.1) }))
+          .map((item) => ({ item, _w: Math.random() + (item.saved ? -100 : 0) }))
           .sort((a, b) => b._w - a._w)
           .map(({ item }) => item);
         shuffled = true;
