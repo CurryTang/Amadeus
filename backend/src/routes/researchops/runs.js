@@ -218,6 +218,22 @@ async function sshCheckTmux(server, session) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: derive a 1-line result snippet for a run (used in list response)
+// ---------------------------------------------------------------------------
+
+function deriveResultSnippet(run) {
+  // lastMessage is set by updateRunStatus whenever a message is passed (e.g. on SUCCEEDED/FAILED)
+  if (run.lastMessage && typeof run.lastMessage === 'string') {
+    return run.lastMessage.slice(0, 120);
+  }
+  // Fallback based on terminal status
+  if (run.status === 'SUCCEEDED') return 'Completed successfully';
+  if (run.status === 'FAILED') return 'Run failed';
+  if (run.status === 'CANCELLED') return 'Cancelled';
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Run lifecycle routes
 // ---------------------------------------------------------------------------
 
@@ -312,7 +328,10 @@ router.get('/runs', async (req, res) => {
       cursor,
     });
     res.json({
-      items: page.items || [],
+      items: (page.items || []).map((run) => ({
+        ...run,
+        resultSnippet: deriveResultSnippet(run),
+      })),
       limit,
       cursor: cursor || null,
       hasMore: Boolean(page.hasMore),
