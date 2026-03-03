@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project TODO Manager"
+  short_description: "Manage, prioritize, and execute ResearchOps project TODOs"
+  default_prompt: "Analyze project TODOs, pick the correct TODO workflow action, and return concise executable next steps with risk notes."

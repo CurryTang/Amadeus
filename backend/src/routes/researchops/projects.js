@@ -6032,4 +6032,80 @@ router.post('/projects/:projectId/context/repo-map/rebuild', async (req, res) =>
   }
 });
 
+// ── Generate a tree node from a TODO item via LLM ────────────────────────────
+router.post('/projects/:projectId/tree/nodes/from-todo', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    const todo = req.body?.todo;
+    if (!todo || typeof todo !== 'object') return res.status(400).json({ error: 'todo is required' });
+
+    const todoTitle = String(todo.title || '').trim();
+    const todoHypothesis = String(todo.hypothesis || todo.description || '').trim();
+    if (!todoTitle) return res.status(400).json({ error: 'todo.title is required' });
+
+    const parentNodeId = String(req.body?.parentNodeId || '').trim();
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+    const nodeSchema = `{
+  "id": "snake_case_id_2_to_5_words",
+  "title": "Human-readable title",
+  "kind": "experiment | analysis | knowledge | setup | milestone | patch | search",
+  "assumption": ["assumption 1", "assumption 2"],
+  "target": ["measurable acceptance criterion 1", "criterion 2"],
+  "commands": [{"cmd": "bash or python command", "label": "short label"}],
+  "checks": [{"condition": "verification step", "label": "short label"}],
+  "tags": ["tag1", "tag2"]
+}`;
+
+    const systemContext = `You are a research planning assistant converting TODO items into executable tree nodes for a research automation system.
+
+Return ONLY a single valid JSON object matching this schema:
+${nodeSchema}
+
+Rules:
+- id: lowercase, underscores only, 2-5 words, unique slug derived from title
+- kind: "experiment" for code/model work, "analysis" for data analysis, "knowledge" for literature/study, "setup" for infra/env, "milestone" for checkpoints
+- assumption: 1-3 key prerequisites the node assumes are true
+- target: 2-4 specific, measurable success criteria
+- commands: 1-5 concrete runnable commands (bash, python3, etc.)
+- checks: 1-3 post-command verification steps
+- Return ONLY the JSON object — no markdown fences, no extra text`;
+
+    let prompt;
+    if (messages.length === 0) {
+      prompt = `Generate a tree node for this TODO:\n\nTitle: ${todoTitle}${todoHypothesis ? `\n\nHypothesis/Description: ${todoHypothesis}` : ''}`;
+    } else {
+      const history = messages
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 800)}`)
+        .join('\n\n');
+      prompt = `TODO:\nTitle: ${todoTitle}${todoHypothesis ? `\nHypothesis: ${todoHypothesis}` : ''}\n\nConversation so far:\n${history}\n\nBased on the above, generate the updated tree node JSON.`;
+    }
+
+    const result = await llmService.generateWithFallback(systemContext, prompt);
+    const rawText = String(result?.text || '').trim();
+
+    let node = null;
+    try { node = JSON.parse(rawText); } catch (_) {}
+    if (!node) {
+      const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fenceMatch) { try { node = JSON.parse(fenceMatch[1].trim()); } catch (_) {} }
+    }
+    if (!node) {
+      const objMatch = rawText.match(/\{[\s\S]*\}/);
+      if (objMatch) { try { node = JSON.parse(objMatch[0]); } catch (_) {} }
+    }
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+      return res.status(422).json({ error: 'Failed to parse node from LLM output', raw: rawText.slice(0, 500) });
+    }
+
+    if (parentNodeId) node.parent = parentNodeId;
+
+    return res.json({ node, provider: result?.provider || 'unknown' });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to generate node from TODO'));
+  }
+});
+
 module.exports = router;

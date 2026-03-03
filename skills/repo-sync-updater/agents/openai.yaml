@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Sync Updater"
+  short_description: "Keep repo and runtime dependencies current"
+  default_prompt: "Use $repo-sync-updater to sync this clone and verify backend runtime prerequisites on WSL."

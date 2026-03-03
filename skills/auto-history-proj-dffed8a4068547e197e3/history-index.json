@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "generatedBy": "researchops-history-skill",
+  "projectId": "proj_dffed8a4068547e197e3",
+  "projectName": "Playwright Horizon Test",
+  "updatedAt": "2026-03-01T15:24:30.547Z",
+  "processedRunIds": [
+    "run_c0b33e200e6e4ad08413"
+  ],
+  "pathCounts": {
+    "docs/deliverables/run_c0b33e200e6e4ad08413.md": 3,
+    "report/result_manifest.json": 3,
+    "report/run_summary.md": 3,
+    "context/knowledge-pack.json": 2,
+    "context/knowledge-pack.md": 2,
+    "context/run-spec.json": 2,
+    "context/skill-refs.json": 2
+  },
+  "lastRun": {
+    "id": "run_c0b33e200e6e4ad08413",
+    "at": "2026-03-01T15:24:30.547Z"
+  }
+}
