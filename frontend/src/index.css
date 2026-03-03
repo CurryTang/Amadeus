@@ -1460,6 +1460,85 @@ body {
   padding: 20px;
 }
 
+/* Generic modal shell — used by LibrarySettingsModal and similar */
+.modal-container {
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+  width: 100%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.modal-header h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0;
+}
+
+.modal-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  flex-shrink: 0;
+  background: #f8fafc;
+}
+
+.modal-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.modal-tab:hover {
+  color: #0f172a;
+}
+
+.modal-tab.active {
+  color: #155eef;
+  border-bottom-color: #155eef;
+  font-weight: 600;
+}
+
+.modal-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  background: #f8fafc;
+}
+
 .notes-modal {
   background: white;
   border-radius: 16px;
@@ -6303,6 +6382,24 @@ body > #d[id*="mermaid"] {
   overflow: auto;
 }
 
+.vibe-loadmore-btn {
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: 8px 16px;
+  border: 1.5px dashed rgba(31, 111, 139, 0.35);
+  border-radius: 8px;
+  background: transparent;
+  color: #4a8fa8;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.vibe-loadmore-btn:hover {
+  background: rgba(31, 111, 139, 0.06);
+  border-color: rgba(31, 111, 139, 0.55);
+}
+
 .vibe-asset-card {
   border: 1px solid #d6e1f3;
   border-radius: 10px;
@@ -7158,6 +7255,68 @@ button.vibe-skill-chip.is-active {
 .vibe-launcher-continue-toggle input[type='checkbox'] {
   width: 14px;
   height: 14px;
+}
+
+/* @ mention autocomplete for launcher textarea */
+.vibe-launcher-mention-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.vibe-prompt-mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: #fff;
+  border: 1.5px solid #c7d2fe;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12), 0 1px 4px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+.vibe-prompt-mention-searching {
+  display: block;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.vibe-prompt-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.82rem;
+  font-family: 'Fira Mono', monospace;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.1s;
+}
+
+.vibe-prompt-mention-item:last-child {
+  border-bottom: none;
+}
+
+.vibe-prompt-mention-item:hover,
+.vibe-prompt-mention-item.is-active {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vibe-prompt-mention-at {
+  color: #6366f1;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .vibe-launcher-textarea {
@@ -9307,6 +9466,27 @@ button.vibe-skill-chip.is-active {
 .settings-vault-disconnect { padding: 5px 12px; background: none; border: 1px solid #c73737; color: #c73737; border-radius: 8px; font-size: 0.82rem; cursor: pointer; }
 .settings-vault-disconnect:hover { background: #fef2f2; }
 .settings-error { font-size: 0.82rem; color: #c73737; margin: 0; }
+
+/* Obsidian batch export tab */
+.obs-export-empty { font-size: 0.82rem; color: #94a3b8; margin: 0; }
+.obs-export-list { display: flex; flex-direction: column; gap: 8px; }
+.obs-export-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; background: #f8fafc; border: 1px solid #e8edf4; border-radius: 8px; }
+.obs-export-title { font-size: 0.83rem; color: #0f172a; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obs-export-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.obs-export-status { font-size: 0.78rem; font-weight: 500; }
+.obs-export-status--queued { color: #94a3b8; }
+.obs-export-status--generating { color: #f59e0b; }
+.obs-export-status--exported { color: #10b981; }
+.obs-export-status--failed { color: #ef4444; }
+.obs-export-retry-btn { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 0 2px; line-height: 1; }
+.obs-export-retry-btn:hover { color: #b91c1c; }
+.obs-export-clear-btn { align-self: flex-start; background: none; border: 1px dashed #94a3b8; border-radius: 8px; padding: 6px 14px; font-size: 0.82rem; color: #64748b; cursor: pointer; margin-top: 4px; }
+.obs-export-clear-btn:hover { border-color: #155eef; color: #155eef; }
+
+/* Research action bar — Obsidian export button */
+.research-obsidian-btn { padding: 7px 14px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+.research-obsidian-btn:hover:not(:disabled) { background: #4f46e5; }
+.research-obsidian-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ---- Obsidian vault export button on DocumentCard ---- */
 .vault-btn { background: #f0fdf4 !important; border-color: #6ee7b7 !important; color: #065f46 !important; }
