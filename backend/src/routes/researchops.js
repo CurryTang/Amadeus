@@ -8,6 +8,7 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
+const resHelpers = require('../middleware/res-helpers');
 const { getDb } = require('../db');
 const s3Service = require('../services/s3.service');
 const codexCliService = require('../services/codex-cli.service');
@@ -3095,6 +3096,7 @@ async function executeKbGroupSyncJob(jobId, { userId, project, server, group }) 
   }
 }
 
+router.use(resHelpers);
 router.use(requireAuth);
 
 router.get('/health', async (req, res) => {
