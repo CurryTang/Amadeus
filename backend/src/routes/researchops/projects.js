@@ -5180,6 +5180,7 @@ async function executeTreeNodeRun({
   preflightOnly = false,
   runSource = 'run-step',
   searchTrialCount = 1,
+  clarifyMessages = [],
 }) {
   const state = treeStateService.normalizeState(treeState);
   const blocking = evaluateNodeBlocking(node, state);
@@ -5266,6 +5267,7 @@ async function executeTreeNodeRun({
       command: 'bash',
       args: ['-lc', joinedCommand],
       cwd: String(project?.projectPath || '').trim() || undefined,
+      ...(clarifyMessages.length > 0 ? { clarifyContext: clarifyMessages } : {}),
     },
   });
 
@@ -5618,6 +5620,7 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     const force = parseBoolean(req.body?.force, false);
     const preflightOnly = parseBoolean(req.body?.preflightOnly, false);
     const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
+    const clarifyMessages = Array.isArray(req.body?.clarifyMessages) ? req.body.clarifyMessages : [];
 
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
@@ -5633,6 +5636,7 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
       preflightOnly,
       runSource: 'run-step',
       searchTrialCount,
+      clarifyMessages,
     });
     return res.status(preflightOnly ? 200 : 202).json({
       projectId: project.id,
@@ -6105,6 +6109,175 @@ Rules:
     return res.json({ node, provider: result?.provider || 'unknown' });
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to generate node from TODO'));
+  }
+});
+
+// ── Clarification Q&A before todo→node generation ─────────────────────────
+router.post('/projects/:projectId/tree/nodes/from-todo/clarify', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    const todo = req.body?.todo;
+    if (!todo?.title) return res.status(400).json({ error: 'todo.title is required' });
+
+    const todoTitle = String(todo.title || '').trim();
+    const todoHypothesis = String(todo.hypothesis || todo.description || '').trim();
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+    const systemContext = `You are a research planning assistant preparing to convert a TODO into an executable research tree node.
+
+Your job: ask ONE short, targeted clarifying question to gather context that will make the generated node more accurate and useful.
+
+Focus on the most important unknown. Good questions cover:
+- Whether this references a specific paper or knowledge-base asset (and which one)
+- Which codebase files or modules are relevant
+- Whether this is an implementation task (coding a design) or an experiment (running/evaluating)
+- Dataset or model assumptions for experiment tasks
+- Design doc, architecture, or API assumptions for implementation tasks
+- Execution environment specifics (GPU, cluster, local)
+
+Ask ONE question at a time. Prefer offering 2-4 concrete multiple-choice options when possible.
+
+When you have enough context to generate a precise node (typically after 2-3 questions), respond with ONLY:
+{"done": true}
+
+Otherwise respond with ONLY valid JSON (no markdown fences):
+{"question": "...", "options": ["option A", "option B"]}
+or if open-ended:
+{"question": "...", "options": []}`;
+
+    let prompt;
+    if (messages.length === 0) {
+      prompt = `TODO to convert:\nTitle: ${todoTitle}${todoHypothesis ? `\nHypothesis: ${todoHypothesis}` : ''}\n\nAsk your first clarifying question.`;
+    } else {
+      const history = messages
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 600)}`)
+        .join('\n\n');
+      prompt = `TODO:\nTitle: ${todoTitle}${todoHypothesis ? `\nHypothesis: ${todoHypothesis}` : ''}\n\nConversation so far:\n${history}\n\nAsk the next clarifying question, or respond {"done":true} if you have enough context.`;
+    }
+
+    const result = await llmService.generateWithFallback(systemContext, prompt);
+    const rawText = String(result?.text || '').trim();
+
+    let parsed = null;
+    try { parsed = JSON.parse(rawText); } catch (_) {}
+    if (!parsed) {
+      const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fenceMatch) try { parsed = JSON.parse(fenceMatch[1].trim()); } catch (_) {}
+    }
+    if (!parsed) {
+      const objMatch = rawText.match(/\{[\s\S]*\}/);
+      if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_) {}
+    }
+    if (!parsed) return res.status(422).json({ error: 'Failed to parse clarification response', raw: rawText.slice(0, 300) });
+
+    return res.json({
+      done: parsed.done === true,
+      question: parsed.done ? null : String(parsed.question || ''),
+      options: Array.isArray(parsed.options) ? parsed.options.map(String) : [],
+    });
+  } catch (error) {
+    console.error('[from-todo/clarify] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Clarification Q&A before node execution ────────────────────────────────
+router.post('/projects/:projectId/tree/nodes/:nodeId/run-clarify', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+    const { plan } = await resolveProjectAndTree(req, projectId);
+    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find(
+      (n) => String(n?.id || '').trim() === nodeId,
+    );
+    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+
+    const kind = String(node.kind || 'experiment');
+    const isImplementation = kind === 'patch' || kind === 'setup' ||
+      (kind === 'experiment' && (node.commands || []).some((c) => {
+        const cmd = String(c?.cmd || c?.run || '').toLowerCase();
+        return cmd.includes('implement') || cmd.includes('write') || cmd.includes('create') || cmd.includes('edit');
+      }));
+
+    const kindGuidance = isImplementation
+      ? `This is an IMPLEMENTATION node. Focus questions on:
+- Which design document or spec should be followed?
+- Which existing code files or modules should be modified?
+- What APIs, interfaces, or data structures must be respected?
+- Are there style/architecture conventions to follow?`
+      : kind === 'analysis'
+        ? `This is an ANALYSIS node. Focus questions on:
+- Which artifacts or result files should be analyzed?
+- What metrics or comparisons are expected?
+- What format should the output report take?`
+        : kind === 'knowledge'
+          ? `This is a KNOWLEDGE node. Focus questions on:
+- Which specific papers or KB assets are referenced?
+- What scope of literature should be covered?
+- Are there known gaps to address?`
+          : `This is an EXPERIMENT node. Focus questions on:
+- What dataset, checkpoint, or baseline should be used?
+- What hyperparameters or configurations are expected?
+- What compute environment (GPU type, cluster, local) is available?
+- Are there known failure modes to watch for?`;
+
+    const commandSummary = (node.commands || [])
+      .slice(0, 5)
+      .map((c, i) => `  ${i + 1}. ${String(c?.cmd || c?.run || c || '')}`)
+      .join('\n');
+
+    const systemContext = `You are a research execution assistant preparing to run a tree node step.
+
+Node: "${node.title}" (kind: ${kind})
+Commands to be executed:
+${commandSummary || '  (none listed)'}
+Assumptions: ${(node.assumption || []).join('; ') || '(none)'}
+
+${kindGuidance}
+
+Ask ONE short clarifying question at a time. Offer 2-4 concrete options when possible.
+When you have enough context (typically after 2-3 questions), respond with ONLY: {"done": true}
+Otherwise respond with ONLY valid JSON: {"question": "...", "options": ["A", "B"]}`;
+
+    let prompt;
+    if (messages.length === 0) {
+      prompt = `Ask your first clarifying question before executing this node.`;
+    } else {
+      const history = messages
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 600)}`)
+        .join('\n\n');
+      prompt = `Conversation so far:\n${history}\n\nAsk the next question or respond {"done":true}.`;
+    }
+
+    const result = await llmService.generateWithFallback(systemContext, prompt);
+    const rawText = String(result?.text || '').trim();
+
+    let parsed = null;
+    try { parsed = JSON.parse(rawText); } catch (_) {}
+    if (!parsed) {
+      const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fenceMatch) try { parsed = JSON.parse(fenceMatch[1].trim()); } catch (_) {}
+    }
+    if (!parsed) {
+      const objMatch = rawText.match(/\{[\s\S]*\}/);
+      if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_) {}
+    }
+    if (!parsed) return res.status(422).json({ error: 'Failed to parse clarification response', raw: rawText.slice(0, 300) });
+
+    return res.json({
+      done: parsed.done === true,
+      question: parsed.done ? null : String(parsed.question || ''),
+      options: Array.isArray(parsed.options) ? parsed.options.map(String) : [],
+    });
+  } catch (error) {
+    console.error('[run-clarify] Error:', error);
+    return res.status(500).json({ error: error.message });
   }
 });
 

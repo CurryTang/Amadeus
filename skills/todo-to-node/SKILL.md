@@ -10,20 +10,26 @@ Convert a single project TODO (title + hypothesis) into a fully-specified Resear
 ## Workflow
 
 1. **Input**: Receive `todo` object (`id`, `title`, `hypothesis`) and optional `parentNodeId`.
-2. **Generate**: Call `POST /api/researchops/projects/:projectId/tree/nodes/from-todo` with:
+2. **Clarification Phase** (optional, per-run configurable): Call `POST /api/researchops/projects/:projectId/tree/nodes/from-todo/clarify` with:
+   - `todo`: the TODO object
+   - `messages`: conversation so far (starts empty)
+   - The backend returns `{ done, question, options? }`. Ask the question; when `done: true`, proceed to generate.
+   - User can Skip Q&A to bypass this phase entirely.
+   - Prompts are targeted at the TODO kind: papers referenced, KB code files needed, env assumptions, implementation vs experiment differences.
+3. **Generate**: Call `POST /api/researchops/projects/:projectId/tree/nodes/from-todo` with:
    - `todo`: the TODO object
    - `parentNodeId`: optional parent node to attach under
-   - `messages`: empty array for first generation
-3. **Review**: Present the generated node fields to the user:
+   - `messages`: clarification exchange collected in phase 2 (empty if skipped)
+4. **Review**: Present the generated node fields to the user:
    - `id`, `title`, `kind`
    - `assumption[]`: what the node assumes
    - `target[]`: measurable success criteria
    - `commands[]`: concrete runnable commands
    - `checks[]`: verification steps
-4. **Refine** (optional): If user wants changes, send a follow-up request with:
+5. **Refine** (optional): If user wants changes, send a follow-up request with:
    - Same `todo`
    - `messages`: conversation history `[{role, content}]` where assistant messages include the previous node JSON
-5. **Insert**: Call `POST /api/researchops/projects/:projectId/tree/plan/patches` with:
+6. **Insert**: Call `POST /api/researchops/projects/:projectId/tree/plan/patches` with:
    ```json
    { "patches": [{ "op": "add_node", "node": <generated_node> }] }
    ```
