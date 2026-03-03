@@ -147,12 +147,7 @@ function buildRootNode({
       'Tree root reflects current repository state and commit anchor.',
     ],
     commands: [],
-    checks: [
-      {
-        name: 'baseline_manual_gate',
-        type: 'manual_approve',
-      },
-    ],
+    checks: [],
     git: {
       base: cleanString(commit) || 'HEAD',
       branch: cleanString(branch) || 'HEAD',
