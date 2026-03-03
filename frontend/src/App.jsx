@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { Theme, Tabs, Button } from '@radix-ui/themes';
 import DocumentList from './components/DocumentList';
@@ -9,10 +9,13 @@ import UserNotesModal from './components/UserNotesModal';
 import LoginPage from './components/LoginPage';
 import SshServersAdmin from './components/SshServersAdmin';
 import TrackerAdmin from './components/TrackerAdmin';
+import LibrarySettingsModal from './components/LibrarySettingsModal';
 import LatestPapers from './components/LatestPapers';
 import SendModal from './components/SendModal';
 import VibeResearcherPanel from './components/VibeResearcherPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { useAiNotesSettings } from './hooks/useAiNotesSettings';
+import { useObsidianExportBatch } from './hooks/useObsidianExportBatch';
 
 // API URL strategy:
 // - Development: prefer local proxy (/api) unless overridden with NEXT_PUBLIC_DEV_API_URL.
@@ -82,11 +85,21 @@ function AppContent() {
   const [showSendModal, setShowSendModal] = useState(false);
   const [showSshAdmin, setShowSshAdmin] = useState(false);
   const [showTrackerAdmin, setShowTrackerAdmin] = useState(false);
+  const [showAiSettings, setShowAiSettings] = useState(false);
 
   // Main area tab: 'latest' | 'library' | 'vibe'
   const [activeArea, setActiveArea] = useState('latest');
 
   const { isAuthenticated, isLoading: authLoading, username, logout, getAuthHeaders } = useAuth();
+
+  const { rounds, saveRounds, vaultHandle, vaultName, vaultReady, connectVault, disconnectVault, exportToVault } =
+    useAiNotesSettings();
+
+  const { batchItems, addToBatch, clearCompleted, retryItem } = useObsidianExportBatch({
+    apiUrl: API_URL,
+    getAuthHeaders,
+    exportToVault,
+  });
 
   const LIMIT = 5;
 
@@ -408,6 +421,29 @@ function AppContent() {
     setShowPaperList(true);
   };
 
+  const handleObsidianBatch = useCallback(async () => {
+    if (selectedDocIds.size === 0 || !vaultReady) return;
+    const selected = documents.filter((d) => selectedDocIds.has(d.id));
+    const withNotes = selected.filter((d) => (d.processingStatus || '') === 'completed');
+    const withoutNotes = selected.filter((d) => (d.processingStatus || '') !== 'completed');
+
+    // Immediately export papers that already have notes
+    for (const doc of withNotes) {
+      try {
+        const res = await axios.get(`${API_URL}/documents/${doc.id}/notes?inline=true`, { headers: getAuthHeaders() });
+        const content = res.data?.content || res.data?.notes || '';
+        await exportToVault(doc.title, typeof content === 'string' ? content : JSON.stringify(content));
+      } catch (err) {
+        console.error('[ObsidianBatch] immediate export failed', doc.id, err);
+      }
+    }
+
+    // Queue papers without notes
+    if (withoutNotes.length > 0) {
+      await addToBatch(withoutNotes.map((d) => ({ id: d.id, title: d.title })), rounds);
+    }
+  }, [addToBatch, documents, exportToVault, getAuthHeaders, rounds, selectedDocIds, vaultReady]);
+
   const handleAuthClick = () => {
     if (isAuthenticated) {
       logout();
@@ -462,6 +498,17 @@ function AppContent() {
                   >
                     Servers
                   </Button>
+                  {activeArea === 'library' && (
+                    <Button
+                      className="header-btn"
+                      variant="soft"
+                      size="2"
+                      onClick={() => setShowAiSettings(true)}
+                      title="AI Notes Settings"
+                    >
+                      AI Settings
+                    </Button>
+                  )}
                 </>
               )}
               <Button
@@ -639,6 +686,8 @@ function AppContent() {
           researchMode={researchMode}
           selectedDocIds={selectedDocIds}
           onToggleSelect={toggleDocSelect}
+          apiUrl={API_URL}
+          getAuthHeaders={getAuthHeaders}
         />}
 
         {activeArea === 'library' && documents.length > 0 && hasMore && (
@@ -735,6 +784,14 @@ function AppContent() {
             >
               Send ({selectedDocIds.size})
             </button>
+            <button
+              className="research-obsidian-btn"
+              onClick={handleObsidianBatch}
+              disabled={selectedDocIds.size === 0 || !vaultReady}
+              title={!vaultReady ? 'Connect vault in AI Settings first' : `Export ${selectedDocIds.size} paper${selectedDocIds.size !== 1 ? 's' : ''} to Obsidian`}
+            >
+              → Obsidian
+            </button>
             <button className="research-cancel-btn" onClick={toggleResearchMode}>
               Cancel
             </button>
@@ -830,6 +887,22 @@ function AppContent() {
           apiUrl={API_URL}
           getAuthHeaders={getAuthHeaders}
           onClose={() => setShowTrackerAdmin(false)}
+        />
+      )}
+
+      {showAiSettings && (
+        <LibrarySettingsModal
+          onClose={() => setShowAiSettings(false)}
+          rounds={rounds}
+          saveRounds={saveRounds}
+          vaultName={vaultName}
+          vaultReady={vaultReady}
+          connectVault={connectVault}
+          disconnectVault={disconnectVault}
+          batchItems={batchItems}
+          clearCompleted={clearCompleted}
+          retryItem={retryItem}
+          exportRounds={rounds}
         />
       )}
 
