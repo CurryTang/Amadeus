@@ -762,23 +762,28 @@ class AgentRunModule extends BaseModule {
       ? `ssh:${execServer.id} (${execServer.user}@${execServer.host})`
       : 'local';
 
-    let cwd = process.cwd();
-    let requestedCwd = '';
-    let fallbackReason = '';
+    let localCwdResolution;
     if (execServer) {
-      requestedCwd = cleanString(cwdInput || run?.metadata?.cwd || '');
-      cwd = requestedCwd || '~';
+      // BUG-2 FIX: For SSH runs, skip local path stat — the remote script
+      // handles `cd $TARGET_CWD` on the remote machine. Local stat would
+      // always fail for remote paths, causing fallback to process.cwd().
+      const rawRemoteCwd = cleanString(cwdInput) || cleanString(run?.metadata?.cwd) || '';
+      localCwdResolution = {
+        cwd: rawRemoteCwd || '$HOME',
+        requestedCwd: rawRemoteCwd,
+        fallbackReason: '',
+      };
     } else {
-      const localCwdResolution = await resolveExecutionCwd({
+      localCwdResolution = await resolveExecutionCwd({
         cwdInput,
         run,
         context,
         step,
       });
-      cwd = localCwdResolution.cwd;
-      requestedCwd = localCwdResolution.requestedCwd;
-      fallbackReason = localCwdResolution.fallbackReason;
     }
+    let cwd = localCwdResolution.cwd;
+    let requestedCwd = localCwdResolution.requestedCwd;
+    let fallbackReason = localCwdResolution.fallbackReason;
     const timeoutMs = Number(inputs.timeoutMs || run?.metadata?.timeoutMs) > 0
       ? Number(inputs.timeoutMs || run?.metadata?.timeoutMs)
       : 45 * 60 * 1000;
