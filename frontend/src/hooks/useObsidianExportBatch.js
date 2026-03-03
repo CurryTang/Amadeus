@@ -20,6 +20,8 @@ export function useObsidianExportBatch({ apiUrl, getAuthHeaders, exportToVault }
   const [items, setItemsRaw] = useState(() => loadItems());
   const exportRef = useRef(exportToVault);
   useEffect(() => { exportRef.current = exportToVault; }, [exportToVault]);
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; }, [items]);
 
   const setItems = useCallback((updater) => {
     setItemsRaw((prev) => {
@@ -33,6 +35,7 @@ export function useObsidianExportBatch({ apiUrl, getAuthHeaders, exportToVault }
   const addToBatch = useCallback(async (docs, rounds) => {
     let added = 0;
     for (const doc of docs) {
+      if (itemsRef.current.some((i) => i.docId === doc.id)) continue;
       try {
         await axios.post(
           `${apiUrl}/reader/queue/${doc.id}`,
@@ -72,7 +75,7 @@ export function useObsidianExportBatch({ apiUrl, getAuthHeaders, exportToVault }
 
   // Background poller
   useEffect(() => {
-    const pending = items.filter((i) => i.status === 'queued' || i.status === 'generating');
+    const pending = itemsRef.current.filter((i) => i.status === 'queued' || i.status === 'generating');
     if (pending.length === 0) return;
 
     const poll = async () => {
@@ -108,7 +111,7 @@ export function useObsidianExportBatch({ apiUrl, getAuthHeaders, exportToVault }
 
     const id = setInterval(poll, POLL_MS);
     return () => clearInterval(id);
-  }, [items, apiUrl, getAuthHeaders, setItems]);
+  }, [apiUrl, getAuthHeaders, setItems]);
 
   return { batchItems: items, addToBatch, clearCompleted, retryItem };
 }
