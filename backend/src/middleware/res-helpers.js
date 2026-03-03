@@ -25,18 +25,21 @@ const ERROR_STATUS = {
 
 function resHelpers(req, res, next) {
   res.ok = function ok(data, meta = {}) {
+    const safeMeta = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {};
     return this.json({
       ok: true,
       data: data ?? null,
-      meta: { ts: new Date().toISOString(), v: 2, ...meta },
+      meta: { ts: new Date().toISOString(), v: 2, ...safeMeta },
     });
   };
 
   res.fail = function fail(code, message, httpStatus, details = {}) {
     const status = httpStatus ?? ERROR_STATUS[code] ?? 400;
+    let safeDetails = details;
+    try { JSON.stringify(details); } catch (_) { safeDetails = {}; }
     return this.status(status).json({
       ok: false,
-      error: { code, message: message || code, details },
+      error: { code, message: message || code, details: safeDetails },
     });
   };
 
