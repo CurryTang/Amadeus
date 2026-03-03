@@ -59,7 +59,7 @@ export function useObsidianExportBatch({ apiUrl, getAuthHeaders, exportToVault }
   }, [setItems]);
 
   const retryItem = useCallback(async (docId, rounds) => {
-    const item = items.find((i) => i.docId === docId);
+    const item = itemsRef.current.find((i) => i.docId === docId);
     if (!item) return;
     try {
       await axios.post(
@@ -71,14 +71,13 @@ export function useObsidianExportBatch({ apiUrl, getAuthHeaders, exportToVault }
     } catch (err) {
       console.error('[ObsidianBatch] retry failed', docId, err);
     }
-  }, [apiUrl, getAuthHeaders, items, setItems]);
+  }, [apiUrl, getAuthHeaders, setItems]);
 
   // Background poller
   useEffect(() => {
-    const pending = itemsRef.current.filter((i) => i.status === 'queued' || i.status === 'generating');
-    if (pending.length === 0) return;
-
     const poll = async () => {
+      const pending = itemsRef.current.filter((i) => i.status === 'queued' || i.status === 'generating');
+      if (pending.length === 0) return;
       for (const item of pending) {
         try {
           const docRes = await axios.get(`${apiUrl}/documents/${item.docId}`, { headers: getAuthHeaders() });
