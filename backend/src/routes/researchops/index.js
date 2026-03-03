@@ -16,9 +16,12 @@ router.get('/openapi', (req, res) => {
     const specPath = path.resolve(__dirname, '../../../openapi.yaml');
     const raw = fs.readFileSync(specPath, 'utf8');
     const spec = yaml.load(raw);
+    if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+      return res.status(500).json({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'OpenAPI spec is malformed', details: {} } });
+    }
     return res.json(spec);
   } catch (err) {
-    return res.status(500).json({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to load OpenAPI spec' } });
+    return res.fail('INTERNAL_ERROR', 'Failed to load OpenAPI spec', 500);
   }
 });
 

@@ -6,8 +6,8 @@ info:
     API for the auto-researcher vibe research platform.
 
     ## Authentication
-    Include the `X-Auth-Token` header on all requests.
-    Example: `X-Auth-Token: <your-token>`
+    Include the `Authorization` header on all requests using Bearer token.
+    Example: `Authorization: Bearer <your-token>`
 
     ## Base URL
     Production: `https://your-domain.example.com/api/researchops`
@@ -32,10 +32,9 @@ tags:
 
 components:
   securitySchemes:
-    tokenAuth:
-      type: apiKey
-      in: header
-      name: X-Auth-Token
+    bearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     RunSpec:
       type: object
@@ -136,9 +135,23 @@ components:
             details: { type: object }
 
 security:
-  - tokenAuth: []
+  - bearerAuth: []
 
 paths:
+  /researchops/openapi:
+    get:
+      tags: [runs]
+      summary: Get the OpenAPI spec for this API (machine-readable)
+      description: Returns the full OpenAPI 3.1 specification as JSON. No authentication required.
+      security: []
+      responses:
+        "200":
+          description: OpenAPI 3.1 specification object
+          content:
+            application/json:
+              schema:
+                type: object
+
   /researchops/health:
     get:
       tags: [runs]
