@@ -107,7 +107,7 @@ router.get('/queue/status', async (req, res) => {
 router.post('/queue/:documentId', requireAuth, async (req, res) => {
   try {
     const { documentId } = req.params;
-    const { priority = 0, readerMode = 'auto_reader_v2', codeUrl, provider } = req.body;
+    const { priority = 0, readerMode = 'auto_reader_v2', codeUrl, provider, refinementRounds } = req.body;
 
     // Update document with reader mode, provider, and code URL before queuing
     const { getDb } = require('../db');
@@ -133,7 +133,7 @@ router.post('/queue/:documentId', requireAuth, async (req, res) => {
       args,
     });
 
-    const result = await queueService.enqueueDocument(parseInt(documentId), priority);
+    const result = await queueService.enqueueDocument(parseInt(documentId), priority, refinementRounds || null);
 
     res.json({
       ...result,

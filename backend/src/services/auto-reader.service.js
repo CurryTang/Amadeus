@@ -1538,6 +1538,63 @@ Input --> Module A --> Module B --> Output
       return null;
     }
   }
+
+  async processDocumentCustomRounds(item, options = {}) {
+    const { documentId, s3Key, title, analysisProvider, refinementRounds } = item;
+    let tempFilePath = null;
+    const notesFilePath = path.join(this.processingDir, `${documentId}_notes.md`);
+    this._currentProvider = this._resolveProvider(analysisProvider);
+
+    try {
+      await this.ensureProcessingDir();
+      console.log(`[AutoReaderCustom] Starting ${refinementRounds.length}-round processing: ${title} (ID: ${documentId})`);
+
+      const pdfInfo = await pdfService.preparePdfForProcessing(s3Key);
+      tempFilePath = pdfInfo.filePath;
+      console.log(`[AutoReaderCustom] PDF prepared: ${pdfInfo.pageCount} pages`);
+
+      await this.initNotesFile(notesFilePath, title, documentId);
+
+      let previousNotes = '';
+      for (let i = 0; i < refinementRounds.length; i++) {
+        const round = refinementRounds[i];
+        const roundNum = i + 1;
+        console.log(`[AutoReaderCustom] === Round ${roundNum}/${refinementRounds.length} ===`);
+
+        const prompt = previousNotes
+          ? `${round.prompt}\n\n---\nPrevious notes for context:\n${previousNotes}`
+          : round.prompt;
+
+        const result = await this.executePass(tempFilePath, prompt, notesFilePath, roundNum);
+        const cleaned = cleanLLMResponse(result.text);
+
+        if (i === 0) {
+          await this.appendToNotesFile(notesFilePath, cleaned);
+        } else {
+          await this.appendToNotesFile(notesFilePath, `\n\n---\n\n## Round ${roundNum}\n\n${cleaned}`);
+        }
+        previousNotes = await fs.readFile(notesFilePath, 'utf-8');
+      }
+
+      const finalNotes = await fs.readFile(notesFilePath, 'utf-8');
+      const notesS3Key = await s3Service.uploadNotes(documentId, finalNotes);
+
+      const db = getDb();
+      await db.execute({
+        sql: `UPDATE documents SET notes_s3_key = ?, processing_status = 'completed',
+              processing_completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        args: [notesS3Key, documentId],
+      });
+
+      return { notesS3Key, pageCount: pdfInfo.pageCount };
+    } catch (error) {
+      console.error(`[AutoReaderCustom] Error processing ${title}:`, error);
+      throw error;
+    } finally {
+      if (tempFilePath) await fs.unlink(tempFilePath).catch(() => {});
+      await fs.unlink(notesFilePath).catch(() => {});
+    }
+  }
 }
 
 module.exports = new AutoReaderService();

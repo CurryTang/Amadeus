@@ -7,7 +7,7 @@ class QueueService {
   }
 
   // Add a document to the processing queue
-  async enqueueDocument(documentId, priority = 0) {
+  async enqueueDocument(documentId, priority = 0, refinementRounds = null) {
     const db = getDb();
 
     // Check if document exists and is in a valid state
@@ -27,13 +27,17 @@ class QueueService {
 
     // Add to queue (or update if already queued)
     try {
+      const roundsJson = (Array.isArray(refinementRounds) && refinementRounds.length > 0)
+        ? JSON.stringify(refinementRounds) : null;
+
       await db.execute({
-        sql: `INSERT INTO processing_queue (document_id, priority, scheduled_at)
-              VALUES (?, ?, CURRENT_TIMESTAMP)
+        sql: `INSERT INTO processing_queue (document_id, priority, scheduled_at, refinement_rounds_json)
+              VALUES (?, ?, CURRENT_TIMESTAMP, ?)
               ON CONFLICT(document_id) DO UPDATE SET
                 priority = excluded.priority,
-                scheduled_at = CURRENT_TIMESTAMP`,
-        args: [documentId, priority],
+                scheduled_at = CURRENT_TIMESTAMP,
+                refinement_rounds_json = excluded.refinement_rounds_json`,
+        args: [documentId, priority, roundsJson],
       });
 
       // Update document status to queued
@@ -60,7 +64,7 @@ class QueueService {
 
     // Get the highest priority, oldest document from queue (respecting scheduled_at for retries)
     const result = await db.execute(`
-      SELECT pq.id, pq.document_id, pq.retry_count, pq.max_retries,
+      SELECT pq.id, pq.document_id, pq.retry_count, pq.max_retries, pq.refinement_rounds_json,
              d.title, d.s3_key, d.file_size, d.mime_type,
              d.reader_mode, d.code_url, d.has_code, d.analysis_provider
       FROM processing_queue pq
@@ -103,6 +107,7 @@ class QueueService {
       codeUrl: item.code_url,
       hasCode: item.has_code === 1,
       analysisProvider: item.analysis_provider || 'gemini-cli',
+      refinementRounds: item.refinement_rounds_json ? JSON.parse(item.refinement_rounds_json) : null,
     };
   }
 

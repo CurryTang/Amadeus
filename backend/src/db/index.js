@@ -101,6 +101,11 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_processing_queue_priority ON processing_queue(priority DESC, scheduled_at ASC)
   `);
 
+  // Migration: add refinement_rounds_json if not present
+  try {
+    await db.execute(`ALTER TABLE processing_queue ADD COLUMN refinement_rounds_json TEXT DEFAULT NULL`);
+  } catch (_) { /* column already exists */ }
+
   // Create prompt templates table
   await db.execute(`
     CREATE TABLE IF NOT EXISTS prompt_templates (

@@ -112,6 +112,12 @@ class ReaderService {
 
     console.log(`[Reader] Processing locally: ${title}`);
 
+    // Custom refinement rounds override the mode-based routing
+    if (item.refinementRounds && Array.isArray(item.refinementRounds) && item.refinementRounds.length > 0) {
+      console.log(`[Reader] Using custom ${item.refinementRounds.length}-round refinement for: ${title}`);
+      return await autoReaderService.processDocumentCustomRounds(item, options);
+    }
+
     // Route to appropriate reader based on mode
     const mode = readerMode || options.readerMode || 'vanilla';
 
