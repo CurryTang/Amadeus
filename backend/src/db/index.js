@@ -69,6 +69,10 @@ async function initDatabase() {
     { name: 'code_url', definition: 'TEXT' },
     // Analysis provider column (gemini-cli, google-api, claude-code)
     { name: 'analysis_provider', definition: "TEXT DEFAULT 'gemini-cli'" },
+    // Analysis model override (null = use provider default)
+    { name: 'analysis_model', definition: 'TEXT DEFAULT NULL' },
+    // Extended thinking budget in tokens (0 = disabled)
+    { name: 'thinking_budget', definition: 'INTEGER DEFAULT 0' },
   ];
 
   for (const col of processingColumns) {

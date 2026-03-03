@@ -674,6 +674,7 @@ Based on the file contents provided below, output your analysis in this format:
 class AutoReaderService {
   constructor() {
     this.processingDir = config.reader?.tmpDir || path.join(__dirname, '..', '..', 'processing');
+    this._currentOptions = {};
     this.ensureProcessingDir();
   }
 
@@ -696,6 +697,7 @@ class AutoReaderService {
     const notesFilePath = path.join(this.processingDir, `${documentId}_notes.md`);
     // Resolve which provider service to use
     this._currentProvider = this._resolveProvider(analysisProvider);
+    this._currentOptions = { model: item.analysisModel || null, thinkingBudget: item.thinkingBudget || 0 };
 
     try {
       await this.ensureProcessingDir();
@@ -792,6 +794,7 @@ class AutoReaderService {
     let tempFilePath = null;
     const notesFilePath = path.join(this.processingDir, `${documentId}_notes.md`);
     this._currentProvider = this._resolveProvider(analysisProvider);
+    this._currentOptions = { model: item.analysisModel || null, thinkingBudget: item.thinkingBudget || 0 };
 
     try {
       await this.ensureProcessingDir();
@@ -887,6 +890,7 @@ class AutoReaderService {
     let tempFilePath = null;
     const notesFilePath = path.join(this.processingDir, `${documentId}_notes.md`);
     this._currentProvider = this._resolveProvider(analysisProvider);
+    this._currentOptions = { model: item.analysisModel || null, thinkingBudget: item.thinkingBudget || 0 };
 
     try {
       await this.ensureProcessingDir();
@@ -1040,6 +1044,7 @@ ${data.summary || ''}
     switch (providerName) {
       case 'codex-cli': return codexCliService;
       case 'google-api': return googleApiService;
+      case 'claude-code': return claudeCodeService;
       case 'gemini-cli':
       default: return geminiCliService;
     }
@@ -1048,10 +1053,12 @@ ${data.summary || ''}
   async executePass(pdfPath, prompt, notesFilePath, passNumber) {
     const provider = this._currentProvider || geminiCliService;
     const providerName = this._currentProvider === codexCliService ? 'Codex CLI'
-      : this._currentProvider === googleApiService ? 'Google API' : 'Gemini CLI';
+      : this._currentProvider === googleApiService ? 'Google API'
+      : this._currentProvider === claudeCodeService ? 'Claude Code'
+      : 'Gemini CLI';
     console.log(`[AutoReader] Executing pass ${passNumber} with ${providerName}...`);
 
-    const result = await provider.readDocument(pdfPath, prompt);
+    const result = await provider.readDocument(pdfPath, prompt, this._currentOptions || {});
 
     console.log(`[AutoReader] Pass ${passNumber} complete, output: ${result.text.length} chars`);
 
@@ -1544,6 +1551,7 @@ Input --> Module A --> Module B --> Output
     let tempFilePath = null;
     const notesFilePath = path.join(this.processingDir, `${documentId}_notes.md`);
     this._currentProvider = this._resolveProvider(analysisProvider);
+    this._currentOptions = { model: item.analysisModel || null, thinkingBudget: item.thinkingBudget || 0 };
 
     try {
       await this.ensureProcessingDir();

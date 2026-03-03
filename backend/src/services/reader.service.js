@@ -4,6 +4,7 @@ const pdfService = require('./pdf.service');
 const geminiCliService = require('./gemini-cli.service');
 const googleApiService = require('./google-api.service');
 const codexCliService = require('./codex-cli.service');
+const claudeCodeService = require('./claude-code.service');
 const mathpixService = require('./mathpix.service');
 const llmService = require('./llm.service');
 const s3Service = require('./s3.service');
@@ -41,23 +42,10 @@ const PROVIDERS = {
   'claude-code': {
     name: 'Claude Code',
     description: 'Claude Code CLI in headless mode',
-    isAvailable: async () => {
-      // Claude Code is available if ANTHROPIC_API_KEY is set
-      return !!config.claudeCli?.apiKey;
-    },
-    readDocument: async (filePath, prompt, options) => {
-      // For Claude Code, we need to convert PDF to text first or use Mathpix
-      throw new Error('Claude Code direct PDF reading not supported. Use Mathpix conversion.');
-    },
-    readMarkdown: async (content, prompt, options) => {
-      // Use Anthropic API directly for markdown
-      return llmService.generateCompletion(content, prompt, 'anthropic');
-    },
-    analyzeRepository: async (repoDir, prompt, options) => {
-      // For code analysis, Claude Code could use its native capabilities
-      // For now, fall back to Anthropic API
-      return llmService.generateCompletion('', prompt, 'anthropic');
-    },
+    isAvailable: () => claudeCodeService.isAvailable(),
+    readDocument: (filePath, prompt, options) => claudeCodeService.readDocument(filePath, prompt, options),
+    readMarkdown: (content, prompt, options) => claudeCodeService.readMarkdown(content, prompt, options),
+    analyzeRepository: (repoDir, prompt, options) => claudeCodeService.runClaudeHeadless(prompt, options),
   },
 };
 
@@ -167,6 +155,8 @@ class ReaderService {
       const providerOptions = {
         ...options,
         provider: item.analysisProvider || options.provider || config.reader?.defaultProvider,
+        model: item.analysisModel || options.model || null,
+        thinkingBudget: item.thinkingBudget || options.thinkingBudget || 0,
       };
 
       if (pdfInfo.needsMathpix) {

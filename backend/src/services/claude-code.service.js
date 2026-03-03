@@ -1,49 +1,149 @@
+const { spawn } = require('child_process');
+const fs = require('fs').promises;
 const config = require('../config');
 
-/**
- * Claude Code Service (Deprecated)
- *
- * This service has been replaced by gemini-cli.service.js for code analysis.
- * Keeping stub functions for backward compatibility.
- */
+// Default timeout: 10 minutes
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
- * Check if Claude Code is available (always returns false now)
+ * Check if Claude Code CLI is available
  * @returns {Promise<boolean>}
  */
 async function isAvailable() {
-  // Claude Code wrapper is no longer used, return false
-  return false;
+  return new Promise((resolve) => {
+    const claudePath = config.claudeCli?.path || 'claude';
+    const proc = spawn(claudePath, ['--version'], { timeout: 5000 });
+    proc.on('close', (code) => resolve(code === 0));
+    proc.on('error', () => resolve(false));
+  });
 }
 
 /**
- * Analyze a code repository (deprecated - use geminiCliService.analyzeRepository instead)
- * @param {string} repoDir - Path to the cloned repository
- * @param {string} prompt - The analysis prompt
- * @param {object} options - Additional options
- * @returns {Promise<{text: string, raw: object}>}
+ * Run Claude Code CLI in headless (--print) mode.
+ * Prompt is passed via stdin to avoid shell arg-length limits.
+ * @param {string} prompt - Full prompt to send
+ * @param {object} options - { model, thinkingBudget, timeout }
+ * @returns {Promise<{text: string, raw: null}>}
  */
-async function analyzeRepository(repoDir, prompt, options = {}) {
-  throw new Error('Claude Code service is deprecated. Use gemini-cli.service.js instead.');
+function runClaudeHeadless(prompt, options = {}) {
+  const claudePath = config.claudeCli?.path || 'claude';
+  const model = options.model || config.claudeCli?.model || 'claude-sonnet-4-6';
+  const timeoutMs = options.timeout || DEFAULT_TIMEOUT_MS;
+  const thinkingBudget = options.thinkingBudget || 0;
+
+  const args = ['--print', '--model', model, '--dangerously-skip-permissions'];
+  if (thinkingBudget > 0) {
+    args.push('--think');
+  }
+
+  const env = { ...process.env };
+  if (config.claudeCli?.apiKey) {
+    env.ANTHROPIC_API_KEY = config.claudeCli.apiKey;
+  }
+
+  console.log(`[Claude CLI] Running: ${claudePath} --print --model ${model}${thinkingBudget > 0 ? ' --think' : ''} (prompt: ${prompt.length} chars)`);
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(claudePath, args, {
+      env,
+      maxBuffer: 50 * 1024 * 1024, // 50MB
+    });
+
+    // Pass prompt via stdin
+    proc.stdin.write(prompt);
+    proc.stdin.end();
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => { stdout += data.toString(); });
+    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    const timeoutHandle = setTimeout(() => {
+      proc.kill('SIGTERM');
+      reject(new Error('Claude CLI timeout'));
+    }, timeoutMs);
+
+    proc.on('close', (code) => {
+      clearTimeout(timeoutHandle);
+      if (code === 0) {
+        resolve({ text: stdout.trim(), raw: null });
+      } else {
+        reject(new Error(`Claude CLI exited with code ${code}: ${stderr || stdout}`));
+      }
+    });
+
+    proc.on('error', (error) => {
+      clearTimeout(timeoutHandle);
+      if (error.code === 'ENOENT') {
+        reject(new Error(`Claude CLI not found at path: ${claudePath}`));
+      } else {
+        reject(error);
+      }
+    });
+  });
 }
 
 /**
- * Analyze code with file context (deprecated)
+ * Extract plain text from a PDF file using pdf-parse (lazy-loaded).
+ * @param {string} filePath
+ * @returns {Promise<string>}
  */
-async function analyzeWithContext(repoDir, prompt, contextFiles = [], options = {}) {
-  throw new Error('Claude Code service is deprecated. Use gemini-cli.service.js instead.');
+async function extractPdfText(filePath) {
+  const pdfParse = require('pdf-parse');
+  const buffer = await fs.readFile(filePath);
+  const data = await pdfParse(buffer);
+  return data.text;
 }
 
 /**
- * Run multi-round code analysis (deprecated)
+ * Read a PDF document using Claude Code CLI in headless mode.
+ * Extracts text from the PDF and embeds it in the prompt.
+ * @param {string} filePath - Path to the PDF file
+ * @param {string} prompt - The prompt to use
+ * @param {object} options - { model, thinkingBudget, timeout }
+ * @returns {Promise<{text: string, raw: null}>}
  */
-async function multiRoundAnalysis(repoDir, rounds, options = {}) {
-  throw new Error('Claude Code service is deprecated. Use gemini-cli.service.js instead.');
+async function readDocument(filePath, prompt, options = {}) {
+  let fileContent = '';
+
+  if (filePath.toLowerCase().endsWith('.pdf')) {
+    try {
+      fileContent = await extractPdfText(filePath);
+      console.log(`[Claude CLI] Extracted ${fileContent.length} chars from PDF`);
+    } catch (err) {
+      throw new Error(`Cannot extract text from PDF for Claude CLI: ${err.message}`);
+    }
+  } else {
+    fileContent = await fs.readFile(filePath, 'utf-8');
+  }
+
+  // Truncate to avoid prompt size issues
+  const maxContentChars = 120000;
+  if (fileContent.length > maxContentChars) {
+    fileContent = fileContent.substring(0, maxContentChars) + '\n\n... (content truncated)';
+    console.log(`[Claude CLI] Content truncated to ${maxContentChars} chars`);
+  }
+
+  const fullPrompt = `${prompt}\n\n---\n\nDocument content:\n\n${fileContent}`;
+  return runClaudeHeadless(fullPrompt, options);
+}
+
+/**
+ * Read markdown content using Claude Code CLI in headless mode
+ * @param {string} markdownContent - Document content as markdown
+ * @param {string} prompt - The prompt to use
+ * @param {object} options - { model, thinkingBudget, timeout }
+ * @returns {Promise<{text: string, raw: null}>}
+ */
+async function readMarkdown(markdownContent, prompt, options = {}) {
+  const fullPrompt = `${prompt}\n\n---\n\nDocument content:\n\n${markdownContent}`;
+  return runClaudeHeadless(fullPrompt, options);
 }
 
 module.exports = {
   isAvailable,
-  analyzeRepository,
-  analyzeWithContext,
-  multiRoundAnalysis,
+  runClaudeHeadless,
+  readDocument,
+  readMarkdown,
 };

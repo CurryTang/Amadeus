@@ -63,7 +63,7 @@ async function isAvailable() {
 async function readDocument(filePath, prompt, options = {}) {
   const geminiPath = config.geminiCli?.path || 'gemini';
   const timeoutMs = options.timeout || DEFAULT_TIMEOUT_MS;
-  const model = config.geminiCli?.model || 'gemini-3-flash-preview';
+  const model = options.model || config.geminiCli?.model || 'gemini-2.5-flash';
 
   return new Promise((resolve, reject) => {
     // Build the full prompt with file reference using @ syntax
@@ -165,7 +165,7 @@ async function readWithPrompts(filePath, systemPrompt, userPrompt, options = {})
 async function readMarkdown(markdownContent, prompt, options = {}) {
   const geminiPath = config.geminiCli?.path || 'gemini';
   const timeoutMs = options.timeout || DEFAULT_TIMEOUT_MS;
-  const model = config.geminiCli?.model || 'gemini-3-flash-preview';
+  const model = options.model || config.geminiCli?.model || 'gemini-2.5-flash';
 
   return new Promise((resolve, reject) => {
     const guardedPrompt = applyTopPriorityFileRemovalRule(prompt);

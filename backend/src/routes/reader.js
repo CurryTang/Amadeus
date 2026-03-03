@@ -107,7 +107,7 @@ router.get('/queue/status', async (req, res) => {
 router.post('/queue/:documentId', requireAuth, async (req, res) => {
   try {
     const { documentId } = req.params;
-    const { priority = 0, readerMode = 'auto_reader_v2', codeUrl, provider, refinementRounds } = req.body;
+    const { priority = 0, readerMode = 'auto_reader_v2', codeUrl, provider, refinementRounds, model, thinkingBudget } = req.body;
 
     // Update document with reader mode, provider, and code URL before queuing
     const { getDb } = require('../db');
@@ -124,6 +124,16 @@ router.post('/queue/:documentId', requireAuth, async (req, res) => {
     if (provider) {
       updates.push('analysis_provider = ?');
       args.push(provider);
+    }
+
+    if (model !== undefined) {
+      updates.push('analysis_model = ?');
+      args.push(model || null);
+    }
+
+    if (thinkingBudget !== undefined) {
+      updates.push('thinking_budget = ?');
+      args.push(parseInt(thinkingBudget) || 0);
     }
 
     args.push(parseInt(documentId));
