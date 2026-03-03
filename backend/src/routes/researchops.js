@@ -5441,6 +5441,32 @@ router.post('/runs/:runId/retry', async (req, res) => {
   }
 });
 
+router.delete('/runs/:runId', requireAuth, async (req, res) => {
+  try {
+    const result = await researchOpsStore.deleteRun(getUserId(req), req.params.runId);
+    if (!result.deleted) {
+      const status = result.reason === 'not_found' ? 404 : 409;
+      return res.status(status).json({ error: result.reason === 'active_run' ? 'Cannot delete an active run' : 'Run not found' });
+    }
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[ResearchOps] deleteRun failed:', error);
+    res.status(500).json({ error: 'Failed to delete run' });
+  }
+});
+
+router.delete('/projects/:projectId/runs', requireAuth, async (req, res) => {
+  try {
+    const result = await researchOpsStore.clearProjectRuns(getUserId(req), req.params.projectId, {
+      status: req.query.status || '',
+    });
+    return res.json({ deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error('[ResearchOps] clearProjectRuns failed:', error);
+    res.status(500).json({ error: 'Failed to clear run history' });
+  }
+});
+
 router.post('/runs/:runId/workflow/insert', async (req, res) => {
   try {
     const run = await researchOpsStore.insertRunWorkflowStep(getUserId(req), req.params.runId, {
@@ -7047,6 +7073,25 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     }
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     return res.status(400).json(toErrorPayload(error, 'Failed to run node step'));
+  }
+});
+
+router.post('/projects/:projectId/tree/nodes/:nodeId/approve', requireAuth, async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+
+    const { project, server } = await resolveProjectAndTree(req, projectId);
+    await treeStateService.patchProjectState({
+      project,
+      server,
+      mutate: (state) => treeStateService.setNodeState(state, nodeId, { manualApproved: true }),
+    });
+    return res.json({ ok: true, nodeId, manualApproved: true });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to approve node gate'));
   }
 });
 

@@ -1565,6 +1565,75 @@ async function listDaemons(userId, { limit = 100 } = {}) {
     .map(daemonShape);
 }
 
+const TERMINAL_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
+
+async function deleteRun(userId, runId) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(runId);
+  if (!uid || !id) return { deleted: false, reason: 'invalid_input' };
+
+  if (storeMode === 'mongodb') {
+    const run = await mongoDb.collection('researchops_runs').findOne({ id, userId: uid });
+    if (!run) return { deleted: false, reason: 'not_found' };
+    if (!TERMINAL_RUN_STATUSES.includes(run.status)) return { deleted: false, reason: 'active_run' };
+    await Promise.all([
+      mongoDb.collection('researchops_run_events').deleteMany({ userId: uid, runId: id }),
+      mongoDb.collection('researchops_run_steps').deleteMany({ userId: uid, runId: id }),
+      mongoDb.collection('researchops_run_artifacts').deleteMany({ userId: uid, runId: id }),
+      mongoDb.collection('researchops_run_checkpoints').deleteMany({ userId: uid, runId: id }),
+    ]);
+    await mongoDb.collection('researchops_runs').deleteOne({ id, userId: uid });
+    return { deleted: true };
+  }
+
+  const runDoc = memory.runs.find((item) => item.id === id && item.userId === uid);
+  if (!runDoc) return { deleted: false, reason: 'not_found' };
+  if (!TERMINAL_RUN_STATUSES.includes(runDoc.status)) return { deleted: false, reason: 'active_run' };
+  memory.runs = memory.runs.filter((item) => !(item.id === id && item.userId === uid));
+  memory.runEvents = memory.runEvents.filter((item) => item.runId !== id);
+  return { deleted: true };
+}
+
+async function clearProjectRuns(userId, projectId, { status = '' } = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const pid = cleanString(projectId);
+  if (!uid || !pid) return { deletedCount: 0 };
+
+  const normalizedStatus = cleanString(status).toUpperCase();
+  const statusFilter = (normalizedStatus && TERMINAL_RUN_STATUSES.includes(normalizedStatus))
+    ? [normalizedStatus]
+    : TERMINAL_RUN_STATUSES;
+
+  if (storeMode === 'mongodb') {
+    const runDocs = await mongoDb.collection('researchops_runs')
+      .find({ userId: uid, projectId: pid, status: { $in: statusFilter } })
+      .project({ _id: 0, id: 1 })
+      .toArray();
+    const runIds = runDocs.map((item) => item.id).filter(Boolean);
+    if (runIds.length > 0) {
+      await Promise.all([
+        mongoDb.collection('researchops_run_events').deleteMany({ userId: uid, runId: { $in: runIds } }),
+        mongoDb.collection('researchops_run_steps').deleteMany({ userId: uid, runId: { $in: runIds } }),
+        mongoDb.collection('researchops_run_artifacts').deleteMany({ userId: uid, runId: { $in: runIds } }),
+        mongoDb.collection('researchops_run_checkpoints').deleteMany({ userId: uid, runId: { $in: runIds } }),
+      ]);
+      await mongoDb.collection('researchops_runs').deleteMany({ id: { $in: runIds }, userId: uid });
+    }
+    return { deletedCount: runIds.length };
+  }
+
+  const statusSet = new Set(statusFilter);
+  const toDelete = memory.runs.filter(
+    (item) => item.userId === uid && item.projectId === pid && statusSet.has(item.status)
+  );
+  const toDeleteIds = new Set(toDelete.map((item) => item.id));
+  memory.runs = memory.runs.filter((item) => !toDeleteIds.has(item.id));
+  memory.runEvents = memory.runEvents.filter((item) => !toDeleteIds.has(item.runId));
+  return { deletedCount: toDelete.length };
+}
+
 async function reserveRunSequences(runId, count) {
   const n = toInt(count, 1, 1, 5000);
   if (storeMode === 'mongodb') {
@@ -2656,6 +2725,8 @@ module.exports = {
   leaseNextRun,
   recoverStaleRuns,
   retryRun,
+  deleteRun,
+  clearProjectRuns,
   insertRunWorkflowStep,
   registerDaemon,
   heartbeatDaemon,
