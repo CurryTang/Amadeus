@@ -985,22 +985,24 @@ router.get('/feed', async (req, res) => {
     let sourceData = Array.isArray(snapshot.data) ? snapshot.data : [];
     let shuffled = false;
 
-    // Weighted shuffle: triggered on refresh requests with 30% probability.
-    // Saved papers are penalized so they drift toward later positions.
-    if (shuffleRequested && offset === 0 && Math.random() < 0.3) {
+    // On refresh: always push saved papers to the end.
+    // Within each group (unsaved / saved), add random noise with 30% probability.
+    if (shuffleRequested && offset === 0) {
       try {
         const annotatedAll = await withTimeout(
           () => annotateSavedStatus(sourceData),
           FEED_PAGE_ANNOTATE_TIMEOUT_MS * 3,
           'feed_saved_status_shuffle'
         );
-        // Saved papers get a large negative offset so they always fall below unsaved.
-        // Unsaved papers: Math.random() in [0, 1]. Saved: Math.random() - 100 in [-100, -99].
-        sourceData = annotatedAll
-          .map((item) => ({ item, _w: Math.random() + (item.saved ? -100 : 0) }))
-          .sort((a, b) => b._w - a._w)
-          .map(({ item }) => item);
-        shuffled = true;
+        const addNoise = Math.random() < 0.3;
+        const unsaved = annotatedAll.filter((item) => !item.saved);
+        const saved = annotatedAll.filter((item) => item.saved);
+        if (addNoise) {
+          unsaved.sort(() => Math.random() - 0.5);
+          saved.sort(() => Math.random() - 0.5);
+        }
+        sourceData = [...unsaved, ...saved];
+        shuffled = saved.length > 0 || addNoise;
       } catch (shuffleError) {
         console.warn('[tracker] shuffle annotation failed, using default order:', shuffleError.message || shuffleError);
       }
