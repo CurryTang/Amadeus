@@ -29,6 +29,16 @@ function asStringArray(value) {
     .filter(Boolean);
 }
 
+function asStringList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => cleanString(item))
+      .filter(Boolean);
+  }
+  const single = cleanString(value);
+  return single ? [single] : [];
+}
+
 function expandHome(inputPath = '') {
   return String(inputPath || '').replace(/^~(?=\/|$)/, os.homedir());
 }
@@ -468,6 +478,7 @@ function resolveReferencePath(inputs = {}, runMetadata = {}) {
 function buildPrompt(step, run, context = {}) {
   const inputs = step.inputs && typeof step.inputs === 'object' ? step.inputs : {};
   const runMetadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+  const runContextRefs = run?.contextRefs && typeof run.contextRefs === 'object' ? run.contextRefs : {};
   const referencePath = resolveReferencePath(inputs, runMetadata);
   const stepPrompt = cleanString(inputs.prompt);
   let basePrompt = stepPrompt;
@@ -494,6 +505,8 @@ function buildPrompt(step, run, context = {}) {
 
   const rootDir = cleanString(runtimeFiles.rootDir || '');
   const parentArtifactsDir = cleanString(runtimeFiles.parentArtifactsDir || '');
+  const kbResourceQuery = cleanString(runContextRefs.kbResourceQuery || runMetadata.kbResourceQuery || '');
+  const kbResourcePaths = asStringList(runContextRefs.kbResourcePaths || runMetadata.kbResourcePaths).slice(0, 20);
 
   const hints = [];
   if (contextJsonPath) hints.push(`- Context pack JSON: ${contextJsonPath}`);
@@ -503,6 +516,7 @@ function buildPrompt(step, run, context = {}) {
   if (runSpecPath) hints.push(`- Run spec snapshot: ${runSpecPath}`);
   if (parentArtifactsDir) hints.push(`- Parent run artifacts (read these for context): ${parentArtifactsDir}/`);
   if (referencePath) hints.push(`- Reference path (original code/papers): ${referencePath}`);
+  if (kbResourcePaths.length) hints.push(`- Auto-located KB resources: ${kbResourcePaths.slice(0, 12).join(', ')}`);
 
   const promptWithResources = hints.length === 0
     ? basePrompt
@@ -520,6 +534,15 @@ function buildPrompt(step, run, context = {}) {
       `Use ${referencePath} as the primary reference for implementation details and alignment with original code/papers when applicable.`,
     ].join('\n')
     : promptWithResources;
+  const promptWithKbResources = kbResourcePaths.length
+    ? [
+      promptWithReference,
+      '',
+      'Auto-located KB resources for this request (open these first):',
+      ...kbResourcePaths.map((item) => `- ${item}`),
+      kbResourceQuery ? `Query used: ${kbResourceQuery}` : '',
+    ].filter(Boolean).join('\n')
+    : promptWithReference;
 
   const continuationInstructions = rootDir ? [
     '',
@@ -544,8 +567,8 @@ function buildPrompt(step, run, context = {}) {
   ].join('\n') : '';
 
   const fullPrompt = continuationInstructions
-    ? `${promptWithReference}${continuationInstructions}`
-    : promptWithReference;
+    ? `${promptWithKbResources}${continuationInstructions}`
+    : promptWithKbResources;
 
   return applyTopPriorityFileRemovalRule(fullPrompt);
 }

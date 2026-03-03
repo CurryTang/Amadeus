@@ -164,6 +164,8 @@ function buildTrackerConfig(config = {}) {
 
   const onlyWithModeMatches = config.onlyWithModeMatches === true ||
     (trackingMode === 'paper' && config.onlyWithPaperLinks === true);
+  const requireAuthSession = config.requireAuthSession !== false
+    && process.env.X_PLAYWRIGHT_REQUIRE_SESSION !== 'false';
 
   return {
     profileLinks,
@@ -173,6 +175,7 @@ function buildTrackerConfig(config = {}) {
     onlyWithModeMatches,
     // Backward compatibility: keep the old field for existing callers.
     onlyWithPaperLinks: trackingMode === 'paper' ? onlyWithModeMatches : false,
+    requireAuthSession,
     headless: config.headless !== false,
     storageStatePath: config.storageStatePath || process.env.X_PLAYWRIGHT_STORAGE_STATE_PATH || '',
   };
@@ -280,6 +283,7 @@ async function extractLatestPosts(config = {}) {
     maxPostsPerProfile,
     trackingMode,
     onlyWithModeMatches,
+    requireAuthSession,
     headless,
     storageStatePath,
   } = trackerConfig;
@@ -295,6 +299,21 @@ async function extractLatestPosts(config = {}) {
   }
 
   const contextOptions = {};
+  if (requireAuthSession) {
+    if (!storageStatePath) {
+      throw new Error(
+        'X Playwright tracker requires a logged-in session file. ' +
+        'Set X_PLAYWRIGHT_STORAGE_STATE_PATH and run: npm run setup:x-session'
+      );
+    }
+    if (!fs.existsSync(storageStatePath)) {
+      throw new Error(
+        `X Playwright storage state not found at ${storageStatePath}. ` +
+        'Run: npm run setup:x-session'
+      );
+    }
+  }
+
   if (storageStatePath && fs.existsSync(storageStatePath)) {
     contextOptions.storageState = storageStatePath;
   }
@@ -315,6 +334,18 @@ async function extractLatestPosts(config = {}) {
     await page.setExtraHTTPHeaders({
       'accept-language': 'en-US,en;q=0.9',
     });
+
+    if (requireAuthSession) {
+      await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(1000);
+      const currentUrl = String(page.url() || '');
+      if (currentUrl.includes('/i/flow/login') || currentUrl.includes('/login')) {
+        throw new Error(
+          'X session appears expired or unauthenticated. ' +
+          'Recreate storage state with: npm run setup:x-session'
+        );
+      }
+    }
 
     const allPosts = [];
     for (const profileUrl of profileLinks) {

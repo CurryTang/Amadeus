@@ -30,6 +30,10 @@ const trackerFeedCacheMaxItemsRaw = parseInt(process.env.TRACKER_FEED_CACHE_MAX_
 const trackerFeedCacheMaxItems = Number.isFinite(trackerFeedCacheMaxItemsRaw) && trackerFeedCacheMaxItemsRaw > 0
   ? trackerFeedCacheMaxItemsRaw
   : 1000;
+const trackerProxyHeavyOps = parseBool(process.env.TRACKER_PROXY_HEAVY_OPS, false);
+const trackerExecutionTarget = String(
+  process.env.TRACKER_EXECUTION_TARGET || (trackerProxyHeavyOps ? 'client' : 'backend')
+).toLowerCase();
 
 module.exports = {
   port: process.env.PORT || 3000,
@@ -204,9 +208,17 @@ module.exports = {
     // Enable/disable local tracker scheduler on this node
     enabled: process.env.TRACKER_ENABLED !== 'false',
     // Forward heavy tracker operations (run/preview) to desktop via FRP
-    proxyHeavyOps: process.env.TRACKER_PROXY_HEAVY_OPS === 'true',
+    proxyHeavyOps: trackerProxyHeavyOps,
+    // If true, never fall back to local execution when proxy node is unavailable.
+    proxyStrict: parseBool(process.env.TRACKER_PROXY_STRICT, false),
     desktopUrl: process.env.TRACKER_DESKTOP_URL || defaultDesktopUrl,
     timeout: parseInt(process.env.TRACKER_PROXY_TIMEOUT) || 120000,
+    // backend | client (informational + installer wiring)
+    executionTarget: ['backend', 'client'].includes(trackerExecutionTarget) ? trackerExecutionTarget : 'backend',
+    // Auto-trigger stale refresh on client checks (status/feed)
+    staleAutoRun: parseBool(process.env.TRACKER_STALE_AUTO_RUN, true),
+    // Allow stale auto-trigger when execution is proxied to client
+    staleProxyAutoRun: parseBool(process.env.TRACKER_STALE_PROXY_AUTO_RUN, true),
     // Maximum cached feed items kept in memory (oldest items are dropped)
     feedCacheMaxItems: trackerFeedCacheMaxItems,
   },

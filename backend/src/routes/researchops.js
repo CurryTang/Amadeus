@@ -24,6 +24,19 @@ const projectInsightsService = require('../services/project-insights.service');
 const workflowSchemaService = require('../services/researchops/workflow-schema.service');
 const planAgentService = require('../services/researchops/plan-agent.service');
 const interactiveAgentService = require('../services/researchops/interactive-agent.service');
+const treePlanService = require('../services/researchops/tree-plan.service');
+const treeStateService = require('../services/researchops/tree-state.service');
+const searchExecutorService = require('../services/researchops/search-executor.service');
+const contextRouterService = require('../services/researchops/context-router.service');
+const repoMapService = require('../services/researchops/repo-map.service');
+const failureSignatureService = require('../services/researchops/failure-signature.service');
+const deliverableReportSkillService = require('../services/researchops/deliverable-report-skill.service');
+const codebaseAchievementService = require('../services/researchops/codebase-achievement.service');
+const todoGeneratorService = require('../services/researchops/todo-generator.service');
+const {
+  buildResearchOpsSshArgs,
+  classifySshError,
+} = require('../services/ssh-auth.service');
 
 const knowledgeAssetUpload = multer({
   storage: multer.memoryStorage(),
@@ -67,12 +80,60 @@ function parseBoolean(raw, fallback = false) {
   return fallback;
 }
 
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function getUserId(req) {
   return req.userId || 'czk';
 }
 
 function sanitizeError(error, fallback) {
   return error?.message || fallback;
+}
+
+function toErrorPayload(error, fallback = 'Request failed') {
+  const code = String(error?.code || '').trim();
+  const message = sanitizeError(error, fallback);
+  if (!code) {
+    const mapped = classifySshError(error);
+    if (mapped?.code) {
+      if (mapped.code === 'SSH_COMMAND_FAILED') {
+        const lower = String(message || '').toLowerCase();
+        if (
+          lower.includes('connection closed')
+          || lower.includes('broken pipe')
+          || lower.includes('kex_exchange_identification')
+        ) {
+          return { code: 'SSH_HOST_UNREACHABLE', error: message };
+        }
+      }
+      return { code: mapped.code, error: mapped.message || message };
+    }
+    if (typeof message === 'string' && message.toLowerCase().includes('permission denied')) {
+      return { code: 'SSH_AUTH_FAILED', error: message };
+    }
+    if (
+      typeof message === 'string'
+      && (
+        message.toLowerCase().includes('connection refused')
+        || message.toLowerCase().includes('no route to host')
+        || message.toLowerCase().includes('network is unreachable')
+      )
+    ) {
+      return { code: 'SSH_HOST_UNREACHABLE', error: message };
+    }
+    return { error: message };
+  }
+  return { code, error: message };
+}
+
+function mapSshLikeError(error) {
+  if (error?.code && String(error.code).startsWith('SSH_')) return error;
+  const mapped = classifySshError(error);
+  const wrapped = new Error(mapped.message || sanitizeError(error, 'SSH command failed'));
+  wrapped.code = mapped.code || 'SSH_COMMAND_FAILED';
+  return wrapped;
 }
 
 function buildArtifactDownloadPath(runId = '', artifactId = '') {
@@ -458,48 +519,20 @@ function buildProjectFileSummary({
 }
 
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
-  const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server.port || 22),
-  ];
-  const proxyJump = String(server.proxy_jump || '').trim();
-  if (proxyJump) {
-    // Use ProxyCommand instead of -J so options propagate correctly to tunnel
-    // endpoints (e.g. 127.0.0.1:9022). Parses "user@host:port" format.
-    const m = proxyJump.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
-    if (m) {
-      const userAt = m[1] || '';
-      const host = m[2];
-      const port = m[3];
-      const parts = [
-        'ssh', '-F', '/dev/null', '-o', 'BatchMode=yes',
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', `ConnectTimeout=${connectTimeout}`,
-        '-i', keyPath,
-      ];
-      if (port) parts.push('-p', port);
-      parts.push('-W', '%h:%p', `${userAt}${host}`);
-      args.push('-o', `ProxyCommand=${parts.join(' ')}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildResearchOpsSshArgs(server, { connectTimeout });
 }
 
 async function getSshServerById(serverId) {
   const sid = String(serverId || '').trim();
   if (!sid) return null;
   const db = getDb();
-  const result = await db.execute({
+  let result = await db.execute({
     sql: `SELECT * FROM ssh_servers WHERE id = ?`,
+    args: [sid],
+  });
+  if (result.rows?.[0]) return result.rows[0];
+  result = await db.execute({
+    sql: `SELECT * FROM ssh_servers WHERE name = ?`,
     args: [sid],
   });
   return result.rows?.[0] || null;
@@ -850,7 +883,12 @@ async function loadSshProjectGitProgress(server, projectPath, limit, { branch: b
   ].join('\n'));
 
   args.push(`${server.user}@${server.host}`, 'bash', '-s', '--', target, String(limit));
-  const { stdout } = await runCommand('ssh', args, { timeoutMs: 26000, input: `${script}\n` });
+  let stdout = '';
+  try {
+    ({ stdout } = await runCommand('ssh', args, { timeoutMs: 26000, input: `${script}\n` }));
+  } catch (error) {
+    throw mapSshLikeError(error);
+  }
   const lines = String(stdout || '').split(/\r?\n/);
   const rootPathLine = lines.find((line) => line.startsWith('__ROOT__:')) || '';
   const rootPath = rootPathLine ? rootPathLine.slice('__ROOT__:'.length) : target;
@@ -940,7 +978,12 @@ async function loadSshProjectFiles(server, projectPath, sampleLimit) {
   ].join('\n'));
 
   args.push(`${server.user}@${server.host}`, 'bash', '-s', '--', target, String(sampleLimit));
-  const { stdout } = await runCommand('ssh', args, { timeoutMs: 26000, input: `${script}\n` });
+  let stdout = '';
+  try {
+    ({ stdout } = await runCommand('ssh', args, { timeoutMs: 26000, input: `${script}\n` }));
+  } catch (error) {
+    throw mapSshLikeError(error);
+  }
   const lines = String(stdout || '').split(/\r?\n/);
   const rootPathLine = lines.find((line) => line.startsWith('__ROOT__:')) || '';
   const rootPath = rootPathLine ? rootPathLine.slice('__ROOT__:'.length) : target;
@@ -1001,7 +1044,12 @@ async function loadSshProjectChangedFiles(server, projectPath, limit) {
   ].join('\n'));
 
   args.push(`${server.user}@${server.host}`, 'bash', '-s', '--', target, String(limit));
-  const { stdout } = await runCommand('ssh', args, { timeoutMs: 30000, input: `${script}\n` });
+  let stdout = '';
+  try {
+    ({ stdout } = await runCommand('ssh', args, { timeoutMs: 30000, input: `${script}\n` }));
+  } catch (error) {
+    throw mapSshLikeError(error);
+  }
   const lines = String(stdout || '').split(/\r?\n/);
   const rootPathLine = lines.find((line) => line.startsWith('__ROOT__:')) || '';
   const rootPath = rootPathLine ? rootPathLine.slice('__ROOT__:'.length) : target;
@@ -1068,7 +1116,12 @@ async function checkSshPath(server, projectPath) {
     'bash', '-s', '--', target,
   );
 
-  const { stdout } = await runCommand('ssh', args, { timeoutMs: 20000, input: `${script}\n` });
+  let stdout = '';
+  try {
+    ({ stdout } = await runCommand('ssh', args, { timeoutMs: 20000, input: `${script}\n` }));
+  } catch (error) {
+    throw mapSshLikeError(error);
+  }
   const output = String(stdout || '').trim();
   const pathMatch = output.match(/:(.*)$/);
   const normalizedPath = pathMatch ? pathMatch[1] : target;
@@ -1109,7 +1162,12 @@ async function ensureSshPath(server, projectPath) {
     'bash', '-s', '--', target,
   );
 
-  const { stdout } = await runCommand('ssh', args, { timeoutMs: 25000, input: `${script}\n` });
+  let stdout = '';
+  try {
+    ({ stdout } = await runCommand('ssh', args, { timeoutMs: 25000, input: `${script}\n` }));
+  } catch (error) {
+    throw mapSshLikeError(error);
+  }
   const output = String(stdout || '').trim();
   const pathMatch = output.match(/:(.*)$/);
   const normalizedPath = pathMatch ? pathMatch[1] : target;
@@ -1145,7 +1203,12 @@ async function ensureSshGitRepository(server, projectPath) {
     'bash', '-s', '--', target,
   );
 
-  const { stdout } = await runCommand('ssh', args, { timeoutMs: 30000, input: `${script}\n` });
+  let stdout = '';
+  try {
+    ({ stdout } = await runCommand('ssh', args, { timeoutMs: 30000, input: `${script}\n` }));
+  } catch (error) {
+    throw mapSshLikeError(error);
+  }
   const lines = String(stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const notDirLine = lines.find((line) => line.startsWith('__NOT_DIR__:'));
   if (notDirLine) {
@@ -1264,10 +1327,14 @@ async function runSshScript(server, scriptBody, args = [], timeoutMs = 30000) {
     '--',
     ...args.map((item) => String(item ?? ''))
   );
-  return runCommand('ssh', sshArgs, {
-    timeoutMs,
-    input: `${String(scriptBody || '').trim()}\n`,
-  });
+  try {
+    return await runCommand('ssh', sshArgs, {
+      timeoutMs,
+      input: `${String(scriptBody || '').trim()}\n`,
+    });
+  } catch (error) {
+    throw mapSshLikeError(error);
+  }
 }
 
 function sanitizeRelativePath(input = '') {
@@ -1577,7 +1644,11 @@ async function resolveSshProjectBrowseRoot(server, projectPath, kbFolderPath = '
   const { stdout } = await runSshScript(server, script, [primaryPath, kbPath], 30000);
   const lines = String(stdout || '').split(/\r?\n/).filter(Boolean);
   const rootLine = lines.find((line) => line.startsWith('__ROOT__:')) || '';
-  if (!rootLine) throw new Error('Target path is not a directory');
+  if (!rootLine) {
+    const error = new Error('Target path is not a directory');
+    error.code = 'REMOTE_NOT_DIRECTORY';
+    throw error;
+  }
 
   const payload = rootLine.slice('__ROOT__:'.length);
   const separatorIndex = payload.indexOf(':');
@@ -1677,7 +1748,9 @@ async function listSshProjectDirectory(server, projectPath, relativePath = '', l
   const { stdout } = await runSshScript(server, script, [rootPath, encodedRelativePath, String(cap)], 30000);
   if (String(stdout || '').includes('__NOT_DIR__')) {
     const requestedPath = safeRelativePath ? `${rootPath}/${safeRelativePath}` : rootPath;
-    throw new Error(`Target path is not a directory: ${requestedPath}`);
+    const error = new Error(`Target path is not a directory: ${requestedPath}`);
+    error.code = 'REMOTE_NOT_DIRECTORY';
+    throw error;
   }
 
   const lines = String(stdout || '').split(/\r?\n/).filter(Boolean);
@@ -1759,7 +1832,9 @@ async function readSshProjectTextFile(server, projectPath, relativePath, maxByte
   const { stdout } = await runSshScript(server, script, [rootPath, safeRelativePath, String(cap)], 30000);
   const output = String(stdout || '');
   if (output.includes('__NOT_FILE__')) {
-    throw new Error('Target path is not a file');
+    const error = new Error('Target path is not a file');
+    error.code = 'REMOTE_PATH_NOT_FOUND';
+    throw error;
   }
   const sizeLine = output.split(/\r?\n/).find((line) => line.startsWith('__SIZE__:')) || '';
   const b64Line = output.split(/\r?\n/).find((line) => line.startsWith('__B64__:')) || '';
@@ -1778,6 +1853,62 @@ async function readSshProjectTextFile(server, projectPath, relativePath, maxByte
 // In-memory cache: projectId/rootPath → { files, expiresAt }
 const fileListCache = new Map();
 const FILE_LIST_TTL_MS = 60 * 1000; // 60 seconds
+const KB_RESOURCE_SEED_FILES = [
+  'paper_assets_index.md',
+  'paper_assets_index.json',
+  'notes.md',
+  'research_questions.md',
+  'proposal_zh.md',
+];
+const KB_RESOURCE_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'to',
+  'for',
+  'of',
+  'in',
+  'on',
+  'with',
+  'from',
+  'about',
+  'how',
+  'what',
+  'which',
+  'when',
+  'where',
+  'why',
+  'is',
+  'are',
+  'be',
+  'can',
+  'should',
+  'could',
+  'would',
+  'need',
+  'please',
+  'help',
+  'compare',
+  'comparison',
+  'differences',
+  'difference',
+  'scope',
+  'summarize',
+  'summary',
+  'cite',
+  'citation',
+  'citations',
+  'path',
+  'paths',
+  'file',
+  'files',
+  'resource',
+  'resources',
+  'between',
+  'across',
+]);
 
 async function getLocalFileList(rootPath) {
   const cached = fileListCache.get(rootPath);
@@ -1832,8 +1963,9 @@ async function getSshFileList(server, projectPath) {
   ].join('\n');
   const { stdout } = await runSshScript(server, script, [String(projectPath || '').trim()], 35000);
   if (String(stdout || '').includes('__NOT_DIR__')) {
-    fileListCache.set(cacheKey, { files: [], expiresAt: Date.now() + FILE_LIST_TTL_MS });
-    return [];
+    const error = new Error(`Target path is not a directory: ${String(projectPath || '').trim()}`);
+    error.code = 'REMOTE_NOT_DIRECTORY';
+    throw error;
   }
   const files = String(stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   fileListCache.set(cacheKey, { files, expiresAt: Date.now() + FILE_LIST_TTL_MS });
@@ -1844,12 +1976,266 @@ async function searchSshProjectFiles(server, projectPath, query, limit = 20) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return [];
   const cap = parseLimit(limit, 20, 100);
-  // Use cached file list — no repeated `find` on every keystroke
-  const files = await getSshFileList(server, projectPath);
-  return files
-    .filter((fp) => fp.toLowerCase().includes(q))
-    .sort((a, b) => a.localeCompare(b))
-    .slice(0, cap);
+  const rootPath = String(projectPath || '').trim();
+  const script = [
+    'root="$1"',
+    'query="$2"',
+    'cap="$3"',
+    'if [ ! -d "$root" ]; then echo "__NOT_DIR__"; exit 0; fi',
+    'if [ -z "$query" ]; then exit 0; fi',
+    'if [ -d "$root/.git" ] && command -v git >/dev/null 2>&1; then',
+    '  { git -C "$root" ls-files 2>/dev/null; git -C "$root" ls-files --others --exclude-standard 2>/dev/null; } | grep -iF -- "$query" | head -n "$cap"',
+    'else',
+    '  find "$root" -type f 2>/dev/null | sed "s#^$root/##" | grep -iF -- "$query" | head -n "$cap"',
+    'fi',
+  ].join('\n');
+
+  try {
+    const { stdout } = await runSshScript(server, script, [rootPath, q, String(cap)], 15000);
+    const output = String(stdout || '');
+    if (output.includes('__NOT_DIR__')) {
+      const error = new Error(`Target path is not a directory: ${rootPath}`);
+      error.code = 'REMOTE_NOT_DIRECTORY';
+      throw error;
+    }
+    return [...new Set(
+      output
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )]
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, cap);
+  } catch (error) {
+    const mapped = mapSshLikeError(error);
+    if (mapped.code === 'SSH_TIMEOUT' || mapped.code === 'SSH_COMMAND_FAILED') {
+      return [];
+    }
+    throw mapped;
+  }
+}
+
+function tokenizeKbResourceQuery(query = '', maxTokens = 8) {
+  const normalized = String(query || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-./\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return [];
+  const tokens = normalized
+    .split(' ')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => item.length >= 2)
+    .filter((item) => !KB_RESOURCE_STOPWORDS.has(item));
+  const unique = [];
+  const seen = new Set();
+  for (const token of tokens) {
+    if (seen.has(token)) continue;
+    seen.add(token);
+    unique.push(token);
+    if (unique.length >= maxTokens) break;
+  }
+  return unique;
+}
+
+function isTextLikeResourcePath(relativePath = '') {
+  const ext = path.extname(String(relativePath || '').toLowerCase());
+  return ['.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.csv', '.tsv', '.py', '.sh'].includes(ext);
+}
+
+function buildResourcePathScore(relativePath = '', query = '', tokens = []) {
+  const rel = String(relativePath || '').trim();
+  if (!rel) return { score: 0, matchedTerms: [], reasons: [] };
+  const relLower = rel.toLowerCase();
+  const fileLower = path.posix.basename(relLower);
+  const ext = path.posix.extname(fileLower);
+  const depth = relLower.split('/').filter(Boolean).length;
+  const queryNorm = String(query || '').trim().toLowerCase();
+  const paperIntent = /\b(paper|benchmark|bench|compare|comparison|scope|dataset|datasets|result|results|analysis|review|evidence|citation)\b/.test(queryNorm);
+  const codeIntent = /\b(code|script|implementation|api|function|class|module|debug|fix|patch)\b/.test(queryNorm);
+  let score = 0;
+  const matchedTerms = [];
+  const reasons = [];
+
+  if (queryNorm && relLower.includes(queryNorm)) {
+    score += 9;
+    reasons.push('full-query');
+  }
+
+  for (const token of tokens) {
+    if (!token) continue;
+    if (relLower.includes(token)) {
+      score += 2;
+      matchedTerms.push(token);
+      if (fileLower.includes(token)) score += 1.2;
+      if (fileLower.startsWith(token)) score += 0.8;
+    }
+  }
+
+  const seedName = KB_RESOURCE_SEED_FILES.find((seed) => seed.toLowerCase() === fileLower);
+  if (seedName) {
+    score += 1.8;
+    reasons.push('seed-file');
+  }
+  if (fileLower === 'readme.md') {
+    score += 1.1;
+    reasons.push('readme');
+  }
+  if (fileLower.endsWith('meta.json')) {
+    score += 1.8;
+    reasons.push('meta');
+  }
+  if (relLower.includes('/arxiv_source/meta.json')) {
+    score += 2.2;
+    reasons.push('meta-canonical');
+  }
+  if (fileLower.endsWith('.pdf')) {
+    score += 3.4;
+    reasons.push('paper-pdf');
+  }
+  if (fileLower === 'readme.md') {
+    score += 4.6;
+    reasons.push('paper-readme');
+  }
+  if (fileLower.endsWith('.md')) score += 0.9;
+  if (fileLower === 'paper.pdf') score += 4.0;
+  if (fileLower.endsWith('bench.pdf')) score += 2.0;
+  if (depth <= 2) score += 1.4;
+  if (depth > 4) score -= (depth - 4) * 0.45;
+  if (relLower.includes('/arxiv_source/src/')) score -= 3.4;
+  if (fileLower.endsWith('.pdf') && relLower.includes('/arxiv_source/src/')) score -= 3.2;
+  if (/(^|\/)(fig|figs|images|img|plots)\//.test(relLower)) score -= 3.4;
+  if (fileLower.includes('favicon')) score -= 3.0;
+  if (fileLower.includes('source.bundle')) score -= 4.2;
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.sty'].includes(ext)) score -= 2.6;
+  if (['.tex', '.bib', '.bst', '.bbl', '.cls', '.aux', '.log', '.toc', '.out'].includes(ext)) score -= 3.4;
+  if (paperIntent && ['.md', '.pdf', '.json', '.txt'].includes(ext)) score += 2.2;
+  if (paperIntent && ['.py', '.sh', '.ipynb'].includes(ext)) score -= 1.6;
+  if (codeIntent && ['.py', '.sh', '.ipynb'].includes(ext)) score += 1.4;
+
+  return {
+    score,
+    matchedTerms: [...new Set(matchedTerms)].slice(0, 8),
+    reasons: [...new Set(reasons)],
+  };
+}
+
+function isEligibleKbResourcePath(relativePath = '') {
+  const rel = String(relativePath || '').trim();
+  if (!rel) return false;
+  const relLower = rel.toLowerCase();
+  const fileLower = path.posix.basename(relLower);
+  const ext = path.posix.extname(fileLower);
+  if (relLower.includes('/arxiv_source/src/')) return false;
+  if (/(^|\/)(fig|figs|images|img|plots|assets)\//.test(relLower)) return false;
+  if (fileLower.includes('source.bundle') || fileLower.includes('favicon')) return false;
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.sty', '.ipynb'].includes(ext)) return false;
+  if (['.tex', '.bib', '.bst', '.bbl', '.cls', '.aux', '.log', '.toc', '.out'].includes(ext)) return false;
+  return true;
+}
+
+async function loadKbResourcePreview(project, server, kbRootPath, relativePath) {
+  if (!isTextLikeResourcePath(relativePath)) return null;
+  try {
+    const file = String(project?.locationType || '').toLowerCase() === 'ssh'
+      ? await readSshProjectTextFile(server, kbRootPath, relativePath, 6000)
+      : await readLocalProjectTextFile(kbRootPath, relativePath, 6000);
+    const content = String(file?.content || '').trim();
+    if (!content) return null;
+    return {
+      excerpt: content.slice(0, 900),
+      truncated: Boolean(file?.truncated),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function locateProjectKbResources({
+  project,
+  server = null,
+  kbRootPath = '',
+  query = '',
+  limit = 20,
+  includePreview = true,
+} = {}) {
+  const cap = parseLimit(limit, 20, 100);
+  const q = String(query || '').trim();
+  const tokens = tokenizeKbResourceQuery(q, 8);
+  const normalizedRoot = String(kbRootPath || '').trim();
+  const files = String(project?.locationType || '').toLowerCase() === 'ssh'
+    ? await getSshFileList(server, normalizedRoot)
+    : await getLocalFileList(path.resolve(expandHome(normalizedRoot)));
+
+  const ranked = [];
+  for (const relativePath of files) {
+    if (!isEligibleKbResourcePath(relativePath)) continue;
+    const scoreData = buildResourcePathScore(relativePath, q, tokens);
+    if (!q) {
+      const seedMatch = KB_RESOURCE_SEED_FILES.some(
+        (seed) => seed.toLowerCase() === String(path.posix.basename(relativePath || '')).toLowerCase()
+      );
+      if (!seedMatch) continue;
+    } else if (scoreData.score <= 0) {
+      continue;
+    }
+    ranked.push({
+      path: relativePath,
+      score: Number(scoreData.score.toFixed(3)),
+      matchedTerms: scoreData.matchedTerms,
+      reasons: scoreData.reasons,
+    });
+  }
+
+  ranked.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(a.path || '').localeCompare(String(b.path || ''));
+  });
+  const perFolderLimit = 3;
+  const folderCount = new Map();
+  const diversified = [];
+  for (const item of ranked) {
+    const topFolder = String(item.path || '').split('/')[0] || item.path;
+    const used = folderCount.get(topFolder) || 0;
+    if (used >= perFolderLimit) continue;
+    folderCount.set(topFolder, used + 1);
+    diversified.push(item);
+    if (diversified.length >= cap) break;
+  }
+
+  let items = diversified;
+  if (items.length === 0) {
+    const seedItems = KB_RESOURCE_SEED_FILES
+      .filter((seed) => files.includes(seed))
+      .slice(0, cap)
+      .map((seed) => ({
+        path: seed,
+        score: 1,
+        matchedTerms: [],
+        reasons: ['seed-file'],
+      }));
+    items = seedItems;
+  }
+
+  const previewByPath = new Map();
+  if (includePreview) {
+    const previewTargets = items.filter((item) => isTextLikeResourcePath(item.path)).slice(0, 4);
+    await Promise.all(previewTargets.map(async (item) => {
+      const preview = await loadKbResourcePreview(project, server, normalizedRoot, item.path);
+      if (preview) previewByPath.set(item.path, preview);
+    }));
+  }
+
+  return {
+    query: q,
+    tokens,
+    items: items.map((item) => ({
+      ...item,
+      preview: previewByPath.get(item.path) || null,
+    })),
+    seedFiles: KB_RESOURCE_SEED_FILES,
+  };
 }
 
 function toRelativePosixPath(rootPath, absolutePath) {
@@ -1924,7 +2310,9 @@ async function listSshKnowledgeBaseFiles(server, kbFolderPath, { offset = 0, lim
   const { stdout } = await runSshScript(server, script, [rootPath, String(safeOffset), String(safeLimit)], 45000);
   const output = String(stdout || '');
   if (output.includes('__NOT_DIR__')) {
-    throw new Error('KB folder is not a directory');
+    const error = new Error('KB folder is not a directory');
+    error.code = 'REMOTE_NOT_DIRECTORY';
+    throw error;
   }
 
   const lines = output.split(/\r?\n/).filter(Boolean);
@@ -3267,8 +3655,14 @@ router.get('/projects/:projectId/git-log', async (req, res) => {
     if (error.code === 'SSH_SERVER_NOT_FOUND') {
       return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
     }
+    if (error.code === 'SSH_AUTH_FAILED') {
+      return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    }
+    if (error.code === 'SSH_HOST_UNREACHABLE') {
+      return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    }
     console.error('[ResearchOps] project git-log failed:', error);
-    return res.status(400).json({ error: sanitizeError(error, 'Failed to load project git log') });
+    return res.status(400).json(toErrorPayload(error, 'Failed to load project git log'));
   }
 });
 
@@ -3314,8 +3708,14 @@ router.get('/projects/:projectId/server-files', async (req, res) => {
     if (error.code === 'SSH_SERVER_NOT_FOUND') {
       return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
     }
+    if (error.code === 'SSH_AUTH_FAILED') {
+      return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    }
+    if (error.code === 'SSH_HOST_UNREACHABLE') {
+      return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    }
     console.error('[ResearchOps] project server-files failed:', error);
-    return res.status(400).json({ error: sanitizeError(error, 'Failed to load project files') });
+    return res.status(400).json(toErrorPayload(error, 'Failed to load project files'));
   }
 });
 
@@ -3365,8 +3765,14 @@ router.get('/projects/:projectId/changed-files', async (req, res) => {
     if (error.code === 'SSH_SERVER_NOT_FOUND') {
       return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
     }
+    if (error.code === 'SSH_AUTH_FAILED') {
+      return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    }
+    if (error.code === 'SSH_HOST_UNREACHABLE') {
+      return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    }
     console.error('[ResearchOps] project changed-files failed:', error);
-    return res.status(400).json({ error: sanitizeError(error, 'Failed to load project changed files') });
+    return res.status(400).json(toErrorPayload(error, 'Failed to load project changed files'));
   }
 });
 
@@ -3725,9 +4131,11 @@ router.get('/projects/:projectId/kb/files', async (req, res) => {
     });
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
-    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'REMOTE_NOT_DIRECTORY') return res.status(400).json(toErrorPayload(error, 'Remote path is not a directory'));
     console.error('[ResearchOps] kb/files failed:', error);
-    return res.status(400).json({ error: sanitizeError(error, 'Failed to load KB files') });
+    return res.status(400).json(toErrorPayload(error, 'Failed to load KB files'));
   }
 });
 
@@ -3928,9 +4336,13 @@ router.get('/projects/:projectId/files/tree', async (req, res) => {
     });
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
-    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    if (error.code === 'REMOTE_PATH_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'Remote path not found'));
+    if (error.code === 'REMOTE_NOT_DIRECTORY') return res.status(400).json(toErrorPayload(error, 'Remote path is not a directory'));
     console.error('[ResearchOps] files/tree failed:', error);
-    return res.status(400).json({ error: sanitizeError(error, 'Failed to load project file tree') });
+    return res.status(400).json(toErrorPayload(error, 'Failed to load project file tree'));
   }
 });
 
@@ -3962,16 +4374,20 @@ router.get('/projects/:projectId/files/content', async (req, res) => {
     });
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
-    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    if (error.code === 'REMOTE_PATH_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'Remote path not found'));
+    if (error.code === 'REMOTE_NOT_DIRECTORY') return res.status(400).json(toErrorPayload(error, 'Remote path is not a directory'));
     console.error('[ResearchOps] files/content failed:', error);
-    return res.status(400).json({ error: sanitizeError(error, 'Failed to read project file content') });
+    return res.status(400).json(toErrorPayload(error, 'Failed to read project file content'));
   }
 });
 
 router.get('/projects/:projectId/files/search', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
-    const query = String(req.query.q || '').trim();
+    const query = String(req.query.q || req.query.query || '').trim();
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
     if (!query) return res.json({ items: [] });
     const limit = parseLimit(req.query.limit, 20, 100);
@@ -3995,9 +4411,55 @@ router.get('/projects/:projectId/files/search', async (req, res) => {
     });
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
-    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    if (error.code === 'REMOTE_PATH_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'Remote path not found'));
+    if (error.code === 'REMOTE_NOT_DIRECTORY') return res.status(400).json(toErrorPayload(error, 'Remote path is not a directory'));
     console.error('[ResearchOps] files/search failed:', error);
-    return res.status(400).json({ error: sanitizeError(error, 'Failed to search project files') });
+    return res.status(400).json(toErrorPayload(error, 'Failed to search project files'));
+  }
+});
+
+router.get('/projects/:projectId/kb/resource-locate', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const query = String(req.query.q || req.query.query || '').trim();
+    const limit = parseLimit(req.query.limit, 20, 100);
+    const includePreview = parseBoolean(req.query.includePreview, true);
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const kbRootPath = String(project.kbFolderPath || '').trim()
+      || `${String(project.projectPath || '').replace(/\/+$/, '')}/resource`;
+    if (!kbRootPath) {
+      return res.status(400).json({ error: 'No KB root path configured for this project' });
+    }
+
+    const located = await locateProjectKbResources({
+      project,
+      server,
+      kbRootPath,
+      query,
+      limit,
+      includePreview,
+    });
+
+    return res.json({
+      projectId: project.id,
+      rootMode: 'kb-folder',
+      rootPath: kbRootPath,
+      ...located,
+      refreshedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    if (error.code === 'REMOTE_PATH_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'Remote path not found'));
+    if (error.code === 'REMOTE_NOT_DIRECTORY') return res.status(400).json(toErrorPayload(error, 'Remote path is not a directory'));
+    console.error('[ResearchOps] kb/resource-locate failed:', error);
+    return res.status(400).json(toErrorPayload(error, 'Failed to locate KB resources'));
   }
 });
 
@@ -4461,6 +4923,40 @@ router.get('/projects/:projectId/todos/next-actions', async (req, res) => {
   }
 });
 
+router.post('/projects/:projectId/todos/clear', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const project = await researchOpsStore.getProject(userId, projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const targetStatus = cleanString(req.body?.status).toUpperCase() || 'COMPLETED';
+    const includeDone = parseBoolean(req.body?.includeDone, false);
+    const todos = await researchOpsStore.listIdeas(userId, { projectId, limit: 1000 });
+    const doneStatuses = new Set(['DONE', 'COMPLETED', targetStatus]);
+    const targets = Array.isArray(todos)
+      ? todos.filter((todo) => (includeDone ? true : !doneStatuses.has(cleanString(todo?.status).toUpperCase())))
+      : [];
+
+    await Promise.all(targets.map((todo) => researchOpsStore.updateIdea(userId, todo.id, {
+      status: targetStatus,
+      summary: `Cleared in bulk on ${new Date().toISOString()}`,
+    })));
+
+    return res.json({
+      projectId,
+      cleared: targets.length,
+      totalTodos: Array.isArray(todos) ? todos.length : 0,
+      status: targetStatus,
+      refreshedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] clear todos failed:', error);
+    return res.status(400).json(toErrorPayload(error, 'Failed to clear TODOs'));
+  }
+});
+
 router.post('/projects/:projectId/todos/from-proposal', proposalUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -4688,22 +5184,56 @@ router.post('/plan/generate', async (req, res) => {
       project = await researchOpsStore.getProject(getUserId(req), projectId);
     }
     if (todoMode) {
-      const todoCandidates = await generateTodoCandidatesFromInstruction({ instruction, project });
+      let server = null;
+      if (project && cleanString(project.locationType).toLowerCase() === 'ssh') {
+        const sid = cleanString(project.serverId);
+        if (sid) server = await getSshServerById(sid);
+      }
+      const generated = await todoGeneratorService.generateTodoDslPackage({
+        userId: getUserId(req),
+        instruction,
+        project,
+        server,
+      });
+      const todoCandidates = Array.isArray(generated.todoCandidates)
+        ? generated.todoCandidates
+        : await generateTodoCandidatesFromInstruction({ instruction, project });
       const plan = {
         plan_id: `todo_${Date.now()}`,
-        instruction_type: 'todo',
+        instruction_type: 'todo_dsl',
         goal: instruction,
-        nodes: todoCandidates.map((item, index) => ({
-          id: `todo_${String(index + 1).padStart(2, '0')}`,
-          label: item.title,
-          description: item.hypothesis,
-          priority: item.priority,
+        nodes: (Array.isArray(generated.treeNodes) && generated.treeNodes.length > 0
+          ? generated.treeNodes
+          : todoCandidates.map((item, index) => ({
+            id: `todo_${String(index + 1).padStart(2, '0')}`,
+            title: item.title,
+            kind: 'experiment',
+            assumption: [],
+            target: [item.hypothesis],
+            commands: [],
+            checks: [{ name: 'manual_review', type: 'manual_approve' }],
+            tags: [cleanString(item.priority) || 'medium', 'todo-generator'],
+          }))
+        ).map((node, index) => ({
+          id: cleanString(node?.id) || `todo_${String(index + 1).padStart(2, '0')}`,
+          label: cleanString(node?.title) || cleanString(node?.label) || `Planned step ${index + 1}`,
+          description: cleanString(node?.ui?.todo_dsl_step?.objective) || cleanString(node?.description) || '',
+          priority: cleanString(node?.priority)
+            || cleanString(node?.ui?.todo_dsl_step?.priority)
+            || cleanString(todoCandidates[index]?.priority)
+            || 'medium',
+          node,
         })),
         edges: [],
         workflow: [],
         generated_at: new Date().toISOString(),
       };
-      return res.json({ plan, todoCandidates });
+      return res.json({
+        plan,
+        todoCandidates,
+        todoDsl: generated.todoDsl || null,
+        referenceSummary: generated.referenceSummary || null,
+      });
     }
     const plan = planAgentService.generatePlan({ instruction, instructionType });
     return res.json({ plan });
@@ -4838,12 +5368,21 @@ router.post('/runs/enqueue', async (req, res) => {
 
 router.get('/runs', async (req, res) => {
   try {
-    const items = await researchOpsStore.listRuns(getUserId(req), {
+    const limit = parseLimit(req.query.limit, 20, 300);
+    const cursor = String(req.query.cursor || '').trim();
+    const page = await researchOpsStore.listRunsPage(getUserId(req), {
       projectId: String(req.query.projectId || '').trim(),
       status: String(req.query.status || '').trim().toUpperCase(),
-      limit: parseLimit(req.query.limit, 80, 300),
+      limit,
+      cursor,
     });
-    res.json({ items });
+    res.json({
+      items: page.items || [],
+      limit,
+      cursor: cursor || null,
+      hasMore: Boolean(page.hasMore),
+      nextCursor: String(page.nextCursor || '') || null,
+    });
   } catch (error) {
     console.error('[ResearchOps] listRuns failed:', error);
     res.status(500).json({ error: 'Failed to list runs' });
@@ -5614,6 +6153,1262 @@ router.post('/experiments/execute', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] Local experiment execution failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to execute experiment') });
+  }
+});
+
+function normalizeNodeStatus(status = '') {
+  return String(status || '').trim().toUpperCase();
+}
+
+function runStatusToNodeStatus(runStatus = '') {
+  const normalized = String(runStatus || '').trim().toUpperCase();
+  if (!normalized) return '';
+  if (normalized === 'SUCCEEDED') return 'PASSED';
+  if (normalized === 'FAILED' || normalized === 'CANCELLED') return 'FAILED';
+  if (normalized === 'RUNNING' || normalized === 'PROVISIONING') return 'RUNNING';
+  if (normalized === 'QUEUED') return 'QUEUED';
+  return '';
+}
+
+function extractNodeCommands(node = {}) {
+  const commands = [];
+  const raw = Array.isArray(node?.commands) ? node.commands : [];
+  raw.forEach((item) => {
+    if (typeof item === 'string') {
+      const text = String(item || '').trim();
+      if (text) commands.push(text);
+      return;
+    }
+    const text = String(item?.run || '').trim();
+    if (text) commands.push(text);
+  });
+  return commands;
+}
+
+function buildNodeMaps(plan = {}) {
+  const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  const byId = new Map();
+  const children = new Map();
+  nodes.forEach((node, index) => {
+    const id = String(node?.id || '').trim() || `node_${index + 1}`;
+    const normalized = { ...node, id };
+    byId.set(id, normalized);
+    if (!children.has(id)) children.set(id, []);
+  });
+  nodes.forEach((node) => {
+    const id = String(node?.id || '').trim();
+    const parent = String(node?.parent || '').trim();
+    if (id && parent && byId.has(parent)) {
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(id);
+    }
+  });
+  return { nodes, byId, children };
+}
+
+function resolveExecutionScopeNodeIds(plan = {}, {
+  fromNodeId = '',
+  scope = 'active_path',
+} = {}) {
+  const { nodes, byId, children } = buildNodeMaps(plan);
+  if (!nodes.length) return [];
+  const selectedId = String(fromNodeId || '').trim();
+  const start = selectedId && byId.has(selectedId)
+    ? selectedId
+    : String(nodes[0]?.id || '').trim();
+  if (!start || !byId.has(start)) return [];
+
+  const normalizedScope = String(scope || 'active_path').trim().toLowerCase();
+  if (normalizedScope === 'entire_ready' || normalizedScope === 'entire_plan') {
+    return nodes.map((node) => String(node.id || '').trim()).filter(Boolean);
+  }
+
+  if (normalizedScope === 'subtree_all_branches' || normalizedScope === 'subtree') {
+    const queue = [start];
+    const visited = new Set();
+    const ordered = [];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || visited.has(current)) continue;
+      visited.add(current);
+      ordered.push(current);
+      const next = children.get(current) || [];
+      next.forEach((id) => queue.push(id));
+    }
+    return ordered;
+  }
+
+  const ordered = [];
+  const visited = new Set();
+  let cursor = start;
+  while (cursor && !visited.has(cursor)) {
+    visited.add(cursor);
+    ordered.push(cursor);
+    const node = byId.get(cursor);
+    const childIds = children.get(cursor) || [];
+    if (!childIds.length) break;
+    const preferred = String(node?.activeChild || '').trim();
+    const next = preferred && childIds.includes(preferred)
+      ? preferred
+      : childIds[0];
+    cursor = next;
+  }
+  return ordered;
+}
+
+function topologicalOrderForSubset(plan = {}, subsetIds = []) {
+  const { byId } = buildNodeMaps(plan);
+  const subset = new Set(subsetIds.map((id) => String(id || '').trim()).filter(Boolean));
+  if (!subset.size) return [];
+  const indegree = new Map();
+  const outgoing = new Map();
+  subset.forEach((id) => {
+    indegree.set(id, 0);
+    outgoing.set(id, []);
+  });
+
+  subset.forEach((id) => {
+    const node = byId.get(id);
+    if (!node) return;
+    const deps = [];
+    const parent = String(node.parent || '').trim();
+    if (parent && subset.has(parent)) deps.push(parent);
+    const evidenceDeps = Array.isArray(node.evidenceDeps) ? node.evidenceDeps : [];
+    evidenceDeps.forEach((depId) => {
+      const dep = String(depId || '').trim();
+      if (dep && subset.has(dep)) deps.push(dep);
+    });
+    deps.forEach((dep) => {
+      outgoing.get(dep).push(id);
+      indegree.set(id, (indegree.get(id) || 0) + 1);
+    });
+  });
+
+  const queue = [...subset].filter((id) => (indegree.get(id) || 0) === 0);
+  const ordered = [];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    ordered.push(current);
+    const nextList = outgoing.get(current) || [];
+    nextList.forEach((next) => {
+      const value = (indegree.get(next) || 0) - 1;
+      indegree.set(next, value);
+      if (value === 0) queue.push(next);
+    });
+  }
+
+  if (ordered.length === subset.size) return ordered;
+  return [...subset];
+}
+
+function getNodeDependencyIds(node = {}) {
+  const deps = [];
+  const parent = String(node.parent || '').trim();
+  if (parent) deps.push(parent);
+  const evidenceDeps = Array.isArray(node.evidenceDeps) ? node.evidenceDeps : [];
+  evidenceDeps.forEach((dep) => {
+    const id = String(dep || '').trim();
+    if (id) deps.push(id);
+  });
+  return deps;
+}
+
+function evaluateNodeBlocking(node = {}, treeState = {}) {
+  const blockedBy = [];
+  const deps = getNodeDependencyIds(node);
+  deps.forEach((depId) => {
+    const depState = treeState?.nodes?.[depId];
+    const depStatus = normalizeNodeStatus(depState?.status);
+    if (depStatus !== 'PASSED') {
+      blockedBy.push({
+        type: 'dependency',
+        depId,
+        status: depStatus || 'UNKNOWN',
+      });
+    }
+  });
+  const checks = Array.isArray(node?.checks) ? node.checks : [];
+  checks.forEach((check) => {
+    const checkType = String(check?.type || '').trim().toLowerCase();
+    if (checkType === 'manual_approve') {
+      const manualApproved = Boolean(treeState?.nodes?.[node.id]?.manualApproved);
+      if (!manualApproved) {
+        blockedBy.push({
+          type: 'manual_approve',
+          check: String(check?.name || checkType || 'manual_approve'),
+          status: 'PENDING',
+        });
+      }
+    }
+  });
+  return {
+    blocked: blockedBy.length > 0,
+    blockedBy,
+  };
+}
+
+async function hydrateTreeStateRunStatuses(userId, treeState = {}) {
+  const state = treeStateService.normalizeState(treeState);
+  const nodeEntries = Object.entries(state.nodes || {});
+  for (const [nodeId, nodeState] of nodeEntries) {
+    const runId = String(nodeState?.lastRunId || '').trim();
+    if (!runId) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const run = await researchOpsStore.getRun(userId, runId).catch(() => null);
+    if (!run) continue;
+    const mapped = runStatusToNodeStatus(run.status);
+    if (!mapped) continue;
+    state.nodes[nodeId] = {
+      ...state.nodes[nodeId],
+      status: mapped,
+      lastRunStatus: String(run.status || '').trim().toUpperCase(),
+      lastRunMessage: String(run.lastMessage || '').trim(),
+      lastRunUpdatedAt: String(run.updatedAt || run.endedAt || run.startedAt || ''),
+    };
+  }
+  return state;
+}
+
+async function buildRunIntentAndPack({
+  userId,
+  project,
+  node,
+  run,
+  treeState,
+}) {
+  const failureSignature = failureSignatureService.normalizeFailureSignature({
+    run,
+    node,
+    state: treeState,
+  });
+  const runIntent = contextRouterService.buildRunIntent({
+    project,
+    node,
+    state: treeState,
+    run,
+    failureSignature,
+  });
+  const routedContext = await contextRouterService.routeContextForIntent({
+    userId,
+    project,
+    runIntent,
+    store: researchOpsStore,
+  });
+  const pack = await contextPackService.buildRoutedContextPack(userId, {
+    runId: run.id,
+    projectId: project.id,
+    runIntent,
+    routedContext,
+  });
+  return { runIntent, routedContext, pack };
+}
+
+async function resolveProjectAndTree(req, projectId) {
+  const userId = getUserId(req);
+  const { project, server } = await resolveProjectContext(userId, projectId);
+  const [{ plan, validation }, { state }] = await Promise.all([
+    treePlanService.readProjectPlan({ project, server }),
+    treeStateService.readProjectState({ project, server }),
+  ]);
+  const hydratedState = await hydrateTreeStateRunStatuses(userId, state);
+  return {
+    userId,
+    project,
+    server,
+    plan,
+    validation,
+    state: hydratedState,
+  };
+}
+
+function buildFallbackRootNode(project = {}, fallbackMessage = '') {
+  const safeMessage = cleanString(fallbackMessage);
+  return {
+    id: 'baseline_root',
+    title: 'Baseline Root: Existing Codebase Achievements',
+    kind: 'milestone',
+    assumption: [
+      'Repository baseline exists and can seed downstream branches.',
+      ...(safeMessage ? [`Fallback reason: ${safeMessage}`] : []),
+    ],
+    target: [
+      'Baseline is reviewed before downstream execution.',
+    ],
+    commands: [],
+    checks: [
+      {
+        name: 'baseline_manual_gate',
+        type: 'manual_approve',
+      },
+    ],
+    git: {
+      base: 'HEAD',
+    },
+    ui: {
+      generatedBy: 'fallback-root',
+      generatedAt: new Date().toISOString(),
+      summary: safeMessage || `Auto-generated baseline root for ${cleanString(project?.name) || cleanString(project?.id) || 'project'}.`,
+    },
+    tags: ['baseline', 'root', 'fallback'],
+  };
+}
+
+function mergePlanWithRootNode(plan = {}, rootNode = {}, { attachOrphans = true } = {}) {
+  const rootId = cleanString(rootNode?.id) || 'baseline_root';
+  const existingNodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  const withoutRoot = existingNodes.filter((node) => cleanString(node?.id) !== rootId);
+  const adjustedNodes = attachOrphans
+    ? withoutRoot.map((node) => {
+      const parent = cleanString(node?.parent);
+      if (parent) return node;
+      return {
+        ...node,
+        parent: rootId,
+      };
+    })
+    : withoutRoot;
+  return {
+    ...plan,
+    vars: {
+      ...(plan?.vars && typeof plan.vars === 'object' ? plan.vars : {}),
+      baseline_summary: cleanString(rootNode?.ui?.summary || ''),
+      baseline_generated_at: new Date().toISOString(),
+    },
+    nodes: [
+      rootNode,
+      ...adjustedNodes,
+    ],
+  };
+}
+
+async function ensurePlanRootNode({
+  project,
+  server,
+  plan,
+  force = false,
+  attachOrphans = true,
+  persist = false,
+}) {
+  const existingNodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  const hasNodes = existingNodes.length > 0;
+  const existingRoot = existingNodes.find((node) => cleanString(node?.id) === 'baseline_root') || null;
+  if (!force && hasNodes && existingRoot) {
+    const validation = treePlanService.validateProjectPlan(plan).validation;
+    return {
+      plan,
+      validation,
+      generated: false,
+      rootNode: existingRoot,
+      summary: cleanString(existingRoot?.ui?.summary || ''),
+      achievements: Array.isArray(existingRoot?.assumption) ? existingRoot.assumption : [],
+      degraded: null,
+    };
+  }
+  if (!force && hasNodes && !existingRoot) {
+    const validation = treePlanService.validateProjectPlan(plan).validation;
+    return {
+      plan,
+      validation,
+      generated: false,
+      rootNode: null,
+      summary: '',
+      achievements: [],
+      degraded: null,
+    };
+  }
+
+  let generated = null;
+  let degraded = null;
+  try {
+    generated = await codebaseAchievementService.summarizeExistingCodebase({ project, server });
+  } catch (error) {
+    generated = {
+      summary: cleanString(error?.message) || 'Fallback root generated without repository snapshot.',
+      achievements: ['Repository baseline could not be auto-scanned; manual validation required.'],
+      rootNode: buildFallbackRootNode(project, error?.message),
+      snapshot: null,
+      generatedAt: new Date().toISOString(),
+    };
+    degraded = {
+      enabled: true,
+      code: cleanString(error?.code) || 'ROOT_SUMMARY_FALLBACK',
+      message: cleanString(error?.message) || 'Failed to summarize codebase, fallback root was generated.',
+    };
+  }
+
+  const nextPlan = mergePlanWithRootNode(
+    plan,
+    generated.rootNode || buildFallbackRootNode(project, generated.summary),
+    {
+      attachOrphans: Boolean(attachOrphans),
+    }
+  );
+
+  if (persist) {
+    const written = await treePlanService.writeProjectPlan({ project, server, plan: nextPlan });
+    return {
+      plan: written.plan,
+      validation: written.validation,
+      generated: true,
+      rootNode: generated.rootNode,
+      summary: generated.summary,
+      achievements: Array.isArray(generated.achievements) ? generated.achievements : [],
+      degraded: degraded || written.degraded || null,
+      snapshot: generated.snapshot || null,
+    };
+  }
+
+  const validated = treePlanService.validateProjectPlan(nextPlan);
+  return {
+    plan: validated.plan,
+    validation: validated.validation,
+    generated: true,
+    rootNode: generated.rootNode,
+    summary: generated.summary,
+    achievements: Array.isArray(generated.achievements) ? generated.achievements : [],
+    degraded,
+    snapshot: generated.snapshot || null,
+  };
+}
+
+async function executeTreeNodeRun({
+  userId,
+  project,
+  server,
+  node,
+  treeState,
+  force = false,
+  preflightOnly = false,
+  runSource = 'run-step',
+  searchTrialCount = 1,
+}) {
+  const state = treeStateService.normalizeState(treeState);
+  const blocking = evaluateNodeBlocking(node, state);
+  if (!force && blocking.blocked) {
+    const error = new Error(`Node ${node.id} is blocked`);
+    error.code = 'NODE_BLOCKED';
+    error.blockedBy = blocking.blockedBy;
+    throw error;
+  }
+
+  const commands = extractNodeCommands(node);
+  if (node.kind === 'search') {
+    if (preflightOnly) {
+      return {
+        mode: 'preflight',
+        nodeId: node.id,
+        blockedBy: blocking.blockedBy,
+        commands,
+      };
+    }
+    const currentSearch = state.search?.[node.id] || {};
+    const nextSearch = await searchExecutorService.enqueueSearchTrials({
+      userId,
+      project,
+      node,
+      searchState: currentSearch,
+      store: researchOpsStore,
+      runner: researchOpsRunner,
+      count: searchTrialCount,
+    });
+    const nextState = treeStateService.setNodeState(state, node.id, {
+      status: 'RUNNING',
+      kind: 'search',
+      updatedAt: new Date().toISOString(),
+    });
+    nextState.search = {
+      ...(nextState.search && typeof nextState.search === 'object' ? nextState.search : {}),
+      [node.id]: nextSearch,
+    };
+    nextState.updatedAt = new Date().toISOString();
+    await treeStateService.writeProjectState({ project, server, state: nextState });
+    return {
+      mode: 'search',
+      nodeId: node.id,
+      search: nextSearch,
+      blockedBy: blocking.blockedBy,
+    };
+  }
+
+  if (preflightOnly) {
+    return {
+      mode: 'preflight',
+      nodeId: node.id,
+      blockedBy: blocking.blockedBy,
+      commands,
+      runPayloadPreview: {
+        runType: 'EXPERIMENT',
+        serverId: String(project?.serverId || '').trim() || 'local-default',
+        command: commands.join(' && ') || 'echo \"node has no commands\"',
+      },
+    };
+  }
+
+  const joinedCommand = commands.join(' && ') || 'echo "node has no commands"';
+  const run = await researchOpsStore.enqueueRun(userId, {
+    projectId: project.id,
+    serverId: String(project?.serverId || '').trim() || 'local-default',
+    runType: 'EXPERIMENT',
+    schemaVersion: '2.0',
+    skillRefs: [
+      {
+        id: `skill_${deliverableReportSkillService.SKILL_NAME}`,
+        name: deliverableReportSkillService.SKILL_NAME,
+      },
+    ],
+    metadata: {
+      nodeId: node.id,
+      treeNodeId: node.id,
+      runSource,
+      planNodeKind: node.kind || 'experiment',
+      baseCommit: String(node?.git?.base || 'HEAD').trim(),
+      commandCount: commands.length,
+      experimentCommand: joinedCommand,
+      command: 'bash',
+      args: ['-lc', joinedCommand],
+      cwd: String(project?.projectPath || '').trim() || undefined,
+    },
+  });
+
+  let contextPack = null;
+  let runIntentData = null;
+  try {
+    const context = await buildRunIntentAndPack({
+      userId,
+      project,
+      node,
+      run,
+      treeState: state,
+    });
+    runIntentData = context.runIntent;
+    contextPack = context.pack;
+    await researchOpsStore.patchRunMeta(userId, run.id, {
+      runIntent: context.runIntent,
+      contextPackRef: {
+        generatedAt: context.pack?.generatedAt || new Date().toISOString(),
+        storage: context.pack?.storage || null,
+      },
+    });
+  } catch (error) {
+    console.warn('[ResearchOps] Failed to build routed context pack for run-step:', error?.message || error);
+  }
+
+  try {
+    const fallbackRunIntent = runIntentData || contextRouterService.buildRunIntent({
+      project,
+      node,
+      state,
+      run,
+    });
+    const deliverable = await deliverableReportSkillService.createDeliverableReportForRun({
+      project,
+      server,
+      node,
+      run,
+      runIntent: fallbackRunIntent,
+      contextPack,
+      treeState: state,
+      commands,
+    });
+    await researchOpsStore.createRunArtifact(userId, run.id, {
+      kind: 'deliverable_report',
+      title: `Deliverable Report · ${cleanString(node?.title) || cleanString(node?.id)}`,
+      path: deliverable.reportPath,
+      mimeType: 'text/markdown',
+      objectKey: deliverable.objectKey || null,
+      objectUrl: deliverable.objectUrl || null,
+      metadata: {
+        skillName: deliverable.skillName,
+        templatePath: deliverable.templatePath,
+        guidelinePath: deliverable.guidelinePath,
+        uploadedToSsh: String(project?.locationType || '').toLowerCase() === 'ssh',
+        inlinePreview: String(deliverable.markdown || '').slice(0, 6000),
+      },
+    });
+    await researchOpsStore.patchRunMeta(userId, run.id, {
+      deliverableSkill: deliverable.skillName,
+      deliverableReportPath: deliverable.reportPath,
+      deliverableReportObjectKey: deliverable.objectKey || '',
+    });
+  } catch (error) {
+    console.warn('[ResearchOps] Failed to generate deliverable report via skill:', error?.message || error);
+  }
+
+  await researchOpsRunner.executeRun(userId, run).catch((error) => {
+    console.warn('[ResearchOps] executeTreeNodeRun immediate execution warning:', error?.message || error);
+  });
+
+  let nextState = treeStateService.setNodeState(state, node.id, {
+    status: 'RUNNING',
+    lastRunId: run.id,
+    lastRunStatus: String(run.status || 'QUEUED').trim().toUpperCase(),
+    runSource,
+  });
+  nextState.runs = {
+    ...(nextState.runs && typeof nextState.runs === 'object' ? nextState.runs : {}),
+    [run.id]: {
+      nodeId: node.id,
+      status: 'QUEUED',
+      createdAt: run.createdAt || new Date().toISOString(),
+    },
+  };
+  nextState = treeStateService.appendQueueItem(nextState, {
+    nodeId: node.id,
+    runId: run.id,
+    status: 'QUEUED',
+    source: runSource,
+  });
+  await treeStateService.writeProjectState({ project, server, state: nextState });
+
+  return {
+    mode: 'run',
+    nodeId: node.id,
+    run,
+    blockedBy: blocking.blockedBy,
+    contextPack: contextPack
+      ? {
+        generatedAt: contextPack.generatedAt,
+        storage: contextPack.storage || null,
+      }
+      : null,
+  };
+}
+
+router.get('/projects/:projectId/tree/plan', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const bootstrapRoot = parseBoolean(req.query.bootstrapRoot, true);
+    const forceRoot = parseBoolean(req.query.forceRoot, false);
+    const planRead = await treePlanService.readProjectPlan({ project, server });
+    let plan = planRead.plan;
+    let validation = planRead.validation;
+    let rootSummary = null;
+    let degraded = planRead.degraded || null;
+
+    const hasNodes = Array.isArray(plan?.nodes) && plan.nodes.length > 0;
+    const looksLikeDefaultBootstrap = hasNodes
+      && plan.nodes.length === 1
+      && cleanString(plan.nodes[0]?.id) === 'init'
+      && cleanString(plan.nodes[0]?.kind).toLowerCase() === 'setup';
+    if (forceRoot || (bootstrapRoot && (!hasNodes || looksLikeDefaultBootstrap))) {
+      const rooted = await ensurePlanRootNode({
+        project,
+        server,
+        plan,
+        force: forceRoot || looksLikeDefaultBootstrap,
+        attachOrphans: true,
+        persist: true,
+      });
+      plan = rooted.plan;
+      validation = rooted.validation;
+      rootSummary = {
+        generated: rooted.generated,
+        summary: rooted.summary,
+        achievements: rooted.achievements,
+        rootNodeId: cleanString(rooted.rootNode?.id) || 'baseline_root',
+        snapshot: rooted.snapshot || null,
+      };
+      degraded = degraded || rooted.degraded || null;
+    }
+
+    return res.json({
+      projectId: project.id,
+      plan,
+      validation,
+      paths: planRead.paths,
+      rootSummary,
+      degraded,
+      refreshedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    return res.status(400).json(toErrorPayload(error, 'Failed to load tree plan'));
+  }
+});
+
+router.post('/projects/:projectId/tree/root-node', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const force = parseBoolean(req.body?.force, true);
+    const attachOrphans = parseBoolean(req.body?.attachOrphans, true);
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const { plan } = await treePlanService.readProjectPlan({ project, server });
+    const rooted = await ensurePlanRootNode({
+      project,
+      server,
+      plan,
+      force,
+      attachOrphans,
+      persist: true,
+    });
+    return res.json({
+      projectId: project.id,
+      generated: rooted.generated,
+      rootNode: rooted.rootNode,
+      summary: rooted.summary,
+      achievements: rooted.achievements,
+      snapshot: rooted.snapshot || null,
+      plan: rooted.plan,
+      validation: rooted.validation,
+      degraded: rooted.degraded || null,
+      refreshedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    return res.status(400).json(toErrorPayload(error, 'Failed to generate root node'));
+  }
+});
+
+router.put('/projects/:projectId/tree/plan', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const inputPlan = req.body?.plan && typeof req.body.plan === 'object' ? req.body.plan : req.body;
+    if (!inputPlan || typeof inputPlan !== 'object') {
+      return res.status(400).json({ error: 'plan payload is required' });
+    }
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const result = await treePlanService.writeProjectPlan({ project, server, plan: inputPlan });
+    return res.json({
+      projectId: project.id,
+      plan: result.plan,
+      validation: result.validation,
+      paths: result.paths,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PLAN_SCHEMA_INVALID') {
+      return res.status(400).json({
+        ...toErrorPayload(error, 'Plan validation failed'),
+        validation: error.validation || null,
+      });
+    }
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to save tree plan'));
+  }
+});
+
+router.post('/projects/:projectId/tree/plan/validate', async (req, res) => {
+  try {
+    const inputPlan = req.body?.plan && typeof req.body.plan === 'object' ? req.body.plan : req.body;
+    if (!inputPlan || typeof inputPlan !== 'object') {
+      return res.status(400).json({ error: 'plan payload is required' });
+    }
+    const validated = treePlanService.validateProjectPlan(inputPlan);
+    return res.json({
+      plan: validated.plan,
+      validation: validated.validation,
+      valid: Boolean(validated.validation?.valid),
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to validate plan'));
+  }
+});
+
+router.post('/projects/:projectId/tree/plan/patches', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const patches = Array.isArray(req.body?.patches) ? req.body.patches : [];
+    if (!patches.length) return res.status(400).json({ error: 'patches must be a non-empty array' });
+
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const { state } = await treeStateService.readProjectState({ project, server });
+    const result = await treePlanService.applyProjectPlanPatches({
+      project,
+      server,
+      patches,
+      state,
+    });
+    return res.json({
+      projectId: project.id,
+      plan: result.plan,
+      validation: result.validation,
+      impact: result.impact,
+      applied: result.applied,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PLAN_PATCH_CONFLICT') {
+      return res.status(409).json({
+        ...toErrorPayload(error, 'Plan patch conflict'),
+        details: error.details || null,
+      });
+    }
+    if (error.code === 'PLAN_SCHEMA_INVALID') {
+      return res.status(400).json({
+        ...toErrorPayload(error, 'Plan schema invalid'),
+        validation: error.validation || null,
+      });
+    }
+    return res.status(400).json(toErrorPayload(error, 'Failed to apply plan patches'));
+  }
+});
+
+router.post('/projects/:projectId/tree/plan/impact-preview', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const patches = Array.isArray(req.body?.patches) ? req.body.patches : [];
+    if (!patches.length) return res.status(400).json({ error: 'patches must be a non-empty array' });
+
+    const { plan, state } = await resolveProjectAndTree(req, projectId);
+    const result = treePlanService.previewPlanImpact({
+      basePlan: plan,
+      patches,
+      state,
+    });
+    return res.json({
+      projectId,
+      validation: result.validation,
+      impact: result.impact,
+      applied: result.applied,
+      previewPlan: result.plan,
+    });
+  } catch (error) {
+    if (error.code === 'PLAN_PATCH_CONFLICT') {
+      return res.status(409).json({
+        ...toErrorPayload(error, 'Plan patch conflict'),
+        details: error.details || null,
+      });
+    }
+    return res.status(400).json(toErrorPayload(error, 'Failed to preview plan impact'));
+  }
+});
+
+router.get('/projects/:projectId/tree/state', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const readState = await treeStateService.readProjectState({ project, server });
+    const hydrated = await hydrateTreeStateRunStatuses(getUserId(req), readState.state);
+    const written = await treeStateService.writeProjectState({ project, server, state: hydrated });
+    const degraded = readState.degraded || written.degraded || null;
+    return res.json({
+      projectId: project.id,
+      state: written.state,
+      paths: written.paths,
+      degraded,
+      refreshedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    return res.status(400).json(toErrorPayload(error, 'Failed to load tree state'));
+  }
+});
+
+router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+    const force = parseBoolean(req.body?.force, false);
+    const preflightOnly = parseBoolean(req.body?.preflightOnly, false);
+    const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
+
+    const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
+    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+
+    const result = await executeTreeNodeRun({
+      userId,
+      project,
+      server,
+      node,
+      treeState: state,
+      force,
+      preflightOnly,
+      runSource: 'run-step',
+      searchTrialCount,
+    });
+    return res.status(preflightOnly ? 200 : 202).json({
+      projectId: project.id,
+      nodeId,
+      ...result,
+    });
+  } catch (error) {
+    if (error.code === 'NODE_BLOCKED') {
+      return res.status(409).json({
+        ...toErrorPayload(error, 'Node is blocked'),
+        blockedBy: Array.isArray(error.blockedBy) ? error.blockedBy : [],
+      });
+    }
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to run node step'));
+  }
+});
+
+router.post('/projects/:projectId/tree/run-all', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const fromNodeId = String(req.body?.fromNodeId || '').trim();
+    const scope = String(req.body?.scope || 'active_path').trim().toLowerCase();
+    const force = parseBoolean(req.body?.force, false);
+    const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
+
+    const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
+    if (state?.queue?.paused) {
+      return res.status(409).json({
+        code: 'QUEUE_PAUSED',
+        error: 'Queue is paused. Resume before running all steps.',
+      });
+    }
+
+    const scopedIds = resolveExecutionScopeNodeIds(plan, { fromNodeId, scope });
+    const orderedIds = topologicalOrderForSubset(plan, scopedIds);
+    const nodeById = new Map((Array.isArray(plan?.nodes) ? plan.nodes : []).map((node) => [String(node.id || '').trim(), node]));
+
+    const queued = [];
+    const blocked = [];
+    let currentState = treeStateService.normalizeState(state);
+    for (const id of orderedIds) {
+      const node = nodeById.get(id);
+      if (!node) continue;
+      const blockInfo = evaluateNodeBlocking(node, currentState);
+      if (!force && blockInfo.blocked) {
+        blocked.push({ nodeId: id, blockedBy: blockInfo.blockedBy });
+        currentState = treeStateService.setNodeState(currentState, id, {
+          status: 'BLOCKED',
+          blockedBy: blockInfo.blockedBy,
+        });
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const result = await executeTreeNodeRun({
+        userId,
+        project,
+        server,
+        node,
+        treeState: currentState,
+        force,
+        preflightOnly: false,
+        runSource: 'run-all',
+        searchTrialCount,
+      });
+      queued.push({
+        nodeId: id,
+        mode: result.mode,
+        runId: result?.run?.id || null,
+      });
+      // eslint-disable-next-line no-await-in-loop
+      const next = await treeStateService.readProjectState({ project, server });
+      currentState = treeStateService.normalizeState(next.state);
+    }
+
+    return res.status(202).json({
+      projectId: project.id,
+      scope,
+      fromNodeId: fromNodeId || null,
+      queued,
+      blocked,
+      summary: {
+        scopedNodes: orderedIds.length,
+        queued: queued.length,
+        blocked: blocked.length,
+      },
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to run all tree steps'));
+  }
+});
+
+router.post('/projects/:projectId/tree/control/pause', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const reason = String(req.body?.reason || 'Paused by user').trim();
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const result = await treeStateService.patchProjectState({
+      project,
+      server,
+      mutate: (state) => treeStateService.setQueuePaused(state, true, reason),
+    });
+    return res.json({
+      projectId: project.id,
+      state: result.state,
+      paused: true,
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to pause tree queue'));
+  }
+});
+
+router.post('/projects/:projectId/tree/control/resume', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const result = await treeStateService.patchProjectState({
+      project,
+      server,
+      mutate: (state) => treeStateService.setQueuePaused(state, false, ''),
+    });
+    return res.json({
+      projectId: project.id,
+      state: result.state,
+      paused: false,
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to resume tree queue'));
+  }
+});
+
+router.post('/projects/:projectId/tree/control/abort', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const { state } = await treeStateService.readProjectState({ project, server });
+    const queueItems = Array.isArray(state?.queue?.items) ? state.queue.items : [];
+    const cancelled = [];
+    for (const item of queueItems) {
+      const runId = String(item?.runId || '').trim();
+      if (!runId) continue;
+      // eslint-disable-next-line no-await-in-loop
+      await researchOpsRunner.cancelRun(getUserId(req), runId).catch(() => null);
+      cancelled.push(runId);
+    }
+    const result = await treeStateService.patchProjectState({
+      project,
+      server,
+      mutate: (current) => {
+        const next = treeStateService.setQueuePaused(current, true, 'Aborted by user');
+        next.queue.items = [];
+        next.updatedAt = new Date().toISOString();
+        return next;
+      },
+    });
+    return res.json({
+      projectId: project.id,
+      state: result.state,
+      cancelledRunIds: cancelled,
+      cancelledCount: cancelled.length,
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to abort tree queue'));
+  }
+});
+
+router.get('/projects/:projectId/tree/nodes/:nodeId/search', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+    const refresh = parseBoolean(req.query.refresh, false);
+
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const [{ state }, { plan }] = await Promise.all([
+      treeStateService.readProjectState({ project, server }),
+      treePlanService.readProjectPlan({ project, server }),
+    ]);
+
+    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+
+    const currentSearch = state?.search?.[nodeId] || {
+      searchNodeId: nodeId,
+      algorithm: 'mcts',
+      budget: { max_trials: 24, parallel: 4, max_depth: 3, max_gpu_hours: 2 },
+      trials: [],
+      updatedAt: new Date().toISOString(),
+    };
+    const nextSearch = refresh
+      ? await searchExecutorService.refreshSearchNodeTrials({
+        userId: getUserId(req),
+        searchNode: currentSearch,
+        store: researchOpsStore,
+      })
+      : currentSearch;
+
+    if (refresh) {
+      const nextState = treeStateService.normalizeState(state);
+      nextState.search = {
+        ...(nextState.search && typeof nextState.search === 'object' ? nextState.search : {}),
+        [nodeId]: nextSearch,
+      };
+      nextState.updatedAt = new Date().toISOString();
+      await treeStateService.writeProjectState({ project, server, state: nextState });
+    }
+
+    return res.json({
+      projectId: project.id,
+      nodeId,
+      search: nextSearch,
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to load node search state'));
+  }
+});
+
+router.post('/projects/:projectId/tree/nodes/:nodeId/promote/:trialId', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    const trialId = String(req.params.trialId || '').trim();
+    const promotedNodeId = String(req.body?.newNodeId || '').trim();
+    if (!projectId || !nodeId || !trialId) {
+      return res.status(400).json({ error: 'projectId, nodeId and trialId are required' });
+    }
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const [{ plan }, { state }] = await Promise.all([
+      treePlanService.readProjectPlan({ project, server }),
+      treeStateService.readProjectState({ project, server }),
+    ]);
+
+    const searchNode = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+    if (!searchNode) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+    const trials = Array.isArray(state?.search?.[nodeId]?.trials) ? state.search[nodeId].trials : [];
+    const trial = trials.find((item) => String(item?.id || '').trim() === trialId);
+    if (!trial) return res.status(404).json({ error: `Trial not found: ${trialId}` });
+
+    const status = String(trial?.status || '').trim().toUpperCase();
+    if (!['PASSED', 'SUCCEEDED'].includes(status)) {
+      return res.status(409).json({
+        code: 'TRIAL_NOT_PROMOTABLE',
+        error: `Only PASSED trial can be promoted (current status: ${status || 'UNKNOWN'})`,
+      });
+    }
+
+    const patch = searchExecutorService.buildPromotionPatch({
+      searchNode,
+      trial,
+      promotedNodeId,
+    });
+    const result = await treePlanService.applyProjectPlanPatches({
+      project,
+      server,
+      patches: [patch],
+      state,
+    });
+    return res.json({
+      projectId: project.id,
+      nodeId,
+      trialId,
+      promotedNodeId: patch?.node?.id || promotedNodeId,
+      plan: result.plan,
+      impact: result.impact,
+      validation: result.validation,
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to promote search trial'));
+  }
+});
+
+router.get('/runs/:runId/context-pack', async (req, res) => {
+  try {
+    const runId = String(req.params.runId || '').trim();
+    if (!runId) return res.status(400).json({ error: 'runId is required' });
+    const userId = getUserId(req);
+    const run = await researchOpsStore.getRun(userId, runId);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+    const project = await researchOpsStore.getProject(userId, run.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const nodeId = String(run?.metadata?.nodeId || run?.metadata?.treeNodeId || '').trim();
+    let node = {
+      id: nodeId || 'adhoc',
+      title: 'Run context',
+      kind: 'experiment',
+      commands: [{ run: String(run?.metadata?.experimentCommand || '').trim() }],
+      checks: [],
+      assumption: [],
+      target: [],
+      git: { base: String(run?.metadata?.baseCommit || 'HEAD').trim() },
+    };
+    try {
+      const { project: resolvedProject, server } = await resolveProjectContext(userId, run.projectId);
+      const [{ plan }, { state }] = await Promise.all([
+        treePlanService.readProjectPlan({ project: resolvedProject, server }),
+        treeStateService.readProjectState({ project: resolvedProject, server }),
+      ]);
+      if (nodeId) {
+        const planNode = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+        if (planNode) node = planNode;
+      }
+      const runIntent = contextRouterService.buildRunIntent({
+        project,
+        node,
+        state,
+        run,
+      });
+      const routedContext = await contextRouterService.routeContextForIntent({
+        userId,
+        project,
+        runIntent,
+        store: researchOpsStore,
+      });
+      const pack = await contextPackService.buildRoutedContextPack(userId, {
+        runId: run.id,
+        projectId: project.id,
+        runIntent,
+        routedContext,
+      });
+      return res.json({ pack });
+    } catch (innerError) {
+      console.warn('[ResearchOps] routed context pack fallback to legacy builder:', innerError?.message || innerError);
+      const pack = await contextPackService.buildContextPack(userId, {
+        runId: run.id,
+        projectId: project.id,
+        contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
+      });
+      return res.json({ pack, mode: 'legacy' });
+    }
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to build context pack'));
+  }
+});
+
+router.get('/projects/:projectId/context/repo-map', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const commit = String(req.query.commit || '').trim();
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const result = await repoMapService.buildRepoMap({
+      project,
+      server,
+      commit,
+      force: false,
+    });
+    return res.json({
+      projectId: project.id,
+      ...result,
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to build repo map'));
+  }
+});
+
+router.post('/projects/:projectId/context/repo-map/rebuild', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const commit = String(req.body?.commit || '').trim();
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const result = await repoMapService.buildRepoMap({
+      project,
+      server,
+      commit,
+      force: true,
+    });
+    return res.json({
+      projectId: project.id,
+      ...result,
+    });
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to rebuild repo map'));
   }
 });
 

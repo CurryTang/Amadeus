@@ -220,21 +220,77 @@ async function listKnowledgeAssets(userId, {
   });
   const total = Number(countResult.rows?.[0]?.total || 0);
 
-  const rowsResult = await db.execute({
+  const idResult = await db.execute({
     sql: `
-      SELECT
-        ka.*
+      SELECT DISTINCT
+        ka.id
       FROM knowledge_assets ka
       ${joinClause}
       WHERE ${whereClause}
-      GROUP BY ka.id
       ORDER BY ka.updated_at DESC, ka.id DESC
       LIMIT ? OFFSET ?
     `,
     args: [...args, cap, skip],
   });
+  const orderedIds = idResult.rows
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!orderedIds.length) {
+    return {
+      items: [],
+      total,
+      hasMore: skip < total,
+      offset: skip,
+      limit: cap,
+    };
+  }
 
-  const items = rowsResult.rows.map((row) => mapAssetRow(row, { includeBody }));
+  const bodyField = includeBody ? 'body_md' : 'NULL AS body_md';
+  const selectFields = `
+    id,
+    user_id,
+    asset_type,
+    title,
+    summary,
+    ${bodyField},
+    source_provider,
+    source_session_id,
+    source_message_id,
+    source_url,
+    object_key,
+    mime_type,
+    size_bytes,
+    content_sha256,
+    external_document_id,
+    tags,
+    metadata_json,
+    created_at,
+    updated_at
+  `;
+  const MAX_IN_CLAUSE = 50;
+  const rows = [];
+  for (let start = 0; start < orderedIds.length; start += MAX_IN_CLAUSE) {
+    const chunkIds = orderedIds.slice(start, start + MAX_IN_CLAUSE);
+    // Turso/libsql can stall on very large IN clauses; fetch in small chunks.
+    // eslint-disable-next-line no-await-in-loop
+    const chunkResult = await db.execute({
+      sql: `
+        SELECT
+          ${selectFields}
+        FROM knowledge_assets
+        WHERE user_id = ? AND id IN (${placeholders(chunkIds.length)})
+      `,
+      args: [uid, ...chunkIds],
+    });
+    rows.push(...chunkResult.rows);
+  }
+  const rowById = new Map(
+    rows.map((row) => [Number(row.id), row])
+  );
+  const items = orderedIds
+    .map((id) => rowById.get(id))
+    .filter(Boolean)
+    .map((row) => mapAssetRow(row, { includeBody }));
   return {
     items,
     total,

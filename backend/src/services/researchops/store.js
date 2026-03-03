@@ -73,6 +73,34 @@ function cleanString(value) {
   return next || '';
 }
 
+function encodeCursorPayload(payload = {}) {
+  const raw = JSON.stringify(payload || {});
+  return Buffer.from(raw, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function decodeCursorPayload(cursor = '') {
+  const token = cleanString(cursor);
+  if (!token) return null;
+  try {
+    const base64 = token.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = `${base64}${'='.repeat((4 - (base64.length % 4 || 4)) % 4)}`;
+    const parsed = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+    const createdAt = cleanString(parsed?.createdAt);
+    const id = cleanString(parsed?.id);
+    if (!createdAt || !id) return null;
+    return { createdAt, id };
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildRunCursor(run = {}) {
+  const createdAt = cleanString(run?.createdAt);
+  const id = cleanString(run?.id);
+  if (!createdAt || !id) return '';
+  return encodeCursorPayload({ createdAt, id });
+}
+
 function normalizeKnowledgeGroupIds(input) {
   if (!Array.isArray(input)) return [];
   const seen = new Set();
@@ -911,6 +939,84 @@ async function listRuns(userId, { projectId = '', status = '', limit = 80 } = {}
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .slice(0, cap)
     .map(runShape);
+}
+
+async function listRunsPage(userId, {
+  projectId = '',
+  status = '',
+  limit = 20,
+  cursor = '',
+} = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const normalizedProjectId = cleanString(projectId);
+  const normalizedStatus = cleanString(status).toUpperCase();
+  const cap = toInt(limit, 20, 1, 400);
+  const cursorData = decodeCursorPayload(cursor);
+
+  if (storeMode === 'mongodb') {
+    const filter = { userId: uid };
+    if (normalizedProjectId) filter.projectId = normalizedProjectId;
+    if (normalizedStatus) filter.status = normalizedStatus;
+    if (cursorData) {
+      filter.$or = [
+        { createdAt: { $lt: cursorData.createdAt } },
+        { createdAt: cursorData.createdAt, id: { $lt: cursorData.id } },
+      ];
+    }
+
+    const docs = await mongoDb.collection('researchops_runs')
+      .find(filter)
+      .sort({ createdAt: -1, id: -1 })
+      .limit(cap + 1)
+      .toArray();
+
+    const hasMore = docs.length > cap;
+    const pageDocs = hasMore ? docs.slice(0, cap) : docs;
+    const items = pageDocs.map(runShape);
+    const nextCursor = hasMore && items.length > 0
+      ? buildRunCursor(items[items.length - 1])
+      : '';
+    return {
+      items,
+      hasMore,
+      nextCursor,
+    };
+  }
+
+  const all = memory.runs
+    .filter((doc) => doc.userId === uid)
+    .filter((doc) => !normalizedProjectId || doc.projectId === normalizedProjectId)
+    .filter((doc) => !normalizedStatus || doc.status === normalizedStatus)
+    .sort((a, b) => {
+      const createdAtDiff = String(b.createdAt).localeCompare(String(a.createdAt));
+      if (createdAtDiff !== 0) return createdAtDiff;
+      return String(b.id).localeCompare(String(a.id));
+    });
+
+  let filtered = all;
+  if (cursorData) {
+    filtered = all.filter((doc) => (
+      String(doc.createdAt).localeCompare(cursorData.createdAt) < 0
+      || (
+        String(doc.createdAt) === cursorData.createdAt
+        && String(doc.id).localeCompare(cursorData.id) < 0
+      )
+    ));
+  }
+
+  const page = filtered.slice(0, cap + 1);
+  const hasMore = page.length > cap;
+  const pageDocs = hasMore ? page.slice(0, cap) : page;
+  const items = pageDocs.map(runShape);
+  const nextCursor = hasMore && items.length > 0
+    ? buildRunCursor(items[items.length - 1])
+    : '';
+  return {
+    items,
+    hasMore,
+    nextCursor,
+  };
 }
 
 async function getRun(userId, runId) {
@@ -2542,6 +2648,7 @@ module.exports = {
   updateIdea,
   enqueueRun,
   listRuns,
+  listRunsPage,
   getRun,
   updateRunStatus,
   patchRunMeta,

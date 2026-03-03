@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
 const { requireAuth } = require('../middleware/auth');
 const config = require('../config');
 const paperTracker = require('../services/paper-tracker.service');
@@ -45,8 +46,174 @@ const FEED_REFRESH_STARTUP_DELAY_MS = parseInt(
   process.env.TRACKER_FEED_REFRESH_STARTUP_DELAY_MS || '45000',
   10
 );
+const TRACKER_STALE_RUN_TRIGGER_MS = (() => {
+  const raw = parseInt(process.env.TRACKER_STALE_RUN_TRIGGER_MS || String(FEED_CACHE_TTL_MS), 10);
+  if (!Number.isFinite(raw)) return FEED_CACHE_TTL_MS;
+  return Math.max(60 * 60 * 1000, raw);
+})();
+const TRACKER_STALE_PROXY_RETRY_MS = (() => {
+  const raw = parseInt(process.env.TRACKER_STALE_PROXY_RETRY_MS || String(10 * 60 * 1000), 10);
+  if (!Number.isFinite(raw)) return 10 * 60 * 1000;
+  return Math.max(30 * 1000, raw);
+})();
 
 let feedRefreshRunning = false;
+let staleProxyTriggerInFlight = false;
+let staleProxyLastAttemptAt = 0;
+
+function getLastRunAgeMs(lastRunAt) {
+  if (!lastRunAt) return Number.POSITIVE_INFINITY;
+  const ms = new Date(lastRunAt).getTime();
+  if (!Number.isFinite(ms)) return Number.POSITIVE_INFINITY;
+  return Date.now() - ms;
+}
+
+function maybeTriggerStaleTrackerRun(reason = 'client_check') {
+  if (config.tracker?.staleAutoRun === false) return false;
+  if (!config.tracker?.enabled) return false;
+  // In proxy-heavy mode we should not unexpectedly start local heavy jobs.
+  if (config.tracker?.proxyHeavyOps) return false;
+
+  const status = paperTracker.getStatus();
+  if (status?.running) return false;
+
+  const ageMs = getLastRunAgeMs(status?.lastRunAt);
+  if (Number.isFinite(ageMs) && ageMs < TRACKER_STALE_RUN_TRIGGER_MS) {
+    return false;
+  }
+
+  console.log(`[tracker] stale tracker run triggered (${reason}), ageMs=${Math.round(ageMs)}`);
+  paperTracker.runAll().catch((error) => {
+    console.error(`[tracker] stale tracker run failed (${reason}):`, error.message || error);
+  });
+  return true;
+}
+
+async function maybeTriggerStaleProxyRunFromStatus(proxyStatus, reason = 'status_request') {
+  if (config.tracker?.staleAutoRun === false) return false;
+  if (config.tracker?.staleProxyAutoRun === false) return false;
+  if (!config.tracker?.proxyHeavyOps) return false;
+  if (staleProxyTriggerInFlight) return false;
+
+  const now = Date.now();
+  if (Number.isFinite(staleProxyLastAttemptAt) && now - staleProxyLastAttemptAt < TRACKER_STALE_PROXY_RETRY_MS) {
+    return false;
+  }
+
+  if (proxyStatus?.running) return false;
+
+  const ageMs = getLastRunAgeMs(proxyStatus?.lastRunAt);
+  if (Number.isFinite(ageMs) && ageMs < TRACKER_STALE_RUN_TRIGGER_MS) {
+    return false;
+  }
+
+  staleProxyTriggerInFlight = true;
+  staleProxyLastAttemptAt = now;
+  try {
+    await trackerProxy.runAll();
+    console.log(`[tracker] stale proxy run triggered (${reason}), ageMs=${Math.round(ageMs)}`);
+    return true;
+  } catch (error) {
+    console.warn(`[tracker] stale proxy run skipped (${reason}):`, error.message || error);
+    return false;
+  } finally {
+    staleProxyTriggerInFlight = false;
+  }
+}
+
+function normalizeStorageStatePath(rawPath) {
+  return String(rawPath || '').trim();
+}
+
+function detectCrossOsPath(pathValue = '') {
+  if (!pathValue) return false;
+  if (process.platform === 'linux' && pathValue.startsWith('/Users/')) return true;
+  if (process.platform === 'darwin' && pathValue.startsWith('/home/')) return true;
+  if (process.platform === 'win32' && pathValue.startsWith('/')) return true;
+  return false;
+}
+
+function getPlaywrightRuntimeStatus() {
+  try {
+    // Lazy-check runtime availability to avoid startup crash when Playwright is optional.
+    // eslint-disable-next-line global-require
+    const chromium = require('playwright').chromium;
+    const executablePath = normalizeStorageStatePath(chromium.executablePath?.() || '');
+    const chromiumExecutableExists = Boolean(executablePath) && fs.existsSync(executablePath);
+    return {
+      playwrightInstalled: true,
+      chromiumExecutableExists,
+      chromiumExecutablePath: executablePath || null,
+    };
+  } catch (error) {
+    return {
+      playwrightInstalled: false,
+      chromiumExecutableExists: false,
+      chromiumExecutablePath: null,
+      playwrightError: error.message || String(error),
+    };
+  }
+}
+
+async function buildTwitterPlaywrightSetupStatus() {
+  const requireAuthSession = process.env.X_PLAYWRIGHT_REQUIRE_SESSION !== 'false';
+  const envStorageStatePath = normalizeStorageStatePath(process.env.X_PLAYWRIGHT_STORAGE_STATE_PATH || '');
+  const runtime = getPlaywrightRuntimeStatus();
+  const sources = await paperTracker.getSources();
+
+  const twitterPlaywrightSources = sources
+    .filter((source) => String(source?.type || '').toLowerCase() === 'twitter')
+    .filter((source) => String(source?.config?.mode || 'nitter').toLowerCase() === 'playwright');
+
+  const sourceStatuses = twitterPlaywrightSources.map((source) => {
+    const sourcePath = normalizeStorageStatePath(source?.config?.storageStatePath || envStorageStatePath);
+    const sourcePathExists = sourcePath ? fs.existsSync(sourcePath) : false;
+    return {
+      id: source.id,
+      name: source.name,
+      storageStatePath: sourcePath || null,
+      storageStatePathExists: sourcePathExists,
+      usingEnvPath: !normalizeStorageStatePath(source?.config?.storageStatePath),
+      pathLooksCrossOs: sourcePath ? detectCrossOsPath(sourcePath) : false,
+    };
+  });
+
+  const issues = [];
+  if (!runtime.playwrightInstalled) {
+    issues.push('Playwright package is not installed on backend node.');
+  } else if (!runtime.chromiumExecutableExists) {
+    issues.push('Playwright Chromium executable is missing. Run: npx playwright install chromium');
+  }
+
+  if (requireAuthSession && sourceStatuses.length > 0) {
+    const missingSession = sourceStatuses.some((source) => !source.storageStatePathExists);
+    if (missingSession) {
+      issues.push('One or more Twitter Playwright sources do not have a valid session file.');
+    }
+  }
+
+  if (sourceStatuses.some((source) => source.pathLooksCrossOs)) {
+    issues.push('Detected cross-OS session path (for example /Users/... on Linux).');
+  }
+
+  const ready = issues.length === 0;
+  return {
+    ready,
+    requireAuthSession,
+    platform: process.platform,
+    envStorageStatePath: envStorageStatePath || null,
+    envStorageStatePathExists: envStorageStatePath ? fs.existsSync(envStorageStatePath) : false,
+    envPathLooksCrossOs: envStorageStatePath ? detectCrossOsPath(envStorageStatePath) : false,
+    playwrightInstalled: runtime.playwrightInstalled,
+    chromiumExecutableExists: runtime.chromiumExecutableExists,
+    chromiumExecutablePath: runtime.chromiumExecutablePath,
+    playwrightError: runtime.playwrightError || null,
+    totalTwitterPlaywrightSources: sourceStatuses.length,
+    sourceStatuses,
+    issues,
+    setupCommand: 'cd backend && npm run setup:x-session -- --out /home/<user>/.playwright/x-session.json',
+  };
+}
 
 function normalizeArxivId(raw) {
   const value = String(raw || '').trim();
@@ -723,6 +890,7 @@ startFeedRefreshScheduler();
 router.get('/feed', async (req, res) => {
   try {
     const debug = req.query.debug === '1';
+    const staleRunTriggered = !debug ? maybeTriggerStaleTrackerRun('feed_request') : false;
     const parsedLimit = parseInt(req.query.limit || '5', 10);
     const parsedOffset = parseInt(req.query.offset || '0', 10);
     const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 50)) : 5;
@@ -783,6 +951,7 @@ router.get('/feed', async (req, res) => {
           perSource: [],
           sourceCount: 0,
           refreshInProgress: true,
+          staleRunTriggered,
           warming: true,
           message: 'Tracker feed is warming up. Please retry in a few seconds.',
         });
@@ -838,6 +1007,7 @@ router.get('/feed', async (req, res) => {
       perSource: Array.isArray(snapshot.perSource) ? snapshot.perSource : [],
       sourceCount: Number(snapshot.sourceCount || 0) || 0,
       refreshInProgress: feedRefreshRunning,
+      staleRunTriggered,
     });
   } catch (e) {
     console.error('[tracker] GET /feed error:', e);
@@ -945,6 +1115,13 @@ router.post('/run', requireAuth, async (req, res) => {
         await trackerProxy.runAll();
         return res.json({ ok: true, message: 'Tracker run started on desktop via FRP', proxied: true });
       } catch (proxyError) {
+        if (config.tracker?.proxyStrict) {
+          return res.status(503).json({
+            error: `Desktop tracker service is not available: ${proxyError.message || 'proxy unavailable'}`,
+            code: 'TRACKER_PROXY_UNAVAILABLE',
+            proxied: true,
+          });
+        }
         console.warn('[tracker] proxy run failed, falling back to local:', proxyError.message);
       }
     }
@@ -966,6 +1143,13 @@ router.post('/sources/:id/run', requireAuth, async (req, res) => {
         await trackerProxy.runSource(Number(id));
         return res.json({ ok: true, message: `Source ${id} run started on desktop via FRP`, proxied: true });
       } catch (proxyError) {
+        if (config.tracker?.proxyStrict) {
+          return res.status(503).json({
+            error: `Desktop tracker service is not available: ${proxyError.message || 'proxy unavailable'}`,
+            code: 'TRACKER_PROXY_UNAVAILABLE',
+            proxied: true,
+          });
+        }
         console.warn(`[tracker] proxy source run failed for ${id}, falling back to local:`, proxyError.message);
       }
     }
@@ -989,12 +1173,22 @@ router.get('/status', async (req, res) => {
   if (config.tracker?.proxyHeavyOps) {
     try {
       const status = await trackerProxy.getStatus();
-      return res.json({ ...status, proxied: true });
+      const staleRunTriggered = await maybeTriggerStaleProxyRunFromStatus(status, 'status_request');
+      return res.json({ ...status, proxied: true, staleRunTriggered });
     } catch (e) {
+      if (config.tracker?.proxyStrict) {
+        return res.status(503).json({
+          error: `Desktop tracker service is not available: ${e.message || 'proxy unavailable'}`,
+          code: 'TRACKER_PROXY_UNAVAILABLE',
+          proxied: true,
+          staleRunTriggered: false,
+        });
+      }
       console.warn('[tracker] proxy status failed, falling back to local:', e.message);
     }
   }
-  return res.json({ ...paperTracker.getStatus(), proxied: false });
+  const staleRunTriggered = maybeTriggerStaleTrackerRun('status_request');
+  return res.json({ ...paperTracker.getStatus(), proxied: false, staleRunTriggered });
 });
 
 // GET /api/tracker/twitter/posts — recently archived twitter/x posts
@@ -1012,6 +1206,17 @@ router.get('/twitter/posts', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/tracker/twitter/playwright/setup-status — runtime + credential readiness (auth required)
+router.get('/twitter/playwright/setup-status', requireAuth, async (req, res) => {
+  try {
+    const status = await buildTwitterPlaywrightSetupStatus();
+    res.json(status);
+  } catch (e) {
+    console.error('[tracker] GET /twitter/playwright/setup-status error:', e);
+    res.status(500).json({ error: e.message || 'Failed to inspect twitter playwright setup' });
+  }
+});
+
 // POST /api/tracker/twitter/playwright/preview — scrape latest paper posts (auth required)
 router.post('/twitter/playwright/preview', requireAuth, async (req, res) => {
   try {
@@ -1024,6 +1229,13 @@ router.post('/twitter/playwright/preview', requireAuth, async (req, res) => {
         const result = await trackerProxy.previewTwitter(normalizedConfig);
         return res.json({ ...result, proxied: true });
       } catch (proxyError) {
+        if (config.tracker?.proxyStrict) {
+          return res.status(503).json({
+            error: `Desktop tracker service is not available: ${proxyError.message || 'proxy unavailable'}`,
+            code: 'TRACKER_PROXY_UNAVAILABLE',
+            proxied: true,
+          });
+        }
         console.warn('[tracker] proxy twitter preview failed, falling back to local:', proxyError.message);
       }
     }
