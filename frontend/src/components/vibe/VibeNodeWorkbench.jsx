@@ -65,9 +65,9 @@ function VibeNodeWorkbench({
       try {
         const data = JSON.parse(event.data);
         if (data.eventType === 'LOG_LINE' && data.message) {
-          setLiveLogs((prev) => [...prev.slice(-500), data.message]);
+          setLiveLogs((prev) => [...prev.slice(-499), data.message]);
         }
-        if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(data.payload?.status)) {
+        if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(data.status)) {
           es.close();
         }
       } catch (_) {}

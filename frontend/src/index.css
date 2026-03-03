@@ -7382,18 +7382,6 @@ button.vibe-skill-chip.is-active {
 .vibe-run-status--queued { background: #fef9c3; color: #92400e; }
 .vibe-run-status--cancel { background: #f1f5f9; color: #64748b; }
 
-/* Live log tail */
-.vibe-live-log {
-  background: #0f172a;
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  max-height: 160px;
-  overflow-y: auto;
-}
 .vibe-live-indicator {
   color: #f87171;
   font-size: 0.7rem;
