@@ -201,7 +201,7 @@ async function readDocument(filePath, prompt, options = {}) {
   if (filePath.toLowerCase().endsWith('.pdf')) {
     // Extract text from PDF since Codex can't read binary files
     try {
-      fileContent = await extractPdfText(filePath);
+      fileContent = (await extractPdfText(filePath)).replace(/\0/g, '');
       console.log(`[Codex CLI] Extracted ${fileContent.length} chars from PDF`);
     } catch (err) {
       console.error(`[Codex CLI] PDF text extraction failed: ${err.message}`);
