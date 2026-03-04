@@ -6231,6 +6231,102 @@ body > #d[id*="mermaid"] {
   max-width: 680px;
 }
 
+.vibe-skills-modal--editing {
+  max-width: 760px;
+}
+
+/* Clickable skill chip */
+.vibe-skill-chip--clickable {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.vibe-skill-chip--clickable:hover {
+  background: #c7d2fe;
+  border-color: #818cf8;
+  color: #3730a3;
+}
+
+/* Skill editor header */
+.vibe-skill-editor-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.vibe-skill-back-btn {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+  background: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.vibe-skill-back-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.vibe-skill-editor-name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Skill editor body */
+.vibe-skill-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.vibe-skill-editor-textarea {
+  width: 100%;
+  min-height: 360px;
+  box-sizing: border-box;
+  font-family: 'Fira Mono', 'Consolas', monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #1e293b;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.vibe-skill-editor-textarea:focus {
+  border-color: #6366f1;
+  background: #fff;
+}
+
+.vibe-skill-editor-loading {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.vibe-skill-editor-error {
+  font-size: 0.8rem;
+  color: #dc2626;
+  margin: 0;
+}
+
 .vibe-knowledge-modal {
   max-width: 1100px;
   max-height: 88vh;
@@ -9451,7 +9547,12 @@ button.vibe-skill-chip.is-active {
 /* ---- LibrarySettingsModal ---- */
 .settings-section { display: flex; flex-direction: column; gap: 16px; }
 .settings-hint { font-size: 0.82rem; color: #64748b; margin: 0; line-height: 1.5; }
-.settings-subtitle { font-size: 0.95rem; font-weight: 600; color: #1e3a4c; margin: 0; }
+.settings-subtitle { font-size: 0.95rem; font-weight: 600; color: #1e3a4c; margin: 0 0 10px; }
+.settings-provider-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; }
+.settings-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 140px; }
+.settings-label { font-size: 0.78rem; font-weight: 600; color: #475569; }
+.settings-select { padding: 7px 10px; border: 1px solid #d4deef; border-radius: 8px; font-size: 0.83rem; color: #0f172a; background: #fff; cursor: pointer; }
+.settings-select:focus { outline: none; border-color: #155eef; }
 .settings-round-row { display: flex; flex-direction: column; gap: 6px; }
 .settings-round-label { display: flex; justify-content: space-between; align-items: center; font-size: 0.83rem; font-weight: 600; color: #334155; }
 .settings-round-remove { background: none; border: none; color: #c73737; cursor: pointer; font-size: 1.1rem; padding: 0 4px; line-height: 1; }
@@ -9482,6 +9583,35 @@ button.vibe-skill-chip.is-active {
 .obs-export-retry-btn:hover { color: #b91c1c; }
 .obs-export-clear-btn { align-self: flex-start; background: none; border: 1px dashed #94a3b8; border-radius: 8px; padding: 6px 14px; font-size: 0.82rem; color: #64748b; cursor: pointer; margin-top: 4px; }
 .obs-export-clear-btn:hover { border-color: #155eef; color: #155eef; }
+.obs-export-empty-state { display: flex; flex-direction: column; gap: 8px; }
+.obs-export-sync-btn { align-self: flex-start; background: none; border: 1px solid #cbd5e1; border-radius: 8px; padding: 5px 12px; font-size: 0.8rem; color: #64748b; cursor: pointer; }
+.obs-export-sync-btn:hover { border-color: #155eef; color: #155eef; }
+
+/* ---- Skill cards (LibrarySettingsModal) ---- */
+.skill-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; background: #f8fafc; display: flex; flex-direction: column; gap: 8px; }
+.skill-card-header { display: flex; justify-content: space-between; align-items: center; }
+.skill-card-label { font-size: 0.78rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+.skill-resolved-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.skill-resolved-info { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.skill-name { font-size: 0.88rem; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.skill-badge { font-size: 0.72rem; padding: 2px 7px; border-radius: 999px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.skill-badge-url { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.skill-badge-created { background: #fdf4ff; color: #7e22ce; border: 1px solid #e9d5ff; }
+.skill-edit-btn { flex-shrink: 0; padding: 4px 10px; background: none; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.78rem; color: #475569; cursor: pointer; }
+.skill-edit-btn:hover { border-color: #155eef; color: #155eef; }
+.skill-edit-area { display: flex; flex-direction: column; gap: 6px; }
+.skill-input-prefix { display: flex; align-items: center; }
+.skill-type-icon { font-size: 1rem; }
+.skill-input { width: 100%; padding: 8px 10px; border: 1px solid #d4deef; border-radius: 8px; font-size: 0.83rem; font-family: inherit; resize: vertical; color: #0f172a; box-sizing: border-box; background: #fff; }
+.skill-input:focus { outline: none; border-color: #155eef; }
+.skill-input-hint { font-size: 0.75rem; color: #94a3b8; margin: 0; }
+.skill-cancel-btn { align-self: flex-start; background: none; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; color: #64748b; cursor: pointer; }
+.skill-cancel-btn:hover { border-color: #c73737; color: #c73737; }
+.skill-resolving { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #475569; }
+.skill-error { font-size: 0.82rem; color: #c73737; }
+@keyframes skill-spin { to { transform: rotate(360deg); } }
+.skill-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #d4deef; border-top-color: #155eef; border-radius: 50%; animation: skill-spin 0.7s linear infinite; flex-shrink: 0; }
+.skill-spinner-sm { width: 11px; height: 11px; border-width: 2px; }
 
 /* Research action bar — Obsidian export button */
 .research-obsidian-btn { padding: 7px 14px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.15s; }
@@ -9491,6 +9621,92 @@ button.vibe-skill-chip.is-active {
 /* ---- Obsidian vault export button on DocumentCard ---- */
 .vault-btn { background: #f0fdf4 !important; border-color: #6ee7b7 !important; color: #065f46 !important; }
 .vault-btn:hover { background: #dcfce7 !important; }
+
+/* ---- Obsidian Batch Progress Panel ---- */
+.obs-panel {
+  position: fixed;
+  bottom: 20px;
+  right: 24px;
+  width: 320px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08);
+  z-index: 2000;
+  overflow: hidden;
+  font-size: 0.83rem;
+}
+.obs-panel--minimized { width: 260px; }
+.obs-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.obs-panel-title {
+  font-weight: 700;
+  color: #1e3a4c;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.obs-panel-done-icon { color: #10b981; font-size: 0.9rem; }
+.obs-panel-count { color: #64748b; font-size: 0.78rem; flex: 1; }
+.obs-panel-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.obs-panel-clear {
+  background: none; border: 1px solid #cbd5e1; border-radius: 5px;
+  padding: 2px 7px; font-size: 0.72rem; color: #64748b; cursor: pointer;
+}
+.obs-panel-clear:hover { border-color: #155eef; color: #155eef; }
+.obs-panel-toggle {
+  background: none; border: none; color: #94a3b8; cursor: pointer;
+  font-size: 0.7rem; padding: 2px 4px; line-height: 1;
+}
+.obs-panel-toggle:hover { color: #1e3a4c; }
+.obs-panel-close {
+  background: none; border: none; color: #94a3b8; cursor: pointer;
+  font-size: 1rem; padding: 0 3px; line-height: 1; margin-left: 2px;
+}
+.obs-panel-close:hover { color: #e53e3e; }
+.obs-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.obs-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+}
+.obs-panel-item:hover { background: #f8fafc; }
+.obs-panel-status-icon { font-size: 0.85rem; flex-shrink: 0; width: 14px; text-align: center; }
+.obs-panel-queued    { color: #94a3b8; }
+.obs-panel-generating { color: #f59e0b; animation: obs-pulse 1.2s ease-in-out infinite; }
+.obs-panel-exported  { color: #10b981; }
+.obs-panel-failed    { color: #ef4444; }
+@keyframes obs-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.obs-panel-item-title {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #0f172a;
+}
+.obs-panel-retry {
+  background: none; border: none; color: #ef4444; cursor: pointer;
+  font-size: 1rem; padding: 0 2px; flex-shrink: 0;
+}
+.obs-panel-retry:hover { color: #b91c1c; }
+@keyframes obs-spin { to { transform: rotate(360deg); } }
+.obs-panel-spinner {
+  display: inline-block; width: 11px; height: 11px;
+  border: 2px solid #d4deef; border-top-color: #155eef;
+  border-radius: 50%; animation: obs-spin 0.7s linear infinite;
+}
 
 /* ---- ClarificationChat ---- */
 .clarif-chat { display: flex; flex-direction: column; gap: 0; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; overflow: hidden; }
@@ -9522,3 +9738,208 @@ button.vibe-skill-chip.is-active {
 /* ---- VibeNodeWorkbench run section ---- */
 .vibe-workbench-run-section { padding: 12px 14px; border-top: 1px solid #e2e8f0; background: #fff; display: flex; flex-direction: column; gap: 8px; }
 .vibe-workbench-run-btn { align-self: stretch; }
+
+/* ---- Jumpstart banner (shown when tree has no nodes) ---- */
+.vibe-jumpstart-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  margin: 20px;
+  background: linear-gradient(135deg, #f0f4ff 0%, #faf5ff 100%);
+  border: 1.5px dashed #a5b4fc;
+  border-radius: 14px;
+}
+
+.vibe-jumpstart-banner-icon {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.vibe-jumpstart-banner-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vibe-jumpstart-banner-body strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #312e81;
+}
+
+.vibe-jumpstart-banner-body span {
+  font-size: 0.8rem;
+  color: #6366f1;
+}
+
+.vibe-jumpstart-banner-btn {
+  flex-shrink: 0;
+}
+
+/* ---- JumpstartModal wizard ---- */
+.vibe-jumpstart-modal {
+  max-width: 560px;
+}
+
+.vibe-js-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vibe-js-step-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Category cards (step 0) */
+.vibe-js-category-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.vibe-js-category-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.vibe-js-category-card:hover {
+  border-color: #a5b4fc;
+  background: #f0f4ff;
+}
+
+.vibe-js-category-card.is-selected {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.vibe-js-category-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.vibe-js-category-card strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.vibe-js-category-desc {
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* Manager row (step 1) */
+.vibe-js-mgr-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.vibe-js-mgr-chip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #334155;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.vibe-js-mgr-chip:hover {
+  border-color: #a5b4fc;
+  background: #f0f4ff;
+}
+
+.vibe-js-mgr-chip.is-active {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vibe-js-mgr-hint {
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+/* Project type grid (step 1) */
+.vibe-js-type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.vibe-js-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.vibe-js-type-card:hover {
+  border-color: #a5b4fc;
+  background: #f0f4ff;
+}
+
+.vibe-js-type-card.is-selected {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.vibe-js-type-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.vibe-js-type-card strong {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.vibe-js-type-desc {
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.3;
+}
+
+.vibe-js-field-hint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin: 4px 0 0;
+}

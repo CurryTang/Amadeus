@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
+const fs = require('fs').promises;
 const { getDb } = require('../../db');
 const codexCliService = require('../../services/codex-cli.service');
 const geminiCliService = require('../../services/gemini-cli.service');
@@ -517,6 +518,42 @@ router.post('/skills/sync', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] syncLocalSkillsToRemote failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to sync skills to object storage') });
+  }
+});
+
+const SKILLS_ROOT = path.join(__dirname, '..', '..', '..', '..', 'skills');
+
+function resolveSkillMdPath(skillId) {
+  const safeName = path.basename(cleanString(skillId || ''));
+  if (!safeName) return null;
+  return path.join(SKILLS_ROOT, safeName, 'SKILL.md');
+}
+
+router.get('/skills/:skillId/content', async (req, res) => {
+  const mdPath = resolveSkillMdPath(req.params.skillId);
+  if (!mdPath) return res.status(400).json({ error: 'Invalid skill id' });
+  try {
+    const content = await fs.readFile(mdPath, 'utf8');
+    return res.json({ skillId: req.params.skillId, content });
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'Skill not found' });
+    console.error('[ResearchOps] getSkillContent failed:', err);
+    return res.status(500).json({ error: 'Failed to read skill' });
+  }
+});
+
+router.put('/skills/:skillId/content', async (req, res) => {
+  const mdPath = resolveSkillMdPath(req.params.skillId);
+  if (!mdPath) return res.status(400).json({ error: 'Invalid skill id' });
+  const { content } = req.body;
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
+  try {
+    await fs.mkdir(path.dirname(mdPath), { recursive: true });
+    await fs.writeFile(mdPath, content, 'utf8');
+    return res.json({ ok: true, skillId: req.params.skillId });
+  } catch (err) {
+    console.error('[ResearchOps] saveSkillContent failed:', err);
+    return res.status(500).json({ error: 'Failed to save skill' });
   }
 });
 

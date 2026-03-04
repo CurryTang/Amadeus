@@ -8,6 +8,8 @@ import VibeTreeCanvas from './vibe/VibeTreeCanvas';
 import VibePlanEditor from './vibe/VibePlanEditor';
 import VibeNodeWorkbench from './vibe/VibeNodeWorkbench';
 import QuickBashModal from './vibe/QuickBashModal';
+import TodoNodeModal from './vibe/TodoNodeModal';
+import JumpstartModal from './vibe/JumpstartModal';
 
 const SSH_BLOCKING_ERROR_CODES = new Set([
   'SSH_SERVER_NOT_FOUND',
@@ -346,6 +348,35 @@ function rankCodePathCandidates(paths = [], query = '', tokens = [], limit = 10)
     .slice(0, cap);
 }
 
+// ─── Module-level mention search cache ───────────────────────────────────────
+// Lives outside the component so it persists across re-renders and project
+// switches (keyed by projectId). Max 400 entries; oldest 80 evicted when full.
+const _MENTION_TTL = 5 * 60 * 1000; // 5 min
+const _mentionCache = new Map(); // key: "pid:query" → { items: string[], ts: number }
+
+function _mentionGet(pid, q) {
+  const hit = _mentionCache.get(`${pid}:${q}`);
+  return hit && Date.now() - hit.ts < _MENTION_TTL ? hit.items : null;
+}
+function _mentionSet(pid, q, items) {
+  _mentionCache.set(`${pid}:${q}`, { items, ts: Date.now() });
+  if (_mentionCache.size > 400) {
+    const oldest = [..._mentionCache.keys()].slice(0, 80);
+    oldest.forEach((k) => _mentionCache.delete(k));
+  }
+}
+// If we have a cached result for a prefix of q, filter it client-side.
+// Avoids a network round-trip when the user just typed another character.
+function _mentionGetByPrefix(pid, q) {
+  const ql = q.toLowerCase();
+  for (let n = q.length - 1; n >= 2; n--) {
+    const items = _mentionGet(pid, q.slice(0, n));
+    if (items) return items.filter((p) => p.toLowerCase().includes(ql));
+  }
+  return null;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [projects, setProjects] = useState([]);
   const [ideas, setIdeas] = useState([]);
@@ -367,7 +398,19 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [showEnqueueRunModal, setShowEnqueueRunModal] = useState(false);
   const [showKnowledgeHubModal, setShowKnowledgeHubModal] = useState(false);
   const [showSkillsModal, setShowSkillsModal] = useState(false);
+  const [editingSkill, setEditingSkill] = useState(null); // { id, name } | null
+  const [skillEditorContent, setSkillEditorContent] = useState('');
+  const [skillEditorLoading, setSkillEditorLoading] = useState(false);
+  const [skillEditorSaving, setSkillEditorSaving] = useState(false);
+  const [skillEditorError, setSkillEditorError] = useState('');
   const [showQuickBash, setShowQuickBash] = useState(false);
+  const [showJumpstart, setShowJumpstart] = useState(false);
+  const [todoNodeTarget, setTodoNodeTarget] = useState(null); // { todo } | null
+  const [todoCardsExpanded, setTodoCardsExpanded] = useState(false);
+  const [todoEditTarget, setTodoEditTarget] = useState(null); // { todo } | null
+  const [todoEditTitle, setTodoEditTitle] = useState('');
+  const [todoEditHypothesis, setTodoEditHypothesis] = useState('');
+  const [todoEditBusy, setTodoEditBusy] = useState(false);
   const [showInsertStepModal, setShowInsertStepModal] = useState(false);
   const [insertStepJson, setInsertStepJson] = useState('');
   const [showCheckpointEditModal, setShowCheckpointEditModal] = useState(false);
@@ -418,6 +461,8 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [pinnedAssetIds, setPinnedAssetIds] = useState([]);
   const [agentSkill, setAgentSkill] = useState('implement');
   const [runProvider, setRunProvider] = useState('codex_cli'); // codex_cli | claude_code_cli
+  const [runModel, setRunModel] = useState(''); // empty = use server default
+  const [runReasoningEffort, setRunReasoningEffort] = useState('high'); // low | medium | high | extra-high
 
   const [selectedRunId, setSelectedRunId] = useState('');
   const [runReport, setRunReport] = useState(null);
@@ -444,11 +489,16 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const [aiEditBusy, setAiEditBusy] = useState(false);
   const [fileMentionOptions, setFileMentionOptions] = useState([]);
   const [fileMentionLoading, setFileMentionLoading] = useState(false);
+  const [promptMentionOptions, setPromptMentionOptions] = useState([]);
+  const [promptMentionLoading, setPromptMentionLoading] = useState(false);
+  const [promptMentionIdx, setPromptMentionIdx] = useState(-1);
   const [codeChatPrompt, setCodeChatPrompt] = useState('');
   const [proposalUploadBusy, setProposalUploadBusy] = useState(false);
   const [showKickoffPromptGenerate, setShowKickoffPromptGenerate] = useState(false);
   const [kickoffAiPrompt, setKickoffAiPrompt] = useState('');
   const kickoffProposalFileInputRef = useRef(null);
+  const promptTextareaRef = useRef(null);
+  const promptCursorRef = useRef(0);
   const [showAutopilotModal, setShowAutopilotModal] = useState(false);
   const [autopilotProposal, setAutopilotProposal] = useState('');
   const [autopilotMaxIter, setAutopilotMaxIter] = useState(10);
@@ -854,17 +904,22 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       setFileMentionOptions([]);
       return;
     }
+    // Serve from cache (exact hit or prefix-filtered superset)
+    const cached = _mentionGet(targetProjectId, q) ?? _mentionGetByPrefix(targetProjectId, q);
+    if (cached !== null) {
+      setFileMentionOptions(cached.slice(0, 12));
+      return;
+    }
     setFileMentionLoading(true);
     try {
       const response = await axios.get(`${apiUrl}/researchops/projects/${targetProjectId}/files/search`, {
         headers,
-        params: {
-          q,
-          limit: 12,
-        },
+        params: { q, limit: 20 },
       });
       if (selectedProjectRef.current !== targetProjectId) return;
-      setFileMentionOptions(Array.isArray(response.data?.items) ? response.data.items : []);
+      const items = Array.isArray(response.data?.items) ? response.data.items : [];
+      _mentionSet(targetProjectId, q, items);
+      setFileMentionOptions(items.slice(0, 12));
     } catch (err) {
       console.error('Failed to search project files:', err);
       setFileMentionOptions([]);
@@ -1045,9 +1100,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
         setTreePlan(planPayload);
         setTreeValidation(planRes.value?.data?.validation || null);
         setTreeRootSummary(planRes.value?.data?.rootSummary || null);
-        if (!selectedNodeIdRef.current && Array.isArray(planPayload?.nodes) && planPayload.nodes.length > 0) {
-          setSelectedNodeId(String(planPayload.nodes[0].id || ''));
-        } else if (!Array.isArray(planPayload?.nodes) || planPayload.nodes.length === 0) {
+        if (!Array.isArray(planPayload?.nodes) || planPayload.nodes.length === 0) {
           setSelectedNodeId('');
         }
       } else {
@@ -1888,6 +1941,26 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     setFileMentionOptions([]);
   }, []);
 
+  const applyPromptMention = useCallback((relativePath) => {
+    const textarea = promptTextareaRef.current;
+    if (!relativePath || !textarea) return;
+    const cursor = promptCursorRef.current;
+    const before = runPrompt.slice(0, cursor);
+    const after = runPrompt.slice(cursor);
+    const match = before.match(/@([^\s@]*)$/);
+    if (!match) return;
+    const newBefore = before.slice(0, before.length - match[0].length) + `@${relativePath} `;
+    setRunPrompt(newBefore + after);
+    setPromptMentionOptions([]);
+    setPromptMentionIdx(-1);
+    const newCursor = newBefore.length;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(newCursor, newCursor);
+      promptCursorRef.current = newCursor;
+    });
+  }, [runPrompt]);
+
   const handleToggleTodoStatus = useCallback(async (idea) => {
     if (!idea?.id) return;
     const status = String(idea.status || '').trim().toUpperCase();
@@ -2310,6 +2383,10 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     }
   }, [apiUrl, handleLoadSearchNode, headers, loadTreeWorkspace, selectedProjectId]);
 
+  const handleSelectNode = useCallback((nodeId) => {
+    setSelectedNodeId((prev) => (prev === String(nodeId) ? '' : String(nodeId)));
+  }, []);
+
   const handleTreeNodeAction = useCallback(async (action, node) => {
     const nodeId = String(node?.id || '').trim();
     const projectId = String(selectedProjectId || '').trim();
@@ -2437,6 +2514,34 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       // Error already surfaced by called helper.
     }
   }, [apiUrl, applyPlanPatches, headers, loadTreeWorkspace, promoteSearchWinner, runTreeAll, runTreeNodeStep, selectedProjectId]);
+
+  const handleInsertNodeFromTodo = useCallback(async (node) => {
+    await applyPlanPatches([{ op: 'add_node', node }]);
+  }, [applyPlanPatches]);
+
+  const openTodoEdit = useCallback((idea) => {
+    setTodoEditTarget({ todo: idea });
+    setTodoEditTitle(idea.title || '');
+    setTodoEditHypothesis(idea.hypothesis || '');
+  }, []);
+
+  const handleSaveTodoEdit = useCallback(async (e) => {
+    if (e?.preventDefault) e.preventDefault();
+    if (!todoEditTarget || todoEditBusy) return;
+    setTodoEditBusy(true);
+    try {
+      await axios.patch(`${apiUrl}/researchops/ideas/${todoEditTarget.todo.id}`, {
+        title: todoEditTitle.trim(),
+        hypothesis: todoEditHypothesis.trim(),
+      }, { headers });
+      setTodoEditTarget(null);
+      await loadAll({ silent: true });
+    } catch (err) {
+      console.error('Failed to update todo:', err);
+    } finally {
+      setTodoEditBusy(false);
+    }
+  }, [apiUrl, headers, loadAll, todoEditBusy, todoEditHypothesis, todoEditTarget, todoEditTitle]);
 
   const handleSaveNodeCommands = useCallback(async (nodeId, commands = []) => {
     try {
@@ -2675,7 +2780,7 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
           : {}),
       };
       const workflow = [
-        { id: 'agent_main', type: 'agent.run', inputs: { prompt: fullPrompt, provider: runProvider } },
+        { id: 'agent_main', type: 'agent.run', inputs: { prompt: fullPrompt, provider: runProvider, ...(runModel ? { model: runModel } : {}), ...(runProvider === 'codex_cli' && runReasoningEffort ? { reasoningEffort: runReasoningEffort } : {}) } },
         { id: 'report', type: 'report.render', inputs: { format: 'md+json' } },
       ];
       const payload = {
@@ -2744,6 +2849,43 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
   const closeSkillsModal = () => {
     if (syncingSkills || submitting) return;
     setShowSkillsModal(false);
+    setEditingSkill(null);
+    setSkillEditorContent('');
+    setSkillEditorError('');
+  };
+
+  const openSkillEditor = async (skill) => {
+    setEditingSkill(skill);
+    setSkillEditorContent('');
+    setSkillEditorError('');
+    setSkillEditorLoading(true);
+    try {
+      const res = await axios.get(`${apiUrl}/researchops/skills/${encodeURIComponent(skill.id)}/content`, { headers });
+      setSkillEditorContent(res.data.content || '');
+    } catch (err) {
+      setSkillEditorError(err?.response?.data?.error || 'Failed to load skill content');
+    } finally {
+      setSkillEditorLoading(false);
+    }
+  };
+
+  const saveSkillEditor = async () => {
+    if (!editingSkill) return;
+    setSkillEditorSaving(true);
+    setSkillEditorError('');
+    try {
+      await axios.put(
+        `${apiUrl}/researchops/skills/${encodeURIComponent(editingSkill.id)}/content`,
+        { content: skillEditorContent },
+        { headers },
+      );
+      setEditingSkill(null);
+      setSkillEditorContent('');
+    } catch (err) {
+      setSkillEditorError(err?.response?.data?.error || 'Failed to save skill');
+    } finally {
+      setSkillEditorSaving(false);
+    }
   };
 
   const openKnowledgeHubModal = () => {
@@ -2943,6 +3085,46 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
     return () => clearTimeout(timer);
   }, [aiEditTarget, searchProjectFiles, selectedProjectId]);
 
+  // Prompt textarea @ mention detection (with module-level cache)
+  useEffect(() => {
+    if (!selectedProjectId) { setPromptMentionOptions([]); return; }
+    const cursor = promptCursorRef.current;
+    const textBefore = runPrompt.slice(0, cursor);
+    const match = textBefore.match(/@([^\s@]*)$/);
+    if (!match || !match[1]) { setPromptMentionOptions([]); return; }
+    const query = match[1];
+
+    // Instant cache hit — no debounce, no network call
+    const cached = _mentionGet(selectedProjectId, query) ?? _mentionGetByPrefix(selectedProjectId, query);
+    if (cached !== null) {
+      setPromptMentionOptions(cached.slice(0, 5));
+      setPromptMentionIdx(-1);
+      return;
+    }
+
+    // Cache miss — debounce then fetch
+    const timer = setTimeout(async () => {
+      setPromptMentionLoading(true);
+      try {
+        const res = await axios.get(`${apiUrl}/researchops/projects/${selectedProjectId}/files/search`, {
+          headers,
+          params: { q: query, limit: 20 },
+        });
+        if (selectedProjectRef.current !== selectedProjectId) return;
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        _mentionSet(selectedProjectId, query, items);
+        setPromptMentionOptions(items.slice(0, 5));
+        setPromptMentionIdx(-1);
+      } catch {
+        setPromptMentionOptions([]);
+      } finally {
+        setPromptMentionLoading(false);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runPrompt, selectedProjectId]);
+
   useEffect(() => {
     if (!showKbFolderModal || !selectedProjectId || !kbSyncJob?.id) return;
     if (!['QUEUED', 'RUNNING'].includes(String(kbSyncJob.status || '').toUpperCase())) return;
@@ -3120,32 +3302,80 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
               {agentSkill === 'custom' && 'Open the advanced run builder to configure a custom workflow.'}
             </p>
             <form onSubmit={handleLaunchAgent} className="vibe-launcher-form">
-              <textarea
-                className="vibe-launcher-textarea"
-                id="vibe-launcher-input"
-                placeholder={
-                  agentSkill === 'implement'
-                    ? 'What should the agent implement or fix?  (Enter to launch, Shift+Enter for new line)'
-                    : agentSkill === 'experiment'
-                      ? 'Describe the experiment to run…  (Enter to launch)'
-                    : agentSkill === 'todo_manager'
-                        ? 'Ask about project TODO management: prioritize, clear, summarize, or execute-next…'
-                      : agentSkill === 'resource_kb'
-                        ? 'Ask questions over resource/ (papers, notes, RFMBench/RelBench evidence, code links)…'
-                      : agentSkill === 'code_chat'
-                        ? 'Ask the agent to inspect or explain code; it will auto-locate relevant files first…'
-                      : 'Describe the task…'
-                }
-                value={runPrompt}
-                onChange={(e) => setRunPrompt(e.target.value)}
-                rows={3}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleLaunchAgent(e);
+              <div className="vibe-launcher-mention-wrap">
+                {(promptMentionLoading || promptMentionOptions.length > 0) && (
+                  <div className="vibe-prompt-mention-dropdown">
+                    {promptMentionLoading ? (
+                      <span className="vibe-prompt-mention-searching">Searching…</span>
+                    ) : (
+                      promptMentionOptions.map((item, idx) => (
+                        <button
+                          key={item}
+                          type="button"
+                          className={`vibe-prompt-mention-item${idx === promptMentionIdx ? ' is-active' : ''}`}
+                          onMouseDown={(e) => { e.preventDefault(); applyPromptMention(item); }}
+                        >
+                          <span className="vibe-prompt-mention-at">@</span>{item}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                <textarea
+                  ref={promptTextareaRef}
+                  className="vibe-launcher-textarea"
+                  id="vibe-launcher-input"
+                  placeholder={
+                    agentSkill === 'implement'
+                      ? 'What should the agent implement or fix?  (Enter to launch, Shift+Enter for new line, @ to mention a file)'
+                      : agentSkill === 'experiment'
+                        ? 'Describe the experiment to run…  (Enter to launch, @ to mention a file)'
+                      : agentSkill === 'todo_manager'
+                          ? 'Ask about project TODO management: prioritize, clear, summarize, or execute-next…'
+                        : agentSkill === 'resource_kb'
+                          ? 'Ask questions over resource/ (papers, notes, RFMBench/RelBench evidence, code links)…'
+                        : agentSkill === 'code_chat'
+                          ? 'Ask the agent to inspect or explain code; it will auto-locate relevant files first…'
+                        : 'Describe the task… (@ to mention a file)'
                   }
-                }}
-              />
+                  value={runPrompt}
+                  onChange={(e) => {
+                    setRunPrompt(e.target.value);
+                    promptCursorRef.current = e.target.selectionStart;
+                  }}
+                  rows={3}
+                  onKeyDown={(e) => {
+                    if (promptMentionOptions.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setPromptMentionIdx((i) => Math.min(i + 1, promptMentionOptions.length - 1));
+                        return;
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setPromptMentionIdx((i) => Math.max(i - 1, 0));
+                        return;
+                      }
+                      if (e.key === 'Enter' && promptMentionIdx >= 0) {
+                        e.preventDefault();
+                        applyPromptMention(promptMentionOptions[promptMentionIdx]);
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setPromptMentionOptions([]);
+                        setPromptMentionIdx(-1);
+                        return;
+                      }
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleLaunchAgent(e);
+                    }
+                  }}
+                  onSelect={(e) => { promptCursorRef.current = e.target.selectionStart; }}
+                />
+              </div>
               <div className="vibe-launcher-footer">
                 <select
                   className="vibe-launcher-server"
@@ -3161,18 +3391,55 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                   <button
                     type="button"
                     className={`vibe-provider-chip${runProvider === 'codex_cli' ? ' is-active' : ''}`}
-                    onClick={() => setRunProvider('codex_cli')}
+                    onClick={() => { setRunProvider('codex_cli'); setRunModel(''); }}
                   >
                     Codex
                   </button>
                   <button
                     type="button"
                     className={`vibe-provider-chip${runProvider === 'claude_code_cli' ? ' is-active' : ''}`}
-                    onClick={() => setRunProvider('claude_code_cli')}
+                    onClick={() => { setRunProvider('claude_code_cli'); setRunModel(''); }}
                   >
                     Claude Code
                   </button>
                 </div>
+                <select
+                  className="vibe-launcher-model"
+                  value={runModel}
+                  onChange={(e) => setRunModel(e.target.value)}
+                  title="Model (empty = server default)"
+                >
+                  <option value="">Default model</option>
+                  {runProvider === 'codex_cli' ? (
+                    <>
+                      <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
+                      <option value="gpt-5.3-codex-spark">GPT-5.3-Codex-Spark</option>
+                      <option value="gpt-5.2-codex">GPT-5.2-Codex</option>
+                      <option value="gpt-5.1-codex-max">GPT-5.1-Codex-Max</option>
+                      <option value="gpt-5.2">GPT-5.2</option>
+                      <option value="gpt-5.1-codex-mini">GPT-5.1-Codex-Mini</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+                      <option value="claude-opus-4-6">Opus 4.6</option>
+                      <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+                    </>
+                  )}
+                </select>
+                {runProvider === 'codex_cli' && (
+                  <select
+                    className="vibe-launcher-model"
+                    value={runReasoningEffort}
+                    onChange={(e) => setRunReasoningEffort(e.target.value)}
+                    title="Reasoning effort"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="extra-high">Extra High</option>
+                  </select>
+                )}
                 <button
                   type="submit"
                   className="vibe-launch-btn"
@@ -3196,25 +3463,61 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                 {selectedProjectTodos.length === 0 ? (
                   <p className="vibe-empty">No open TODOs. Add one or generate from proposal.</p>
                 ) : (
-                  selectedProjectTodos.slice(0, 36).map((idea) => (
-                    <article key={idea.id} className="vibe-pm-task-card">
-                      <div className="vibe-pm-task-head">
-                        <strong title={idea.title}>{idea.title}</strong>
-                        <code>{String(idea.status || 'OPEN').toUpperCase()}</code>
-                      </div>
-                      <p title={idea.hypothesis}>{idea.hypothesis}</p>
-                      <div className="vibe-pm-task-actions">
-                        <button
-                          type="button"
-                          className="vibe-secondary-btn"
-                          onClick={() => handleToggleTodoStatus(idea)}
-                          disabled={todoBusy}
-                        >
-                          Done
-                        </button>
-                      </div>
-                    </article>
-                  ))
+                  <>
+                    {(todoCardsExpanded ? selectedProjectTodos : selectedProjectTodos.slice(0, 4)).map((idea) => (
+                      <article
+                        key={idea.id}
+                        className="vibe-pm-task-card"
+                        onClick={(e) => {
+                          if (e.target.closest('button')) return;
+                          openTodoEdit(idea);
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openTodoEdit(idea); }}
+                        title="Click to edit"
+                      >
+                        <div className="vibe-pm-task-head">
+                          <strong title={idea.title}>{idea.title}</strong>
+                          <div className="vibe-pm-task-head-right">
+                            <code>{String(idea.status || 'OPEN').toUpperCase()}</code>
+                            <span className="vibe-pm-edit-hint" aria-hidden="true">✎</span>
+                          </div>
+                        </div>
+                        <p title={idea.hypothesis}>{idea.hypothesis}</p>
+                        <div className="vibe-pm-task-actions">
+                          <button
+                            type="button"
+                            className="vibe-secondary-btn vibe-pm-done-btn"
+                            onClick={() => handleToggleTodoStatus(idea)}
+                            disabled={todoBusy}
+                            title="Mark as done"
+                          >
+                            Done
+                          </button>
+                          <button
+                            type="button"
+                            className="vibe-secondary-btn vibe-pm-node-btn"
+                            onClick={() => setTodoNodeTarget({ todo: idea })}
+                            title="Generate tree node from this TODO"
+                          >
+                            ⚡ Node
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                    {selectedProjectTodos.length > 4 && (
+                      <button
+                        type="button"
+                        className="vibe-pm-loadmore-btn"
+                        onClick={() => setTodoCardsExpanded((v) => !v)}
+                      >
+                        {todoCardsExpanded
+                          ? `↑ Show less`
+                          : `+${selectedProjectTodos.length - 4} more`}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
               <div className="vibe-inline-actions vibe-pm-actions">
@@ -3265,18 +3568,34 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                 />
                 {treeError && <div className="vibe-error">{treeError}</div>}
                 {treeLoading && !treePlan && <div className="vibe-card-note">Loading tree workspace...</div>}
+                {!treeLoading && selectedProjectId && (!treePlan || treePlan.nodes.length === 0) && (
+                  <div className="vibe-jumpstart-banner">
+                    <div className="vibe-jumpstart-banner-icon">🌱</div>
+                    <div className="vibe-jumpstart-banner-body">
+                      <strong>No plan nodes yet</strong>
+                      <span>Jump-start to create the first node — analyze an existing codebase or bootstrap a new environment.</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="vibe-launch-btn vibe-jumpstart-banner-btn"
+                      onClick={() => setShowJumpstart(true)}
+                    >
+                      ⚡ Jump-start
+                    </button>
+                  </div>
+                )}
                 <VibeTreeCanvas
                   plan={treePlan || { nodes: [] }}
                   treeState={treeState || { nodes: {} }}
                   mode={planMode}
                   selectedNodeId={selectedNodeId}
-                  onSelectNode={setSelectedNodeId}
+                  onSelectNode={handleSelectNode}
                   onNodeAction={handleTreeNodeAction}
                 />
               </section>
 
-              {selectedTreeNode && (
-                <section className="vibe-tree-layout-workbench-panel">
+              <section className={`vibe-tree-layout-workbench-panel${selectedTreeNode ? ' is-open' : ''}`}>
+                {selectedTreeNode && (
                   <VibeNodeWorkbench
                     node={selectedTreeNode}
                     nodeState={selectedTreeNodeState}
@@ -3287,9 +3606,13 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
                     searchLoading={searchLoading}
                     onSaveCommands={handleSaveNodeCommands}
                     onLoadSearch={handleLoadSearchNode}
+                    apiUrl={apiUrl}
+                    headers={headers}
+                    projectId={selectedProjectId}
+                    onRunStep={runTreeNodeStep}
                   />
-                </section>
-              )}
+                )}
+              </section>
             </div>
           </div>
 
@@ -4239,50 +4562,104 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
       )}
 
       {showSkillsModal && selectedProject && (
-        <div className="vibe-modal-backdrop" onClick={closeSkillsModal}>
+        <div className="vibe-modal-backdrop" onClick={editingSkill ? undefined : closeSkillsModal}>
           <article
-            className="vibe-modal vibe-skills-modal"
+            className={`vibe-modal vibe-skills-modal${editingSkill ? ' vibe-skills-modal--editing' : ''}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="vibe-project-skills-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="vibe-skill-header">
-              <h3 id="vibe-project-skills-title">Merged Skills ({skills.length})</h3>
-              <button
-                type="button"
-                className="vibe-secondary-btn"
-                onClick={handleSyncSkills}
-                disabled={syncingSkills || submitting}
-              >
-                {syncingSkills ? 'Syncing…' : 'Sync Remote Skills'}
-              </button>
-            </div>
-            <div className="vibe-skill-list vibe-skill-list-modal">
-              {skills.length === 0 ? (
-                <p className="vibe-empty">No skills found. Sync from object storage or add local `skills/*/SKILL.md`.</p>
-              ) : (
-                skills.map((skill) => (
-                  <span
-                    key={skill.id}
-                    className="vibe-skill-chip"
-                    title={`${skill.source || 'unknown'}${skill.version ? ` · v${skill.version}` : ''}`}
+            {!editingSkill ? (
+              <>
+                <div className="vibe-skill-header">
+                  <h3 id="vibe-project-skills-title">Merged Skills ({skills.length})</h3>
+                  <button
+                    type="button"
+                    className="vibe-secondary-btn"
+                    onClick={handleSyncSkills}
+                    disabled={syncingSkills || submitting}
                   >
-                    {skill.name}
-                  </span>
-                ))
-              )}
-            </div>
-            <div className="vibe-modal-actions">
-              <button
-                type="button"
-                className="vibe-secondary-btn"
-                onClick={closeSkillsModal}
-                disabled={syncingSkills || submitting}
-              >
-                Close
-              </button>
-            </div>
+                    {syncingSkills ? 'Syncing…' : 'Sync Remote Skills'}
+                  </button>
+                </div>
+                <div className="vibe-skill-list vibe-skill-list-modal">
+                  {skills.length === 0 ? (
+                    <p className="vibe-empty">No skills found. Sync from object storage or add local `skills/*/SKILL.md`.</p>
+                  ) : (
+                    skills.map((skill) => (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        className="vibe-skill-chip vibe-skill-chip--clickable"
+                        title={`${skill.source || 'unknown'}${skill.version ? ` · v${skill.version}` : ''} — click to view/edit`}
+                        onClick={() => openSkillEditor(skill)}
+                      >
+                        {skill.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="vibe-modal-actions">
+                  <button
+                    type="button"
+                    className="vibe-secondary-btn"
+                    onClick={closeSkillsModal}
+                    disabled={syncingSkills || submitting}
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="vibe-skill-header">
+                  <div className="vibe-skill-editor-title-row">
+                    <button
+                      type="button"
+                      className="vibe-skill-back-btn"
+                      onClick={() => { setEditingSkill(null); setSkillEditorContent(''); setSkillEditorError(''); }}
+                      disabled={skillEditorSaving}
+                    >
+                      ← Back
+                    </button>
+                    <h3 className="vibe-skill-editor-name">{editingSkill.name} / SKILL.md</h3>
+                  </div>
+                </div>
+                <div className="vibe-skill-editor-body">
+                  {skillEditorLoading ? (
+                    <p className="vibe-skill-editor-loading">Loading…</p>
+                  ) : (
+                    <textarea
+                      className="vibe-skill-editor-textarea"
+                      value={skillEditorContent}
+                      onChange={(e) => setSkillEditorContent(e.target.value)}
+                      spellCheck={false}
+                      disabled={skillEditorSaving}
+                    />
+                  )}
+                  {skillEditorError && <p className="vibe-skill-editor-error">{skillEditorError}</p>}
+                </div>
+                <div className="vibe-modal-actions">
+                  <button
+                    type="button"
+                    className="vibe-secondary-btn"
+                    onClick={() => { setEditingSkill(null); setSkillEditorContent(''); setSkillEditorError(''); }}
+                    disabled={skillEditorSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="vibe-launch-btn"
+                    onClick={saveSkillEditor}
+                    disabled={skillEditorSaving || skillEditorLoading}
+                  >
+                    {skillEditorSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </>
+            )}
           </article>
         </div>
       )}
@@ -4792,6 +5169,67 @@ function VibeResearcherPanel({ apiUrl, getAuthHeaders, onOpenPaperLibrary }) {
           projectId={selectedProjectId}
           serverId={selectedProject?.serverId || 'local-default'}
           onClose={() => setShowQuickBash(false)}
+        />
+      )}
+
+      {showJumpstart && (
+        <JumpstartModal
+          apiUrl={apiUrl}
+          headers={headers}
+          projectId={selectedProjectId}
+          onClose={() => setShowJumpstart(false)}
+          onCreated={(nodes, plan) => {
+            setShowJumpstart(false);
+            if (plan) setTreePlan(plan);
+            loadTreeWorkspace(selectedProjectId, { silent: true });
+          }}
+        />
+      )}
+
+      {todoEditTarget && (
+        <div className="vibe-modal-backdrop" onClick={() => setTodoEditTarget(null)}>
+          <article
+            className="vibe-modal vibe-todo-edit-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>Edit TODO</h3>
+            <form onSubmit={handleSaveTodoEdit} className="vibe-form">
+              <label className="vibe-form-label">Title</label>
+              <input
+                value={todoEditTitle}
+                onChange={(e) => setTodoEditTitle(e.target.value)}
+                required
+                autoFocus
+              />
+              <label className="vibe-form-label">Description</label>
+              <textarea
+                value={todoEditHypothesis}
+                onChange={(e) => setTodoEditHypothesis(e.target.value)}
+                rows={3}
+              />
+              <div className="vibe-modal-actions">
+                <button type="button" className="vibe-secondary-btn" onClick={() => setTodoEditTarget(null)} disabled={todoEditBusy}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={todoEditBusy || !todoEditTitle.trim()}>
+                  {todoEditBusy ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </article>
+        </div>
+      )}
+
+      {todoNodeTarget && (
+        <TodoNodeModal
+          apiUrl={apiUrl}
+          headers={headers}
+          projectId={selectedProjectId}
+          todo={todoNodeTarget.todo}
+          onInsertNode={handleInsertNodeFromTodo}
+          onClose={() => setTodoNodeTarget(null)}
         />
       )}
     </section>
