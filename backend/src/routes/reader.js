@@ -518,4 +518,83 @@ router.get('/history', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/reader/skills/resolve
+ * Resolve a skill from a URL (downloads SKILL.md) or a text description (LLM-generated).
+ * Body: { input: string }
+ */
+router.post('/skills/resolve', requireAuth, async (req, res) => {
+  try {
+    const { input } = req.body;
+    if (!input || typeof input !== 'string') {
+      return res.status(400).json({ error: 'input is required' });
+    }
+
+    const trimmed = input.trim();
+    const isUrl = /^https?:\/\//i.test(trimmed);
+
+    if (isUrl) {
+      // Convert GitHub blob URL to raw.githubusercontent.com URL
+      let fetchUrl = trimmed;
+      const ghMatch = trimmed.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/blob\/(.+)$/);
+      if (ghMatch) {
+        fetchUrl = `https://raw.githubusercontent.com/${ghMatch[1]}/${ghMatch[2]}`;
+      }
+
+      const axios = require('axios');
+      const response = await axios.get(fetchUrl, { timeout: 15000, responseType: 'text' });
+      const content = String(response.data || '');
+      if (!content.trim()) {
+        return res.status(422).json({ error: 'Empty content at URL' });
+      }
+
+      // Extract name from YAML frontmatter (name: value)
+      let name = 'Skill from URL';
+      const fmMatch = content.match(/^---\s*\n[\s\S]*?\nname:\s*(.+)/m);
+      if (fmMatch) name = fmMatch[1].trim();
+
+      return res.json({ name, prompt: content, sourceUrl: trimmed, type: 'url' });
+    }
+
+    // Text description → generate skill prompt with LLM
+    const claudeCodeService = require('../services/claude-code.service');
+    const available = await claudeCodeService.isAvailable();
+    if (!available) {
+      // Fallback: use description verbatim
+      return res.json({ name: 'Custom Skill', prompt: trimmed, type: 'created', sourceUrl: '' });
+    }
+
+    const creatorPrompt = `You are a skill builder for an AI paper reading system. A user wants to create a custom reading skill.
+
+Write a complete, actionable prompt that will be sent directly to an LLM along with an academic PDF to produce the desired reading notes.
+
+User's request: "${trimmed}"
+
+Requirements:
+- Be specific and detailed about what to analyze and how to structure the output
+- Match the language/style implied by the user's request
+- Output ONLY the prompt text itself with no preamble, meta-commentary, or explanation
+
+Prompt:`;
+
+    const result = await claudeCodeService.runClaudeHeadless(creatorPrompt, {
+      model: 'claude-haiku-4-5-20251001',
+      timeout: 60000,
+    });
+    const generatedPrompt = result.text.trim();
+
+    // Generate a short name
+    const nameResult = await claudeCodeService.runClaudeHeadless(
+      `Give a short 2-5 word title (Title Case) for an AI reading skill that: "${trimmed}". Return ONLY the title, nothing else.`,
+      { model: 'claude-haiku-4-5-20251001', timeout: 30000 },
+    ).catch(() => ({ text: 'Custom Skill' }));
+    const name = nameResult.text.trim().replace(/^["']|["']$/g, '') || 'Custom Skill';
+
+    return res.json({ name, prompt: generatedPrompt, type: 'created', sourceUrl: '' });
+  } catch (err) {
+    console.error('[skills/resolve] error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to resolve skill' });
+  }
+});
+
 module.exports = router;
