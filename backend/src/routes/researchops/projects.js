@@ -5552,6 +5552,168 @@ router.post('/projects/:projectId/tree/plan/patches', async (req, res) => {
   }
 });
 
+// ─── Jumpstart: generate the first plan node(s) for a project ────────────────
+function buildJumpstartPatches({ type, envManager = 'pixi', projectType = 'data-science', repoUrl = '', customPackages = '' }) {
+  if (type === 'existing_codebase') {
+    return [{
+      op: 'add_node',
+      node: {
+        id: 'baseline_codebase_scan',
+        title: 'Baseline: Read & Analyze Existing Codebase',
+        kind: 'knowledge',
+        assumption: ['Project repository is accessible on the server'],
+        target: [
+          'Key source files, entry points, and dependencies identified',
+          'Summary written to resource/codebase_analysis.md',
+        ],
+        commands: [
+          { cmd: "find . -maxdepth 4 -not -path './.git/*' \\( -name '*.py' -o -name '*.ipynb' -o -name 'README*' -o -name '*.toml' -o -name 'requirements*.txt' -o -name 'setup.py' \\) | LC_ALL=C sort | head -80", label: 'Discover source files' },
+          { cmd: "cat README.md 2>/dev/null || cat README.rst 2>/dev/null || echo '(no README)'", label: 'Read README' },
+          { cmd: "cat requirements.txt 2>/dev/null || cat pyproject.toml 2>/dev/null || cat setup.py 2>/dev/null || echo '(no dependency file found)'", label: 'Read dependencies' },
+          { cmd: "mkdir -p resource && printf '# Codebase Analysis\\n\\n> Fill in project summary, key modules, and entry points.\\n\\n## Overview\\n\\n## Key Modules\\n\\n## Entry Points\\n\\n## Dependencies\\n' > resource/codebase_analysis.md && echo 'Initialized resource/codebase_analysis.md'", label: 'Init analysis doc' },
+        ],
+        checks: [],
+        tags: ['baseline', 'analysis', 'jumpstart'],
+      },
+    }];
+  }
+
+  // new_project — environment setup node
+  const mgr = String(envManager || 'pixi').toLowerCase() === 'uv' ? 'uv' : 'pixi';
+  const ptype = String(projectType || 'data-science').toLowerCase();
+  const safeRepoUrl = String(repoUrl || '').trim().replace(/'/g, "\\'");
+  const safePkgs = String(customPackages || '').split(/[\s,]+/).filter(Boolean);
+
+  const PIXI_INFO = {
+    'deep-learning': { pkgs: ['python', 'pytorch', 'torchvision', 'torchaudio'], channels: '-c pytorch -c conda-forge' },
+    'data-science': { pkgs: ['python', 'numpy', 'pandas', 'scikit-learn', 'matplotlib', 'seaborn', 'jupyterlab'], channels: '-c conda-forge' },
+    'nlp': { pkgs: ['python', 'transformers', 'datasets', 'tokenizers', 'accelerate'], channels: '-c conda-forge' },
+    'pure-text': { pkgs: [], channels: '-c conda-forge' },
+  };
+  const UV_INFO = {
+    'deep-learning': { pkgs: ['torch', 'torchvision', 'torchaudio'] },
+    'data-science': { pkgs: ['numpy', 'pandas', 'scikit-learn', 'matplotlib', 'seaborn', 'jupyterlab'] },
+    'nlp': { pkgs: ['transformers', 'datasets', 'tokenizers', 'accelerate'] },
+    'pure-text': { pkgs: [] },
+  };
+  const VERIFY = {
+    'deep-learning': "import torch; print('torch', torch.__version__)",
+    'data-science': "import pandas; print('pandas', pandas.__version__)",
+    'nlp': "import transformers; print('transformers', transformers.__version__)",
+    'pure-text': "print('no packages needed')",
+    'from-repo': "print('packages from repo installed')",
+    'custom': "print('custom packages installed')",
+  };
+  const TYPE_LABELS = { 'deep-learning': 'Deep Learning', 'data-science': 'Data Science', 'nlp': 'NLP', 'pure-text': 'Pure Text', 'from-repo': 'From Repo', 'custom': 'Custom' };
+
+  const pkgInfo = mgr === 'pixi' ? (PIXI_INFO[ptype] || PIXI_INFO['data-science']) : (UV_INFO[ptype] || UV_INFO['data-science']);
+  const packages = ptype === 'custom' ? safePkgs : (pkgInfo.pkgs || []);
+  const channels = mgr === 'pixi' ? (pkgInfo.channels || '-c conda-forge') : '';
+  const verifyCode = VERIFY[ptype] || "print('done')";
+  const typeLabel = TYPE_LABELS[ptype] || ptype;
+
+  const commands = [];
+  const checks = [];
+
+  if (mgr === 'pixi') {
+    commands.push(
+      { cmd: 'command -v pixi || (curl -fsSL https://pixi.sh/install.sh | bash && export PATH="$HOME/.pixi/bin:$PATH")', label: 'Ensure pixi is installed' },
+      { cmd: 'test -f pixi.toml || pixi init', label: 'Initialize pixi project' },
+    );
+    if (safeRepoUrl) {
+      commands.push(
+        { cmd: `git clone --depth 1 '${safeRepoUrl}' _repo_tmp && cp _repo_tmp/requirements*.txt . 2>/dev/null || true && rm -rf _repo_tmp`, label: 'Copy dependencies from repo' },
+        { cmd: "pixi add $(grep -v '^#' requirements.txt | head -50 | tr '\\n' ' ') -c conda-forge 2>/dev/null || echo 'Installed from requirements.txt'", label: 'Install from requirements' },
+      );
+    } else if (packages.length > 0) {
+      commands.push({ cmd: `pixi add ${packages.join(' ')} ${channels}`, label: `Install ${typeLabel} packages` });
+    }
+    if (packages.length > 0 || safeRepoUrl) {
+      commands.push({ cmd: `pixi run python -c "${verifyCode}"`, label: 'Verify environment' });
+      checks.push({ condition: `pixi run python -c "${verifyCode}"`, label: 'Key packages importable' });
+    }
+    checks.push({ condition: 'test -f pixi.toml', label: 'pixi.toml exists' });
+  } else {
+    commands.push(
+      { cmd: 'command -v uv || (curl -LsSf https://astral.sh/uv/install.sh | sh && source "$HOME/.cargo/env")', label: 'Ensure uv is installed' },
+      { cmd: 'test -f pyproject.toml || uv init --python 3.11', label: 'Initialize uv project' },
+    );
+    if (safeRepoUrl) {
+      commands.push(
+        { cmd: `git clone --depth 1 '${safeRepoUrl}' _repo_tmp && cp _repo_tmp/requirements*.txt . 2>/dev/null || true && rm -rf _repo_tmp`, label: 'Copy dependencies from repo' },
+        { cmd: "uv add $(grep -v '^#' requirements.txt | head -50 | tr '\\n' ' ') 2>/dev/null || echo 'Installed from requirements.txt'", label: 'Install from requirements' },
+      );
+    } else if (packages.length > 0) {
+      commands.push({ cmd: `uv add ${packages.join(' ')}`, label: `Install ${typeLabel} packages` });
+    }
+    if (packages.length > 0 || safeRepoUrl) {
+      commands.push({ cmd: `uv run python -c "${verifyCode}"`, label: 'Verify environment' });
+      checks.push({ condition: `uv run python -c "${verifyCode}"`, label: 'Key packages importable' });
+    }
+    checks.push({ condition: 'test -f pyproject.toml', label: 'pyproject.toml exists' });
+  }
+
+  const nodeTitle = ptype === 'pure-text'
+    ? `Initialize Project (${mgr})`
+    : `Set Up ${typeLabel} Environment (${mgr})`;
+
+  return [{
+    op: 'add_node',
+    node: {
+      id: 'project_env_setup',
+      title: nodeTitle,
+      kind: 'setup',
+      assumption: [
+        `${mgr} will be installed on the server if missing`,
+        'Internet access available for package downloads',
+        ...(safeRepoUrl ? [`Repository at ${safeRepoUrl} is accessible`] : []),
+      ],
+      target: [
+        mgr === 'pixi' ? 'pixi.toml created' : 'pyproject.toml created',
+        ...(packages.length > 0 ? [`${typeLabel} packages installed and importable`] : []),
+        `Project runnable via \`${mgr} run python ...\``,
+      ],
+      commands,
+      checks,
+      tags: ['setup', 'environment', mgr, 'jumpstart'],
+    },
+  }];
+}
+
+router.post('/projects/:projectId/tree/jumpstart', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const { type, envManager, projectType, repoUrl, customPackages } = req.body || {};
+    if (!['existing_codebase', 'new_project'].includes(String(type || ''))) {
+      return res.status(400).json({ error: 'type must be existing_codebase or new_project' });
+    }
+    const patches = buildJumpstartPatches({
+      type: String(type),
+      envManager: String(envManager || 'pixi'),
+      projectType: String(projectType || 'data-science'),
+      repoUrl: String(repoUrl || ''),
+      customPackages: String(customPackages || ''),
+    });
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
+    const { state } = await treeStateService.readProjectState({ project, server });
+    const result = await treePlanService.applyProjectPlanPatches({ project, server, patches, state });
+    return res.json({
+      projectId: project.id,
+      nodes: patches.map((p) => p.node),
+      plan: result.plan,
+      validation: result.validation,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error.code === 'PLAN_PATCH_CONFLICT') {
+      return res.status(409).json({ ...toErrorPayload(error, 'Plan patch conflict'), details: error.details || null });
+    }
+    return res.status(400).json(toErrorPayload(error, 'Failed to create jumpstart node'));
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.post('/projects/:projectId/tree/plan/impact-preview', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
