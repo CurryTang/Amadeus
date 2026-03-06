@@ -23,7 +23,10 @@ function getObservedSessionProviderLabel(item = {}) {
 }
 
 function getObservedSessionNodeLabel(item = {}) {
-  return cleanString(item?.detachedNodeId) ? 'Detached Node' : 'Unlinked';
+  const detachedNodeId = cleanString(item?.detachedNodeId);
+  if (!detachedNodeId) return 'Unlinked';
+  const detachedNodeTitle = cleanString(item?.detachedNodeTitle);
+  return detachedNodeTitle ? `Node: ${detachedNodeTitle}` : `Node: ${detachedNodeId}`;
 }
 
 function buildObservedSessionCards(items = []) {

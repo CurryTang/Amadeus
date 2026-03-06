@@ -16,6 +16,7 @@ const treePlanService = require('../../services/researchops/tree-plan.service');
 const treeStateService = require('../../services/researchops/tree-state.service');
 const contextRouterService = require('../../services/researchops/context-router.service');
 const { findRunReportHighlights } = require('../../services/researchops/run-report-view');
+const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { getDb } = require('../../db');
 const {
   buildResearchOpsSshArgs,
@@ -642,8 +643,6 @@ router.get('/runs/:runId/report', async (req, res) => {
     let manifest = null;
     const summaryArtifact = artifacts.find((item) => item.kind === 'run_summary_md') || null;
     const manifestArtifact = artifacts.find((item) => item.kind === 'result_manifest') || null;
-    const runWorkspacePath = cleanString(run?.metadata?.runWorkspacePath);
-    const highlights = findRunReportHighlights(artifacts);
     if (includeInline) {
       if (summaryArtifact?.objectKey) {
         const buffer = await s3Service.downloadBuffer(summaryArtifact.objectKey).catch(() => null);
@@ -672,19 +671,15 @@ router.get('/runs/:runId/report', async (req, res) => {
       }
     }
 
-    return res.json({
+    return res.json(buildRunReportPayload({
       run,
       steps,
-      artifacts: artifacts.map((item) => withArtifactDownloadUrl(item, runId)),
+      artifacts,
       checkpoints,
-      runWorkspacePath: runWorkspacePath || null,
-      workspace: {
-        path: runWorkspacePath || null,
-      },
-      highlights,
-      summary: summaryText,
+      summaryText,
       manifest,
-    });
+      mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
+    }));
   } catch (error) {
     console.error('[ResearchOps] getRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });

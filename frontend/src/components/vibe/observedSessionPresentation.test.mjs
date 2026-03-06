@@ -26,6 +26,7 @@ test('buildObservedSessionCards sorts most recently updated sessions first', () 
       updatedAt: '2026-03-05T11:00:00.000Z',
       status: 'RUNNING',
       detachedNodeId: 'observed_obs_new',
+      detachedNodeTitle: 'Implement observed session sync',
     },
   ]);
 
@@ -33,7 +34,7 @@ test('buildObservedSessionCards sorts most recently updated sessions first', () 
   assert.equal(cards[0].id, 'obs_new');
   assert.equal(cards[0].providerLabel, 'Codex');
   assert.equal(cards[0].observedLabel, 'Observed');
-  assert.equal(cards[0].nodeLabel, 'Detached Node');
+  assert.equal(cards[0].nodeLabel, 'Node: Implement observed session sync');
   assert.equal(cards[1].id, 'obs_old');
   assert.equal(cards[1].providerLabel, 'Claude');
   assert.equal(cards[1].nodeLabel, 'Unlinked');
@@ -46,6 +47,13 @@ test('getObservedSessionProviderLabel normalizes provider names', () => {
 });
 
 test('getObservedSessionNodeLabel exposes detached-node state', () => {
-  assert.equal(getObservedSessionNodeLabel({ detachedNodeId: 'observed_obs_1' }), 'Detached Node');
+  assert.equal(
+    getObservedSessionNodeLabel({
+      detachedNodeId: 'observed_obs_1',
+      detachedNodeTitle: 'Investigate baseline runner',
+    }),
+    'Node: Investigate baseline runner'
+  );
+  assert.equal(getObservedSessionNodeLabel({ detachedNodeId: 'observed_obs_1' }), 'Node: observed_obs_1');
   assert.equal(getObservedSessionNodeLabel({ detachedNodeId: '' }), 'Unlinked');
 });

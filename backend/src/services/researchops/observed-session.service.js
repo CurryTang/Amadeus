@@ -433,6 +433,7 @@ async function processObservedSession({
       classification: normalizeObservedSessionClassification(classified.record.classification || {}),
       hasDetachedNode: Boolean(node),
       detachedNodeId: cleanString(node?.id),
+      detachedNodeTitle: cleanString(node?.title),
       materialization,
     },
     plan: nextPlan,

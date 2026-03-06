@@ -4,6 +4,7 @@ function VibeRecentRunsStrip({
   cards,
   selectedRunId,
   onOpenRun,
+  scopeLabel = 'Project scope',
 }) {
   const items = Array.isArray(cards) ? cards : [];
 
@@ -11,7 +12,7 @@ function VibeRecentRunsStrip({
     <section className="vibe-recent-runs vibe-card vibe-card--neo">
       <div className="vibe-card-head">
         <h3>Recent Runs</h3>
-        <span className="vibe-card-note">{items.length} visible</span>
+        <span className="vibe-card-note">{items.length} visible · {scopeLabel}</span>
       </div>
       {items.length === 0 ? (
         <EmptyState

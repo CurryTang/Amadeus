@@ -25,9 +25,17 @@ function findRunReportHighlights(artifacts = []) {
     ['agent_final_json', 'implementation_summary_json', 'experiment_final_json', 'result_manifest', 'agent-output']
       .includes(cleanString(item?.kind))
   )) || null;
+  const deliverableArtifactIds = list
+    .filter((item) => (
+      ['deliverable_report', 'run_summary_md', 'agent_final_json', 'implementation_summary_json', 'experiment_final_json', 'result_manifest', 'agent-output']
+        .includes(cleanString(item?.kind))
+    ))
+    .map((item) => cleanString(item?.id))
+    .filter(Boolean);
   return {
     summaryArtifactId: summaryArtifact?.id || null,
     finalOutputArtifactId: finalOutputArtifact?.id || null,
+    deliverableArtifactIds,
   };
 }
 

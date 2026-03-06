@@ -88,6 +88,7 @@ test('refreshObservedSessionForProject returns hash/classification/node informat
             goalSummary: 'Implement observed session refresh flow',
           },
           detachedNodeId: 'observed_obs_3',
+          detachedNodeTitle: 'Implement observed session refresh flow',
           materialization: 'created',
         },
         wrotePlan: true,
@@ -100,6 +101,7 @@ test('refreshObservedSessionForProject returns hash/classification/node informat
   assert.equal(result.item.contentHash, 'abc123');
   assert.equal(result.item.classification.decision, 'can_be_node');
   assert.equal(result.item.detachedNodeId, 'observed_obs_3');
+  assert.equal(result.item.detachedNodeTitle, 'Implement observed session refresh flow');
   assert.equal(result.item.materialization, 'created');
   assert.equal(result.wrotePlan, true);
 });

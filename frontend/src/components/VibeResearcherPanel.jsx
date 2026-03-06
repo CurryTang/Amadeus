@@ -21,7 +21,7 @@ import { getVibeUiMode } from './vibe/vibeUiMode';
 import { DEFAULT_LAUNCHER_SKILL, getLauncherPromptPrefix } from './vibe/launcherRouting';
 import { buildPayloadWithContinuation, addContinuationChip } from './vibe/launcherContinuation';
 import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
-import { buildRecentRunCards } from './vibe/runPresentation';
+import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
 import { linkClientWorkspace } from '../hooks/useClientWorkspaceRegistry';
 
@@ -2957,10 +2957,18 @@ function VibeResearcherPanel({
   const visibleRuns = useMemo(() => (
     runHistoryItems.length > 0 ? runHistoryItems : selectedProjectRuns
   ), [runHistoryItems, selectedProjectRuns]);
-  const recentRunCards = useMemo(
-    () => buildRecentRunCards(visibleRuns).slice(0, 18),
-    [visibleRuns]
+  const scopedVisibleRuns = useMemo(
+    () => filterRunsForSelectedNode(visibleRuns, selectedNodeId),
+    [selectedNodeId, visibleRuns]
   );
+  const recentRunCards = useMemo(
+    () => buildRecentRunCards(scopedVisibleRuns).slice(0, 18),
+    [scopedVisibleRuns]
+  );
+  const recentRunsScopeLabel = useMemo(() => {
+    if (!selectedNodeId) return 'Project scope';
+    return scopedVisibleRuns.length !== visibleRuns.length ? 'Node scope' : 'Project scope';
+  }, [scopedVisibleRuns.length, selectedNodeId, visibleRuns.length]);
   const selectedRun = useMemo(
     () => visibleRuns.find((run) => run.id === selectedRunId) || null,
     [selectedRunId, visibleRuns]
@@ -3910,6 +3918,7 @@ function VibeResearcherPanel({
             cards={recentRunCards}
             selectedRunId={selectedRunId}
             onOpenRun={handleOpenRunDetail}
+            scopeLabel={recentRunsScopeLabel}
           />
 
           <VibeObservedSessionsStrip
