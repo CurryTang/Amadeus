@@ -6,8 +6,13 @@ const BaseModule = require('./base-module');
 const { getDb } = require('../../../db');
 const config = require('../../../config');
 const { terminateProcessTree } = require('../process-control');
-const keypairService = require('../../keypair.service');
 const superpowers = require('../superpowers');
+const {
+  buildScpArgs: buildSharedScpArgs,
+  buildSshArgs: buildSharedSshArgs,
+  buildSshCommandLine,
+  spawnWrapped,
+} = require('../../ssh-transport.service');
 
 const TOP_PRIORITY_FILE_REMOVAL_RULE = [
   'TOP-PRIORITY RULE (apply before all other instructions):',
@@ -38,10 +43,6 @@ function asStringList(value) {
   }
   const single = cleanString(value);
   return single ? [single] : [];
-}
-
-function expandHome(inputPath = '') {
-  return String(inputPath || '').replace(/^~(?=\/|$)/, os.homedir());
 }
 
 function shellEscape(value) {
@@ -75,86 +76,25 @@ async function getExecServerByRef(ref = '') {
   return result.rows?.[0] || null;
 }
 
-function parseProxyJump(proxyJump = '') {
-  const s = cleanString(proxyJump);
-  if (!s) return null;
-  const m = s.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
-  if (!m) return null;
-  return { userAt: m[1] || '', host: m[2], port: m[3] || null };
-}
-
-// Build a ProxyCommand using the proxy key (server ssh_key_path or id_rsa),
-// so the jump-host connection uses a key authorized on that host.
-function buildProxyCommandArg(proxyJump, proxyKeyPath, connectTimeout) {
-  const parsed = parseProxyJump(proxyJump);
-  if (!parsed) return null;
-  const { userAt, host, port } = parsed;
-  const parts = [
-    'ssh', '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'StrictHostKeyChecking=no',
-    '-o', 'UserKnownHostsFile=/dev/null',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-i', proxyKeyPath,
-  ];
-  if (port) parts.push('-p', port);
-  parts.push('-W', '%h:%p', `${userAt}${host}`);
-  return parts.join(' ');
-}
-
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
-  const keyPath = keypairService.MANAGED_KEY_PATH;
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server?.port || 22),
-  ];
-  const proxyJump = cleanString(server?.proxy_jump);
-  if (proxyJump) {
-    // Use server's ssh_key_path (or id_rsa) for the proxy/jump-host auth,
-    // since the managed key may only be authorized on the target, not the jump host.
-    const proxyKeyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-    const proxyCmd = buildProxyCommandArg(proxyJump, proxyKeyPath, connectTimeout);
-    if (proxyCmd) {
-      args.push('-o', `ProxyCommand=${proxyCmd}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildSharedSshArgs(server, { connectTimeout });
 }
 
 function buildScpArgs(server, { connectTimeout = 12 } = {}) {
-  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-P', String(server?.port || 22),
-  ];
-  const proxyJump = cleanString(server?.proxy_jump);
-  if (proxyJump) {
-    const proxyKeyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-    const proxyCmd = buildProxyCommandArg(proxyJump, proxyKeyPath, connectTimeout);
-    if (proxyCmd) {
-      args.push('-o', `ProxyCommand=${proxyCmd}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildSharedScpArgs(server, { connectTimeout });
+}
+
+function buildSshShellCommand(server, remoteArgs = [], { connectTimeout = 12 } = {}) {
+  return buildSshCommandLine(server, remoteArgs, { connectTimeout });
+}
+
+function spawnCommand(command, args = [], options = {}) {
+  return spawnWrapped(command, args, { spawnImpl: spawn, ...options });
 }
 
 async function runProcess(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, options);
+    const child = spawnCommand(command, args, options);
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (chunk) => {
@@ -232,8 +172,8 @@ async function stageRuntimeFilesToRemote({
   const sshTarget = `${execServer.user}@${execServer.host}`;
 
   await runProcess(
-    'ssh',
-    [...buildSshArgs(execServer, { connectTimeout: 15 }), sshTarget, 'mkdir', '-p', remoteTmpDir],
+    'bash',
+    ['-lc', buildSshShellCommand(execServer, ['mkdir', '-p', remoteTmpDir], { connectTimeout: 15 })],
     { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] }
   );
 
@@ -286,11 +226,10 @@ function deriveTmuxPaths(runId, stepId) {
 function spawnRemoteFireAndForget(server, cmd) {
   if (!server || !cleanString(cmd)) return;
   try {
-    const proc = spawn('ssh', [
-      ...buildSshArgs(server, { connectTimeout: 10 }),
-      `${server.user}@${server.host}`,
-      'bash', '-c', cmd,
-    ], { stdio: ['ignore', 'ignore', 'ignore'], detached: process.platform !== 'win32' });
+    const proc = spawn('bash', ['-lc', buildSshShellCommand(server, ['bash', '-c', cmd], { connectTimeout: 10 })], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      detached: process.platform !== 'win32',
+    });
     if (typeof proc.unref === 'function') proc.unref();
   } catch (_) { /* fire-and-forget */ }
 }
@@ -393,14 +332,8 @@ async function isCommandAvailableOnTarget(command = '', execServer = null) {
   try {
     if (execServer) {
       await runProcess(
-        'ssh',
-        [
-          ...buildSshArgs(execServer, { connectTimeout: 8 }),
-          `${execServer.user}@${execServer.host}`,
-          'bash',
-          '-lc',
-          probe,
-        ],
+        'bash',
+        ['-lc', buildSshShellCommand(execServer, ['bash', '-lc', probe], { connectTimeout: 8 })],
         { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] }
       );
       return true;
@@ -861,17 +794,12 @@ class AgentRunModule extends BaseModule {
       const child = execServer
         ? (() => {
           const remoteCommandBase64 = Buffer.from(shellCommand, 'utf8').toString('base64');
-          const sshArgs = [
-            ...buildSshArgs(execServer, { connectTimeout: 15 }),
-            `${execServer.user}@${execServer.host}`,
-            'bash',
-            '-s',
-            '--',
-            cwd,
-            remoteCommandBase64,
-          ];
-          console.error('[agent-run DEBUG] SSH args:', JSON.stringify(sshArgs));
-          const proc = spawn('ssh', sshArgs, {
+          const sshCommand = buildSshShellCommand(
+            execServer,
+            ['bash', '-s', '--', cwd, remoteCommandBase64],
+            { connectTimeout: 15 }
+          );
+          const proc = spawn('bash', ['-lc', sshCommand], {
             env: process.env,
             stdio: ['pipe', 'pipe', 'pipe'],
             detached,

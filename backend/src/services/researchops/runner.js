@@ -8,9 +8,9 @@ const { getDb } = require('../../db');
 const {
   deriveTmuxSession,
   deriveTmuxPaths,
-  buildSshArgs,
   spawnRemoteFireAndForget,
 } = require('./modules/bash-run.module');
+const { buildSshCommandLine } = require('../ssh-transport.service');
 const superpowers = require('./superpowers');
 
 const runningProcesses = new Map();
@@ -611,11 +611,9 @@ async function getSshServerById(serverId) {
 // Run a short SSH command and return stdout (throws on error/timeout)
 function sshRunCommand(server, cmd, { timeoutMs = 15000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh', [
-      ...buildSshArgs(server, { connectTimeout: 12 }),
-      `${server.user}@${server.host}`,
-      'bash', '-c', cmd,
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('bash', ['-lc', buildSshCommandLine(server, ['bash', '-c', cmd], {
+      connectTimeout: 12,
+    })], { stdio: ['ignore', 'pipe', 'pipe'] });
 
     let stdout = '';
     child.stdout.on('data', (d) => { stdout += d.toString(); });
@@ -739,11 +737,9 @@ async function reconnectRunOnServer(userId, run, server) {
       'exit "$RC"',
     ].join('\n');
 
-    const proc = spawn('ssh', [
-      ...buildSshArgs(server, { connectTimeout: 15 }),
-      `${server.user}@${server.host}`,
-      'bash', '-c', reconnectScript,
-    ], { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    const proc = spawn('bash', ['-lc', buildSshCommandLine(server, ['bash', '-c', reconnectScript], {
+      connectTimeout: 15,
+    })], { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
 
     runningProcesses.set(runId, {
       runId,

@@ -33,9 +33,12 @@ const deliverableReportSkillService = require('../../services/researchops/delive
 const codebaseAchievementService = require('../../services/researchops/codebase-achievement.service');
 const todoGeneratorService = require('../../services/researchops/todo-generator.service');
 const {
-  buildResearchOpsSshArgs,
-  classifySshError,
-} = require('../../services/ssh-auth.service');
+  buildSshArgs: buildSharedSshArgs,
+  buildSshTransportCommand,
+  classifyError: classifySshError,
+  copyTo: copyToSsh,
+  script: scriptSsh,
+} = require('../../services/ssh-transport.service');
 const {
   parseLimit, parseOffset, parseBoolean, cleanString,
   getUserId, sanitizeError, parseMaybeJson, expandHome,
@@ -372,7 +375,7 @@ function buildProjectFileSummary({
 }
 
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
-  return buildResearchOpsSshArgs(server, { connectTimeout });
+  return buildSharedSshArgs(server, { connectTimeout });
 }
 
 async function getSshServerById(serverId) {
@@ -1163,8 +1166,7 @@ function shellEscape(value) {
 }
 
 function buildRsyncSshCommand(server) {
-  const sshArgs = buildSshArgs(server, { connectTimeout: 20 });
-  return `ssh ${sshArgs.map((arg) => shellEscape(arg)).join(' ')}`;
+  return buildSshTransportCommand(server, { connectTimeout: 20 });
 }
 
 function buildRsyncRemoteDest(server, remotePath) {
@@ -1174,18 +1176,10 @@ function buildRsyncRemoteDest(server, remotePath) {
 }
 
 async function runSshScript(server, scriptBody, args = [], timeoutMs = 30000) {
-  const sshArgs = buildSshArgs(server, { connectTimeout: 20 });
-  sshArgs.push(
-    `${server.user}@${server.host}`,
-    'bash',
-    '-s',
-    '--',
-    ...args.map((item) => String(item ?? ''))
-  );
   try {
-    return await runCommand('ssh', sshArgs, {
+    return await scriptSsh(server, `${String(scriptBody || '').trim()}\n`, args, {
       timeoutMs,
-      input: `${String(scriptBody || '').trim()}\n`,
+      connectTimeout: 20,
     });
   } catch (error) {
     throw mapSshLikeError(error);
@@ -4047,7 +4041,6 @@ router.post('/projects/:projectId/kb/add-paper', async (req, res) => {
           }
 
           const paperFolderRemote = `${kbFolder}/${sanitizedTitle}`;
-          const keyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
           const sshBaseArgs = buildSshArgs(server, { connectTimeout: 15 });
 
           // Create remote directory
@@ -4057,36 +4050,10 @@ router.post('/projects/:projectId/kb/add-paper', async (req, res) => {
             `mkdir -p -- ${JSON.stringify(paperFolderRemote)}`,
           ], { timeoutMs: 20000 });
 
-          // SCP each file — build args with ProxyCommand (scp uses -P for port)
-          const scpBaseArgs = [
-            '-F', '/dev/null',
-            '-o', 'BatchMode=yes',
-            '-o', 'ClearAllForwardings=yes',
-            '-o', 'ConnectTimeout=15',
-            '-o', 'StrictHostKeyChecking=accept-new',
-            '-i', keyPath,
-            '-P', String(server.port || 22),
-          ];
-          {
-            const _pj = String(server.proxy_jump || '').trim();
-            if (_pj) {
-              const _m = _pj.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
-              if (_m) {
-                const _parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'ConnectTimeout=15', '-i', keyPath];
-                if (_m[3]) _parts.push('-p', _m[3]);
-                _parts.push('-W', '%h:%p', `${_m[1] || ''}${_m[2]}`);
-                scpBaseArgs.push('-o', `ProxyCommand=${_parts.join(' ')}`);
-              } else { scpBaseArgs.push('-J', _pj); }
-            }
-          }
           for (const filename of Object.keys(filesToWrite)) {
             const localFile = path.join(tmpDir, filename);
             const remoteFile = `${paperFolderRemote}/${filename}`;
-            await runCommand('scp', [
-              ...scpBaseArgs,
-              localFile,
-              `${server.user}@${server.host}:${remoteFile}`,
-            ], { timeoutMs: 120000 });
+            await copyToSsh(server, localFile, remoteFile, { timeoutMs: 120000, connectTimeout: 15 });
           }
 
           paperFolder = paperFolderRemote;

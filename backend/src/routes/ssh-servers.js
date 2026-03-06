@@ -9,6 +9,10 @@ const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const { getDb } = require('../db');
 const keypairService = require('../services/keypair.service');
+const {
+  exec: execSsh,
+  script: scriptSsh,
+} = require('../services/ssh-transport.service');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -142,105 +146,17 @@ function resolveSharedFsConfig(payload = {}, defaults = {}, { selfId = '' } = {}
   return { enabled, peers, verifiedPeers: [], probePath };
 }
 
-function buildSshArgs(server, { connectTimeout = 10 } = {}) {
-  const keyPath = keypairService.MANAGED_KEY_PATH;
-  const proxyKeyPath = expandHome(server.ssh_key_path || '~/.ssh/id_rsa');
-  const sshArgs = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server.port || 22),
-  ];
-  const proxyJump = String(server.proxy_jump || '').trim();
-  if (proxyJump) {
-    const m = proxyJump.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
-    if (m) {
-      const parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', `ConnectTimeout=${connectTimeout}`, '-i', proxyKeyPath];
-      if (m[3]) parts.push('-p', m[3]);
-      parts.push('-W', '%h:%p', `${m[1] || ''}${m[2]}`);
-      sshArgs.push('-o', `ProxyCommand=${parts.join(' ')}`);
-    } else {
-      sshArgs.push('-J', proxyJump);
-    }
-  }
-  sshArgs.push(`${server.user}@${server.host}`);
-  return sshArgs;
-}
-
 function runSshCommand(server, commandArgs = [], { timeoutMs = 20000 } = {}) {
-  return new Promise((resolve, reject) => {
-    const sshArgs = [...buildSshArgs(server), ...commandArgs];
-    const proc = spawn('ssh', sshArgs, {
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      proc.kill('SIGTERM');
-    }, timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-
-    proc.stdout.on('data', (d) => { stdout += d.toString(); });
-    proc.stderr.on('data', (d) => { stderr += d.toString(); });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (timedOut) {
-        return reject(new Error(`ssh command timed out after ${timeoutMs}ms`));
-      }
-      if (code === 0) return resolve({ stdout, stderr });
-      return reject(new Error(stderr.trim() || `exit code ${code}`));
-    });
-    proc.on('error', (err) => {
-      clearTimeout(timer);
-      reject(new Error(err.message));
-    });
+  return execSsh(server, commandArgs, {
+    timeoutMs,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
 
 function runSshBashScript(server, script, scriptArgs = [], { timeoutMs = 30000 } = {}) {
-  return new Promise((resolve, reject) => {
-    const sshArgs = [
-      ...buildSshArgs(server, { connectTimeout: 15 }),
-      'bash',
-      '-s',
-      '--',
-      ...scriptArgs.map((value) => String(value ?? '')),
-    ];
-    const proc = spawn('ssh', sshArgs, {
-      env: process.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      proc.kill('SIGTERM');
-    }, timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-
-    proc.stdout.on('data', (d) => { stdout += d.toString(); });
-    proc.stderr.on('data', (d) => { stderr += d.toString(); });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (timedOut) {
-        return reject(new Error(`ssh script timed out after ${timeoutMs}ms`));
-      }
-      if (code === 0) return resolve({ stdout, stderr });
-      return reject(new Error(stderr.trim() || `exit code ${code}`));
-    });
-    proc.on('error', (err) => {
-      clearTimeout(timer);
-      reject(new Error(err.message));
-    });
-    proc.stdin.on('error', () => {});
-    proc.stdin.end(String(script || ''));
+  return scriptSsh(server, script, scriptArgs, {
+    timeoutMs,
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
 

@@ -15,6 +15,7 @@ const HorizonWatchModule = require('./modules/horizon-watch.module');
 const AgentReviewModule = require('./modules/agent-review.module');
 const workflowSchemaService = require('./workflow-schema.service');
 const { getDb } = require('../../db');
+const { buildSshArgs: buildSharedSshArgs } = require('../ssh-transport.service');
 
 const PROJECT_GIT_LOCKS = new Map();
 
@@ -89,11 +90,18 @@ async function runProcess(command, args = [], {
   timeoutMs = 120000,
 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: cleanString(cwd) || undefined,
-      env: env || process.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const normalized = cleanString(command).toLowerCase();
+    const child = (normalized === 'ssh' || normalized === 'scp')
+      ? spawn('bash', ['-lc', [command, ...args].map((item) => shellEscape(item)).join(' ')], {
+        cwd: cleanString(cwd) || undefined,
+        env: env || process.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      : spawn(command, args, {
+        cwd: cleanString(cwd) || undefined,
+        env: env || process.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -136,35 +144,15 @@ async function runProcess(command, args = [], {
 }
 
 function buildSshArgs(server, { connectTimeout = 15 } = {}) {
-  const keyPath = cleanString(server?.ssh_key_path || '~/.ssh/id_rsa').replace(/^~(?=\/|$)/, os.homedir());
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server?.port || 22),
-  ];
-  const proxyJump = cleanString(server?.proxy_jump);
-  if (proxyJump) {
-    const m = proxyJump.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
-    if (m) {
-      const userAt = m[1] || '';
-      const host = m[2];
-      const port = m[3];
-      const parts = ['ssh', '-F', '/dev/null', '-o', 'BatchMode=yes',
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', `ConnectTimeout=${connectTimeout}`, '-i', keyPath];
-      if (port) parts.push('-p', port);
-      parts.push('-W', '%h:%p', `${userAt}${host}`);
-      args.push('-o', `ProxyCommand=${parts.join(' ')}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildSharedSshArgs(server, { connectTimeout });
+}
+
+function buildSshShellCommand(server, remoteArgs = [], { connectTimeout = 15 } = {}) {
+  const sshTarget = `${server.user}@${server.host}`;
+  const remoteCommand = remoteArgs.map((item) => shellEscape(item)).join(' ');
+  return ['ssh', ...buildSshArgs(server, { connectTimeout }), sshTarget, ...(remoteCommand ? [remoteCommand] : [])]
+    .map((item) => shellEscape(item))
+    .join(' ');
 }
 
 async function getSshServerByRef(ref = '') {
@@ -184,20 +172,17 @@ async function getSshServerByRef(ref = '') {
 }
 
 async function runSshScript(server, scriptBody, args = [], timeoutMs = 120000) {
-  const sshArgs = [
-    ...buildSshArgs(server, { connectTimeout: 15 }),
-    `${server.user}@${server.host}`,
-    'bash',
-    '-s',
-    '--',
-    ...args.map((item) => String(item ?? '')),
-  ];
+  const sshCommand = buildSshShellCommand(
+    server,
+    ['bash', '-s', '--', ...args.map((item) => String(item ?? ''))],
+    { connectTimeout: 15 }
+  );
 
   let lastError = null;
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await runProcess('ssh', sshArgs, {
+      return await runProcess('bash', ['-lc', sshCommand], {
         input: `${String(scriptBody || '').trim()}\n`,
         timeoutMs,
       });

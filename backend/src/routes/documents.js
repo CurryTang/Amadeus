@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const documentService = require('../services/document.service');
 const researchPackService = require('../services/research-pack.service');
+const {
+  buildSshTransportCommand,
+  exec: execSsh,
+} = require('../services/ssh-transport.service');
 const { requireAuth } = require('../middleware/auth');
 
 // GET /api/documents - List all documents with pagination
@@ -155,7 +159,6 @@ router.post('/research-pack/rsync', requireAuth, async (req, res) => {
   const { spawn } = require('child_process');
   const fs = require('fs');
   const path = require('path');
-  const os = require('os');
   const config = require('../config');
   const { getDb } = require('../db');
 
@@ -209,12 +212,7 @@ router.post('/research-pack/rsync', requireAuth, async (req, res) => {
 
     console.log(`[ResearchPack/rsync] Archive written (${(fs.statSync(tmpFile).size / 1024 / 1024).toFixed(1)} MB), starting rsync...`);
 
-    // Expand ~ in ssh_key_path
-    const keyPath = (server.ssh_key_path || '~/.ssh/id_rsa').replace(/^~/, os.homedir());
-    const proxyJumpOpt = String(server.proxy_jump || '').trim()
-      ? ` -o ProxyJump=${JSON.stringify(String(server.proxy_jump).trim())}`
-      : '';
-    const sshOpts = `ssh -i "${keyPath}" -p ${server.port || 22} -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30${proxyJumpOpt}`;
+    const sshOpts = buildSshTransportCommand(server, { connectTimeout: 30 });
     const dest = `${server.user}@${server.host}:${remotePath}/`;
 
     await new Promise((resolve, reject) => {
@@ -236,28 +234,12 @@ router.post('/research-pack/rsync', requireAuth, async (req, res) => {
     if (symlinkName && symlinkName.trim()) {
       const sentFilename = path.basename(tmpFile);
       const linkName = symlinkName.trim();
-      const sshArgs = [
-        '-i', keyPath,
-        '-p', String(server.port || 22),
-        '-o', 'StrictHostKeyChecking=accept-new',
-        '-o', 'ConnectTimeout=15',
-      ];
-      if (String(server.proxy_jump || '').trim()) {
-        sshArgs.push('-o', `ProxyJump=${String(server.proxy_jump).trim()}`);
-      }
-      sshArgs.push(
-        `${server.user}@${server.host}`,
-        `ln -sfn '${remotePath}/${sentFilename}' '${remotePath}/${linkName}'`,
-      );
-      await new Promise((resolve, reject) => {
-        const proc = spawn('ssh', sshArgs);
-        let stderr = '';
-        proc.stderr.on('data', (d) => { stderr += d.toString(); });
-        proc.on('close', (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`symlink failed: ${stderr.trim() || `exit ${code}`}`));
-        });
-        proc.on('error', (err) => reject(new Error(`ssh error: ${err.message}`)));
+      await execSsh(
+        server,
+        ['ln', '-sfn', `${remotePath}/${sentFilename}`, `${remotePath}/${linkName}`],
+        { timeoutMs: 15000, stdio: ['ignore', 'pipe', 'pipe'] }
+      ).catch((error) => {
+        throw new Error(`symlink failed: ${error?.stderr?.trim() || error.message || 'ssh error'}`);
       });
       symlinkMsg.push(`symlink '${linkName}' created`);
       console.log(`[ResearchPack/rsync] Symlink '${linkName}' → '${sentFilename}' on ${server.host}`);

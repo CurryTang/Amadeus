@@ -5,6 +5,12 @@ const { spawn } = require('child_process');
 const BaseModule = require('./base-module');
 const { getDb } = require('../../../db');
 const { terminateProcessTree } = require('../process-control');
+const {
+  buildScpArgs: buildSharedScpArgs,
+  buildSshArgs: buildSharedSshArgs,
+  buildSshCommandLine,
+  spawnWrapped,
+} = require('../../ssh-transport.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -16,10 +22,6 @@ function asStringArray(value) {
     .filter((item) => typeof item === 'string')
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function expandHome(inputPath = '') {
-  return String(inputPath || '').replace(/^~(?=\/|$)/, os.homedir());
 }
 
 function shellEscape(value) {
@@ -56,79 +58,20 @@ function buildRuntimeEnv(context, inputs = {}) {
   return out;
 }
 
-// Parse a proxy_jump string like "user@host:port" or "user@host" into components.
-function parseProxyJump(proxyJump = '') {
-  const s = cleanString(proxyJump);
-  if (!s) return null;
-  const m = s.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
-  if (!m) return null;
-  return { userAt: m[1] || '', host: m[2], port: m[3] || null };
-}
-
-// Build a ProxyCommand string for the given proxy_jump and key.
-// Uses ProxyCommand instead of -J to ensure StrictHostKeyChecking options
-// propagate correctly for tunnel endpoints (e.g. 127.0.0.1:9022 → scully).
-function buildProxyCommand(proxyJump, keyPath, connectTimeout) {
-  const parsed = parseProxyJump(proxyJump);
-  if (!parsed) return null;
-  const { userAt, host, port } = parsed;
-  const parts = [
-    'ssh', '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'StrictHostKeyChecking=no',
-    '-o', 'UserKnownHostsFile=/dev/null',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-i', keyPath,
-  ];
-  if (port) parts.push('-p', port);
-  parts.push('-W', '%h:%p', `${userAt}${host}`);
-  return parts.join(' ');
-}
-
 function buildSshArgs(server, { connectTimeout = 12 } = {}) {
-  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server?.port || 22),
-  ];
-  const proxyJump = cleanString(server?.proxy_jump);
-  if (proxyJump) {
-    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
-    if (proxyCmd) {
-      args.push('-o', `ProxyCommand=${proxyCmd}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildSharedSshArgs(server, { connectTimeout });
 }
 
 function buildScpArgs(server, { connectTimeout = 12 } = {}) {
-  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-P', String(server?.port || 22),
-  ];
-  const proxyJump = cleanString(server?.proxy_jump);
-  if (proxyJump) {
-    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
-    if (proxyCmd) {
-      args.push('-o', `ProxyCommand=${proxyCmd}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildSharedScpArgs(server, { connectTimeout });
+}
+
+function buildSshShellCommand(server, remoteArgs = [], { connectTimeout = 12 } = {}) {
+  return buildSshCommandLine(server, remoteArgs, { connectTimeout });
+}
+
+function spawnCommand(command, args = [], options = {}) {
+  return spawnWrapped(command, args, { spawnImpl: spawn, ...options });
 }
 
 function inferMimeType(filePath = '') {
@@ -336,15 +279,10 @@ async function listRemoteDeliverableCandidates(execServer, cwd, {
     'exit 0',
   ].join('\n');
 
-  const sshArgs = [
-    ...buildSshArgs(execServer, { connectTimeout: 15 }),
-    `${execServer.user}@${execServer.host}`,
-    'bash',
-    '-s',
-  ];
+  const sshCommand = buildSshShellCommand(execServer, ['bash', '-s'], { connectTimeout: 15 });
 
   const output = await new Promise((resolve, reject) => {
-    const proc = spawn('ssh', sshArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn('bash', ['-lc', sshCommand], { stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     proc.stdin.write(`${script}\n`);
@@ -518,11 +456,10 @@ function deriveTmuxPaths(runId, stepId) {
 function spawnRemoteFireAndForget(server, cmd) {
   if (!server || !cleanString(cmd)) return;
   try {
-    const proc = spawn('ssh', [
-      ...buildSshArgs(server, { connectTimeout: 10 }),
-      `${server.user}@${server.host}`,
-      'bash', '-c', cmd,
-    ], { stdio: ['ignore', 'ignore', 'ignore'], detached: process.platform !== 'win32' });
+    const proc = spawn('bash', ['-lc', buildSshShellCommand(server, ['bash', '-c', cmd], { connectTimeout: 10 })], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      detached: process.platform !== 'win32',
+    });
     if (typeof proc.unref === 'function') proc.unref();
   } catch (_) { /* fire-and-forget */ }
 }
@@ -696,16 +633,12 @@ class BashRunModule extends BaseModule {
         ? (() => {
           const remoteCmd = toRemoteShellCommand({ command, args, cmd });
           const remoteCmdBase64 = Buffer.from(remoteCmd, 'utf8').toString('base64');
-          const sshArgs = [
-            ...buildSshArgs(execServer, { connectTimeout: 15 }),
-            `${execServer.user}@${execServer.host}`,
-            'bash',
-            '-s',
-            '--',
-            effectiveCwd,
-            remoteCmdBase64,
-          ];
-          const proc = spawn('ssh', sshArgs, {
+          const sshCommand = buildSshShellCommand(
+            execServer,
+            ['bash', '-s', '--', effectiveCwd, remoteCmdBase64],
+            { connectTimeout: 15 }
+          );
+          const proc = spawn('bash', ['-lc', sshCommand], {
             env: process.env,
             stdio: ['pipe', 'pipe', 'pipe'],
             detached,
@@ -844,7 +777,7 @@ class BashRunModule extends BaseModule {
                 localPath,
               ];
               await new Promise((res, rej) => {
-                const scp = spawn('scp', scpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+                const scp = spawnCommand('scp', scpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
                 scp.on('close', (c) => (c === 0 ? res() : rej(new Error(`SCP exited ${c}`))));
                 scp.on('error', rej);
               });
@@ -915,7 +848,7 @@ class BashRunModule extends BaseModule {
                     tempPath,
                   ];
                   await new Promise((res, rej) => {
-                    const scp = spawn('scp', scpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+                    const scp = spawnCommand('scp', scpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
                     scp.on('close', (c) => (c === 0 ? res() : rej(new Error(`SCP exited ${c}`))));
                     scp.on('error', rej);
                   });

@@ -18,13 +18,14 @@ const path = require('path');
 const fs = require('fs/promises');
 const BaseModule = require('./base-module');
 const { getDb } = require('../../../db');
+const {
+  buildScpArgs: buildSharedScpArgs,
+  buildSshArgs: buildSharedSshArgs,
+  spawnWrapped,
+} = require('../../ssh-transport.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function expandHome(inputPath = '') {
-  return String(inputPath || '').replace(/^~(?=\/|$)/, os.homedir());
 }
 
 function isLocalTarget(ref = '') {
@@ -42,80 +43,17 @@ async function getServerByRef(ref = '') {
   return r.rows?.[0] || null;
 }
 
-function parseProxyJump(proxyJump = '') {
-  const s = cleanString(proxyJump);
-  if (!s) return null;
-  const m = s.match(/^((?:[^@]+)@)?([^:@]+)(?::(\d+))?$/);
-  if (!m) return null;
-  return { userAt: m[1] || '', host: m[2], port: m[3] || null };
-}
-
-function buildProxyCommand(proxyJump, keyPath, connectTimeout) {
-  const parsed = parseProxyJump(proxyJump);
-  if (!parsed) return null;
-  const { userAt, host, port } = parsed;
-  const parts = [
-    'ssh', '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'StrictHostKeyChecking=no',
-    '-o', 'UserKnownHostsFile=/dev/null',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-i', keyPath,
-  ];
-  if (port) parts.push('-p', port);
-  parts.push('-W', '%h:%p', `${userAt}${host}`);
-  return parts.join(' ');
-}
-
 function buildSshArgs(server, { connectTimeout = 15 } = {}) {
-  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-p', String(server?.port || 22),
-  ];
-  const proxyJump = cleanString(server?.proxy_jump);
-  if (proxyJump) {
-    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
-    if (proxyCmd) {
-      args.push('-o', `ProxyCommand=${proxyCmd}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildSharedSshArgs(server, { connectTimeout });
 }
 
 function buildScpArgs(server, { connectTimeout = 15 } = {}) {
-  const keyPath = expandHome(server?.ssh_key_path || '~/.ssh/id_rsa');
-  const args = [
-    '-F', '/dev/null',
-    '-o', 'BatchMode=yes',
-    '-o', 'ClearAllForwardings=yes',
-    '-o', `ConnectTimeout=${connectTimeout}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-i', keyPath,
-    '-P', String(server?.port || 22),
-  ];
-  const proxyJump = cleanString(server?.proxy_jump);
-  if (proxyJump) {
-    const proxyCmd = buildProxyCommand(proxyJump, keyPath, connectTimeout);
-    if (proxyCmd) {
-      args.push('-o', `ProxyCommand=${proxyCmd}`);
-    } else {
-      args.push('-J', proxyJump);
-    }
-  }
-  return args;
+  return buildSharedScpArgs(server, { connectTimeout });
 }
 
 async function runProcess(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, opts);
+    const child = spawnWrapped(cmd, args, { spawnImpl: spawn, ...opts });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (c) => { stdout += c.toString(); });
