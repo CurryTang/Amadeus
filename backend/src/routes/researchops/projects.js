@@ -491,9 +491,9 @@ async function hasLocalEnvironmentMarkers(projectPath) {
 async function hasSshEnvironmentMarkers(server, projectPath) {
   const rootPath = String(projectPath || '').trim();
   if (!rootPath) return false;
-  const checks = ENV_MARKER_NAMES.map((m) => `[ -e "${rootPath}/${m}" ] && echo "FOUND"`).join('; ');
-  const { stdout } = await runSshScript(server, checks, [], 30000);
-  const found = String(stdout || '').includes('FOUND');
+  const checks = ENV_MARKER_NAMES.map((m) => `[ -e "${rootPath}/${m}" ] && echo "FOUND_MARKER"`).join('; ');
+  const { stdout } = await runSshScript(server, `${checks}; true`, [], 30000);
+  const found = String(stdout || '').includes('FOUND_MARKER');
   console.log(`[ResearchOps] env-markers SSH check: path=${rootPath} server=${server?.host || '?'} found=${found}`);
   return found;
 }
