@@ -53,27 +53,30 @@ npx playwright install chromium
 
 ### Create an authenticated storage state file
 
-Run this one-time script on the execution machine:
+Run this one-time command on the execution machine (WSL/Linux/macOS):
 
 ```bash
 cd backend
-node - <<'NODE'
-const { chromium } = require('playwright');
+npm run setup:x-session
+```
 
-(async () => {
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto('https://x.com/login', { waitUntil: 'domcontentloaded' });
-  console.log('Log in manually, then press Enter here...');
-  process.stdin.once('data', async () => {
-    await context.storageState({ path: '/absolute/path/to/x-session.json' });
-    await browser.close();
-    console.log('Saved session to /absolute/path/to/x-session.json');
-    process.exit(0);
-  });
-})();
-NODE
+Optional custom path:
+
+```bash
+npm run setup:x-session -- --out /home/<user>/.playwright/x-session.json
+```
+
+### If backend server has no GUI
+
+Use any machine with a GUI once, then copy the session JSON to backend server.
+
+```bash
+# On GUI machine
+cd backend
+npm run setup:x-session -- --out ./x-session.json
+
+# Copy to headless backend host
+scp ./x-session.json <server-user>@<server-host>:/home/<user>/.playwright/x-session.json
 ```
 
 ### Set environment variable
@@ -83,6 +86,16 @@ In `backend/.env` on the execution machine:
 ```bash
 X_PLAYWRIGHT_STORAGE_STATE_PATH=/absolute/path/to/x-session.json
 ```
+
+WSL example:
+
+```bash
+X_PLAYWRIGHT_STORAGE_STATE_PATH=/home/<user>/.playwright/x-session.json
+```
+
+Important:
+- Do not use paths from another OS/device (for example `/Users/...` on Linux).
+- The file must exist on the same machine/user account that runs backend tracker.
 
 ### Configure in Tracker Admin
 
@@ -111,5 +124,10 @@ Create a source with:
   - IMAP/network issue or Gmail security restriction.
 - `playwright is not installed` (Twitter):
   - Install Playwright + Chromium on execution node.
+- `X Playwright storage state not found`:
+  - Path is wrong for current host/OS, or file not created yet.
+  - Run `npm run setup:x-session` on the execution node and update `X_PLAYWRIGHT_STORAGE_STATE_PATH`.
+- Timeline shows old/pinned posts repeatedly:
+  - Usually unauthenticated session. Recreate session with `npm run setup:x-session`.
 - `Desktop tracker request failed (404)`:
   - DO is proxying to an older local processing server; update/restart local executor.

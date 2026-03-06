@@ -1569,9 +1569,19 @@ Input --> Module A --> Module B --> Output
         const roundNum = i + 1;
         console.log(`[AutoReaderCustom] === Round ${roundNum}/${refinementRounds.length} ===`);
 
+        const roundName = typeof round?.name === 'string' && round.name.trim()
+          ? round.name.trim()
+          : `Round ${roundNum}`;
+        const roundPrompt = typeof round?.prompt === 'string' && round.prompt.trim()
+          ? round.prompt.trim()
+          : (typeof round?.input === 'string' ? round.input.trim() : '');
+        if (!roundPrompt) {
+          throw new Error(`Round ${roundNum} has empty prompt`);
+        }
+
         const prompt = previousNotes
-          ? `${round.prompt}\n\n---\nPrevious notes for context:\n${previousNotes}`
-          : round.prompt;
+          ? `${roundPrompt}\n\n---\nPrevious notes for context:\n${previousNotes}`
+          : roundPrompt;
 
         const result = await this.executePass(tempFilePath, prompt, notesFilePath, roundNum);
         const cleaned = cleanLLMResponse(result.text);
@@ -1579,7 +1589,7 @@ Input --> Module A --> Module B --> Output
         if (i === 0) {
           await this.appendToNotesFile(notesFilePath, cleaned);
         } else {
-          await this.appendToNotesFile(notesFilePath, `\n\n---\n\n## Round ${roundNum}\n\n${cleaned}`);
+          await this.appendToNotesFile(notesFilePath, `\n\n---\n\n## ${roundName}\n\n${cleaned}`);
         }
         previousNotes = await fs.readFile(notesFilePath, 'utf-8');
       }

@@ -13,7 +13,9 @@ const ReportRenderModule = require('./modules/report-render.module');
 const ArtifactPublishModule = require('./modules/artifact-publish.module');
 const HorizonWatchModule = require('./modules/horizon-watch.module');
 const AgentReviewModule = require('./modules/agent-review.module');
+const { deriveRunWorkspacePath } = require('./run-report-view');
 const workflowSchemaService = require('./workflow-schema.service');
+const { assertProjectExecutionAllowed } = require('./project-location.service');
 const { getDb } = require('../../db');
 const { buildSshArgs: buildSharedSshArgs } = require('../ssh-transport.service');
 
@@ -241,6 +243,9 @@ async function prepareGitWorkspace({ userId, run, project }) {
   const enabled = asBoolean(run?.metadata?.gitManaged, true);
   if (!enabled) return null;
   const runId = cleanString(run?.id);
+  if (project?.locationType === 'client' && project?.clientMode === 'browser') {
+    assertProjectExecutionAllowed(project, 'git-managed execution');
+  }
   const projectPath = cleanString(project?.projectPath);
   if (!runId) throw new Error('Git workspace preparation failed: missing run id');
   if (!projectPath) throw new Error('Git workspace preparation failed: missing project path');
@@ -872,6 +877,15 @@ class ResearchOpsOrchestrator {
 
     try {
       runtimeFiles = await stageRuntimeFiles(effectiveRun, contextPack);
+      const initialWorkspacePath = deriveRunWorkspacePath(effectiveRun, {
+        runtimeFiles,
+        stepResults,
+      });
+      if (initialWorkspacePath) {
+        await store.patchRunMeta(uid, runId, {
+          runWorkspacePath: initialWorkspacePath,
+        }).catch(() => {});
+      }
       if (runtimeFiles?.skillRefsPath) {
         await store.createRunArtifact(uid, runId, {
           kind: 'skill_refs_manifest',
@@ -1494,6 +1508,15 @@ class ResearchOpsOrchestrator {
         ? effectiveRun.metadata.pendingContinuation
         : null;
       const effectiveContinuation = continuationFromStep || pendingContinuation || null;
+      const finalWorkspacePath = deriveRunWorkspacePath(effectiveRun, {
+        runtimeFiles,
+        stepResults,
+      });
+      if (finalWorkspacePath) {
+        await store.patchRunMeta(uid, runId, {
+          runWorkspacePath: finalWorkspacePath,
+        }).catch(() => {});
+      }
 
       await store.publishRunEvents(uid, runId, [{
         eventType: 'RUN_SUMMARY',

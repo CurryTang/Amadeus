@@ -5,6 +5,10 @@ const { MongoClient } = require('mongodb');
 const config = require('../../config');
 const s3Service = require('../s3.service');
 const workflowSchemaService = require('./workflow-schema.service');
+const {
+  normalizeProjectLocationPayload,
+  deriveProjectCapabilities,
+} = require('./project-location.service');
 
 let initPromise = null;
 let storeMode = 'memory';
@@ -13,9 +17,12 @@ let mongoDb = null;
 
 const memory = {
   projects: [],
+  uiConfig: [],
   ideas: [],
   runs: [],
   daemons: [],
+  daemonBootstrapTokens: [],
+  daemonTasks: [],
   runEvents: [],
   runSteps: [],
   runArtifacts: [],
@@ -26,7 +33,7 @@ const memory = {
 
 const RUN_STATUS = new Set(['QUEUED', 'PROVISIONING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED']);
 const RUN_TRANSITIONS = {
-  QUEUED: new Set(['PROVISIONING', 'CANCELLED']),
+  QUEUED: new Set(['PROVISIONING', 'RUNNING', 'CANCELLED']),
   PROVISIONING: new Set(['RUNNING', 'FAILED', 'CANCELLED']),
   RUNNING: new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']),
   SUCCEEDED: new Set([]),
@@ -54,6 +61,7 @@ const SKILL_CATALOG_STANDARD = 'claude-code-codex-skill-catalog';
 const SKILLS_ROOT_DIR = path.join(__dirname, '..', '..', '..', '..', 'skills');
 const SKILLS_CATALOG_PREFIX = cleanString(process.env.SKILLS_CATALOG_PREFIX || 'skills/catalog');
 const SKILLS_OBJECT_PREFIX = cleanString(process.env.SKILLS_OBJECT_PREFIX || 'skills/objects');
+const PROJECT_MODES = new Set(['new_project', 'existing_codebase']);
 
 function nowIso() {
   return new Date().toISOString();
@@ -144,6 +152,7 @@ async function ensureMongoIndexes(db) {
   await Promise.all([
     db.collection('researchops_projects').createIndex({ id: 1 }, { unique: true }),
     db.collection('researchops_projects').createIndex({ userId: 1, createdAt: -1 }),
+    db.collection('researchops_ui_config').createIndex({ id: 1, userId: 1 }, { unique: true }),
     db.collection('researchops_ideas').createIndex({ id: 1 }, { unique: true }),
     db.collection('researchops_ideas').createIndex({ userId: 1, projectId: 1, updatedAt: -1 }),
     db.collection('researchops_runs').createIndex({ id: 1 }, { unique: true }),
@@ -151,6 +160,10 @@ async function ensureMongoIndexes(db) {
     db.collection('researchops_runs').createIndex({ userId: 1, serverId: 1, status: 1, createdAt: 1 }),
     db.collection('researchops_daemons').createIndex({ id: 1 }, { unique: true }),
     db.collection('researchops_daemons').createIndex({ userId: 1, hostname: 1 }, { unique: true }),
+    db.collection('researchops_daemon_bootstrap_tokens').createIndex({ id: 1 }, { unique: true }),
+    db.collection('researchops_daemon_bootstrap_tokens').createIndex({ userId: 1, createdAt: -1 }),
+    db.collection('researchops_daemon_tasks').createIndex({ id: 1 }, { unique: true }),
+    db.collection('researchops_daemon_tasks').createIndex({ userId: 1, serverId: 1, status: 1, createdAt: 1 }),
     db.collection('researchops_run_events').createIndex({ runId: 1, sequence: 1 }, { unique: true }),
     db.collection('researchops_run_events').createIndex({ userId: 1, runId: 1, sequence: 1 }),
     db.collection('researchops_run_steps').createIndex({ runId: 1, stepId: 1 }, { unique: true }),
@@ -198,17 +211,35 @@ async function initStore() {
 }
 
 function projectShape(doc) {
+  const locationType = doc.locationType || 'local';
+  const clientMode = cleanString(doc.clientMode) || null;
+  const clientDeviceId = cleanString(doc.clientDeviceId) || null;
+  const clientWorkspaceId = cleanString(doc.clientWorkspaceId) || null;
+  const clientWorkspaceMeta = doc.clientWorkspaceMeta && typeof doc.clientWorkspaceMeta === 'object'
+    ? doc.clientWorkspaceMeta
+    : {};
   return {
     id: doc.id,
     userId: doc.userId,
     name: doc.name,
     description: doc.description || null,
-    locationType: doc.locationType || 'local',
-    serverId: doc.serverId || 'local-default',
+    projectMode: PROJECT_MODES.has(cleanString(doc.projectMode)) ? cleanString(doc.projectMode) : 'new_project',
+    locationType,
+    clientMode,
+    clientDeviceId,
+    clientWorkspaceId,
+    clientWorkspaceMeta,
+    serverId: doc.serverId || (locationType === 'local' ? 'local-default' : null),
     projectPath: doc.projectPath || null,
     gitBranch: cleanString(doc.gitBranch) || null,
     kbFolderPath: cleanString(doc.kbFolderPath) || null,
     knowledgeGroupIds: normalizeKnowledgeGroupIds(doc.knowledgeGroupIds),
+    capabilities: deriveProjectCapabilities({
+      locationType,
+      clientMode,
+      clientDeviceId,
+      clientWorkspaceId,
+    }),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -271,6 +302,39 @@ function daemonShape(doc) {
   };
 }
 
+function daemonTaskShape(doc) {
+  return {
+    id: doc.id,
+    userId: doc.userId,
+    serverId: cleanString(doc.serverId),
+    taskType: cleanString(doc.taskType),
+    status: cleanString(doc.status) || 'QUEUED',
+    payload: doc.payload && typeof doc.payload === 'object' ? doc.payload : {},
+    result: doc.result && typeof doc.result === 'object' ? doc.result : null,
+    error: cleanString(doc.error) || null,
+    createdAt: doc.createdAt || nowIso(),
+    updatedAt: doc.updatedAt || doc.createdAt || nowIso(),
+    leasedAt: doc.leasedAt || null,
+    completedAt: doc.completedAt || null,
+  };
+}
+
+function daemonBootstrapTokenShape(doc) {
+  return {
+    id: doc.id,
+    bootstrapId: doc.id,
+    userId: doc.userId,
+    requestedHostname: cleanString(doc.requestedHostname) || null,
+    requestedPlatform: cleanString(doc.requestedPlatform) || null,
+    status: cleanString(doc.status).toUpperCase() || 'PENDING',
+    expiresAt: cleanString(doc.expiresAt) || null,
+    redeemedAt: doc.redeemedAt || null,
+    redeemedServerId: cleanString(doc.redeemedServerId) || null,
+    createdAt: doc.createdAt || nowIso(),
+    updatedAt: doc.updatedAt || doc.createdAt || nowIso(),
+  };
+}
+
 function runEventShape(doc) {
   return {
     id: doc.id,
@@ -283,6 +347,76 @@ function runEventShape(doc) {
     payload: doc.payload || null,
     timestamp: doc.timestamp,
   };
+}
+
+function uiConfigShape(doc) {
+  const rawTemplates = Array.isArray(doc?.projectTemplates) ? doc.projectTemplates : [];
+  return {
+    simplifiedAlphaMode: doc?.simplifiedAlphaMode === true,
+    projectTemplates: rawTemplates
+      .map((item) => normalizeProjectTemplate(item))
+      .filter(Boolean),
+    updatedAt: cleanString(doc?.updatedAt) || nowIso(),
+  };
+}
+
+const PROJECT_TEMPLATE_SOURCE_TYPES = new Set(['pixi', 'requirements', 'docker']);
+
+function normalizeStringArray(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  const values = [];
+  for (const item of input) {
+    const normalized = cleanString(item);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(normalized);
+  }
+  return values;
+}
+
+function normalizeProjectTemplateTestSpec(input = {}) {
+  const raw = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  return {
+    pythonImports: normalizeStringArray(raw.pythonImports),
+    shellCommands: normalizeStringArray(raw.shellCommands),
+  };
+}
+
+function normalizeProjectTemplate(input = {}) {
+  const raw = input && typeof input === 'object' && !Array.isArray(input) ? input : null;
+  if (!raw) return null;
+  const sourceType = cleanString(raw.sourceType).toLowerCase();
+  if (!PROJECT_TEMPLATE_SOURCE_TYPES.has(sourceType)) return null;
+  const id = cleanString(raw.id);
+  const name = cleanString(raw.name);
+  const description = cleanString(raw.description);
+  const fileName = cleanString(raw.fileName);
+  const fileContent = typeof raw.fileContent === 'string' ? raw.fileContent : cleanString(raw.fileContent);
+  if (!id || !name || !description || !fileName || !fileContent) return null;
+  return {
+    id,
+    name,
+    description,
+    sourceType,
+    fileName,
+    fileContent,
+    testSpec: normalizeProjectTemplateTestSpec(raw.testSpec),
+    updatedAt: cleanString(raw.updatedAt) || nowIso(),
+  };
+}
+
+function normalizeProjectTemplates(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  const templates = [];
+  for (const item of input) {
+    const normalized = normalizeProjectTemplate(item);
+    if (!normalized || seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    templates.push(normalized);
+  }
+  return templates;
 }
 
 const ACTIVE_RUN_STATUSES = ['PROVISIONING', 'RUNNING'];
@@ -311,6 +445,160 @@ async function getRawDaemonById(userId, serverId) {
   return memory.daemons.find((item) => item.id === sid && item.userId === uid) || null;
 }
 
+function hashBootstrapSecret(secret) {
+  return crypto.createHash('sha256').update(String(secret || ''), 'utf8').digest('hex');
+}
+
+function buildBootstrapExpiry(ttlMs) {
+  const ttl = toInt(ttlMs, 10 * 60 * 1000, 1_000, 24 * 60 * 60 * 1000);
+  return new Date(Date.now() + ttl).toISOString();
+}
+
+function isExpiredTimestamp(value) {
+  const parsed = Date.parse(String(value || ''));
+  return !Number.isFinite(parsed) || parsed <= Date.now();
+}
+
+async function getRawDaemonBootstrapTokenById(userId, bootstrapId) {
+  const uid = normalizeUserId(userId);
+  const id = cleanString(bootstrapId);
+  if (!id) return null;
+
+  if (storeMode === 'mongodb') {
+    return mongoDb.collection('researchops_daemon_bootstrap_tokens').findOne({ id, userId: uid });
+  }
+  return memory.daemonBootstrapTokens.find((item) => item.id === id && item.userId === uid) || null;
+}
+
+async function expireDaemonBootstrapTokenIfNeeded(userId, bootstrapId) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(bootstrapId);
+  if (!id) return null;
+
+  const current = await getRawDaemonBootstrapTokenById(uid, id);
+  if (!current) return null;
+  if (cleanString(current.status).toUpperCase() !== 'PENDING') return daemonBootstrapTokenShape(current);
+  if (!isExpiredTimestamp(current.expiresAt)) return daemonBootstrapTokenShape(current);
+
+  const patch = {
+    status: 'EXPIRED',
+    updatedAt: nowIso(),
+  };
+
+  if (storeMode === 'mongodb') {
+    const result = await mongoDb.collection('researchops_daemon_bootstrap_tokens').findOneAndUpdate(
+      { id, userId: uid, status: 'PENDING' },
+      { $set: patch },
+      { returnDocument: 'after' }
+    );
+    const updated = unwrapFindOneAndUpdate(result);
+    return updated ? daemonBootstrapTokenShape(updated) : daemonBootstrapTokenShape(current);
+  }
+
+  const idx = memory.daemonBootstrapTokens.findIndex((item) => item.id === id && item.userId === uid);
+  if (idx === -1) return daemonBootstrapTokenShape(current);
+  memory.daemonBootstrapTokens[idx] = {
+    ...memory.daemonBootstrapTokens[idx],
+    ...patch,
+  };
+  return daemonBootstrapTokenShape(memory.daemonBootstrapTokens[idx]);
+}
+
+async function createDaemonBootstrapToken(userId, payload = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const ts = nowIso();
+  const secret = crypto.randomBytes(24).toString('base64url');
+  const doc = {
+    id: newId('dbt'),
+    userId: uid,
+    tokenHash: hashBootstrapSecret(secret),
+    requestedHostname: cleanString(payload?.requestedHostname) || null,
+    requestedPlatform: cleanString(payload?.requestedPlatform) || null,
+    status: 'PENDING',
+    expiresAt: buildBootstrapExpiry(payload?.ttlMs),
+    redeemedAt: null,
+    redeemedServerId: null,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+
+  if (storeMode === 'mongodb') {
+    await mongoDb.collection('researchops_daemon_bootstrap_tokens').insertOne(doc);
+  } else {
+    memory.daemonBootstrapTokens.push(doc);
+  }
+
+  return {
+    ...daemonBootstrapTokenShape(doc),
+    secret,
+  };
+}
+
+async function getDaemonBootstrapToken(userId, bootstrapId) {
+  await initStore();
+  const current = await getRawDaemonBootstrapTokenById(userId, bootstrapId);
+  if (!current) return null;
+  if (cleanString(current.status).toUpperCase() === 'PENDING' && isExpiredTimestamp(current.expiresAt)) {
+    return expireDaemonBootstrapTokenIfNeeded(userId, bootstrapId);
+  }
+  return daemonBootstrapTokenShape(current);
+}
+
+async function redeemDaemonBootstrapToken(userId, payload = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const bootstrapId = cleanString(payload?.bootstrapId);
+  const secret = cleanString(payload?.secret);
+  const serverId = cleanString(payload?.serverId);
+  if (!bootstrapId) throw new Error('bootstrapId is required');
+  if (!secret) throw new Error('secret is required');
+  if (!serverId) throw new Error('serverId is required');
+
+  const current = await getRawDaemonBootstrapTokenById(uid, bootstrapId);
+  if (!current) throw new Error('Bootstrap token not found');
+  const currentStatus = cleanString(current.status).toUpperCase();
+  if (currentStatus === 'REDEEMED') throw new Error('Bootstrap token already redeemed');
+  if (currentStatus === 'CANCELLED') throw new Error('Bootstrap token has been cancelled');
+  if (currentStatus === 'EXPIRED' || isExpiredTimestamp(current.expiresAt)) {
+    await expireDaemonBootstrapTokenIfNeeded(uid, bootstrapId);
+    throw new Error('Bootstrap token has expired');
+  }
+  if (hashBootstrapSecret(secret) !== cleanString(current.tokenHash)) {
+    throw new Error('Bootstrap token secret is invalid');
+  }
+
+  const patch = {
+    status: 'REDEEMED',
+    redeemedAt: nowIso(),
+    redeemedServerId: serverId,
+    updatedAt: nowIso(),
+  };
+
+  let updated = null;
+  if (storeMode === 'mongodb') {
+    const result = await mongoDb.collection('researchops_daemon_bootstrap_tokens').findOneAndUpdate(
+      { id: bootstrapId, userId: uid, status: 'PENDING' },
+      { $set: patch },
+      { returnDocument: 'after' }
+    );
+    updated = unwrapFindOneAndUpdate(result);
+  } else {
+    const idx = memory.daemonBootstrapTokens.findIndex((item) => item.id === bootstrapId && item.userId === uid);
+    if (idx !== -1) {
+      memory.daemonBootstrapTokens[idx] = {
+        ...memory.daemonBootstrapTokens[idx],
+        ...patch,
+      };
+      updated = memory.daemonBootstrapTokens[idx];
+    }
+  }
+
+  if (!updated) throw new Error('Bootstrap token could not be redeemed');
+  return daemonBootstrapTokenShape(updated);
+}
+
 async function countActiveRunsForServer(userId, serverId) {
   const uid = normalizeUserId(userId);
   const sid = cleanString(serverId);
@@ -327,6 +615,51 @@ async function countActiveRunsForServer(userId, serverId) {
   return memory.runs.filter(
     (run) => run.userId === uid && run.serverId === sid && ACTIVE_RUN_STATUSES.includes(run.status)
   ).length;
+}
+
+async function getUiConfig(userId) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+
+  if (storeMode === 'mongodb') {
+    const doc = await mongoDb.collection('researchops_ui_config').findOne({ id: 'global', userId: uid });
+    return uiConfigShape(doc);
+  }
+
+  const doc = memory.uiConfig.find((item) => item.id === 'global' && item.userId === uid) || null;
+  return uiConfigShape(doc);
+}
+
+async function updateUiConfig(userId, patch = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const ts = nowIso();
+  const current = await getUiConfig(uid);
+  const nextDoc = {
+    id: 'global',
+    userId: uid,
+    simplifiedAlphaMode: Object.prototype.hasOwnProperty.call(patch || {}, 'simplifiedAlphaMode')
+      ? patch?.simplifiedAlphaMode === true
+      : current.simplifiedAlphaMode === true,
+    projectTemplates: Object.prototype.hasOwnProperty.call(patch || {}, 'projectTemplates')
+      ? normalizeProjectTemplates(patch?.projectTemplates)
+      : normalizeProjectTemplates(current.projectTemplates),
+    updatedAt: ts,
+  };
+
+  if (storeMode === 'mongodb') {
+    const result = await mongoDb.collection('researchops_ui_config').findOneAndUpdate(
+      { id: 'global', userId: uid },
+      { $set: nextDoc },
+      { upsert: true, returnDocument: 'after' }
+    );
+    return uiConfigShape(unwrapFindOneAndUpdate(result) || nextDoc);
+  }
+
+  const idx = memory.uiConfig.findIndex((item) => item.id === 'global' && item.userId === uid);
+  if (idx === -1) memory.uiConfig.push(nextDoc);
+  else memory.uiConfig[idx] = nextDoc;
+  return uiConfigShape(nextDoc);
 }
 
 async function listProjects(userId, { limit = 50 } = {}) {
@@ -355,20 +688,7 @@ async function createProject(userId, payload = {}) {
   const uid = normalizeUserId(userId);
   const normalizedName = cleanString(payload?.name);
   if (!normalizedName) throw new Error('Project name is required');
-  const locationType = cleanString(payload?.locationType).toLowerCase() || 'local';
-  if (!['local', 'ssh'].includes(locationType)) {
-    throw new Error('locationType must be local or ssh');
-  }
-  const serverId = locationType === 'ssh'
-    ? cleanString(payload?.serverId)
-    : 'local-default';
-  if (locationType === 'ssh' && !serverId) {
-    throw new Error('serverId is required when locationType=ssh');
-  }
-  const projectPath = cleanString(payload?.projectPath);
-  if (!projectPath) {
-    throw new Error('projectPath is required');
-  }
+  const normalizedLocation = normalizeProjectLocationPayload(payload);
 
   const ts = nowIso();
   const doc = {
@@ -376,9 +696,14 @@ async function createProject(userId, payload = {}) {
     userId: uid,
     name: normalizedName,
     description: cleanString(payload?.description) || null,
-    locationType,
-    serverId,
-    projectPath,
+    projectMode: PROJECT_MODES.has(cleanString(payload?.projectMode)) ? cleanString(payload.projectMode) : 'new_project',
+    locationType: normalizedLocation.locationType,
+    clientMode: normalizedLocation.clientMode,
+    clientDeviceId: normalizedLocation.clientDeviceId,
+    clientWorkspaceId: normalizedLocation.clientWorkspaceId,
+    clientWorkspaceMeta: normalizedLocation.clientWorkspaceMeta,
+    serverId: normalizedLocation.serverId,
+    projectPath: normalizedLocation.projectPath,
     kbFolderPath: cleanString(payload?.kbFolderPath) || null,
     knowledgeGroupIds: normalizeKnowledgeGroupIds(payload?.knowledgeGroupIds),
     createdAt: ts,
@@ -483,6 +808,10 @@ async function updateProject(userId, projectId, payload = {}) {
   }
   if (payload.description !== undefined) {
     patch.description = cleanString(payload.description) || null;
+  }
+  if (payload.projectMode !== undefined) {
+    const projectMode = cleanString(payload.projectMode);
+    if (PROJECT_MODES.has(projectMode)) patch.projectMode = projectMode;
   }
   if (payload.projectPath !== undefined) {
     const p = cleanString(payload.projectPath);
@@ -1563,6 +1892,124 @@ async function listDaemons(userId, { limit = 100 } = {}) {
     .sort((a, b) => String(b.heartbeatAt).localeCompare(String(a.heartbeatAt)))
     .slice(0, cap)
     .map(daemonShape);
+}
+
+async function enqueueDaemonTask(userId, payload = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const serverId = cleanString(payload?.serverId);
+  const taskType = cleanString(payload?.taskType);
+  if (!serverId) throw new Error('serverId is required');
+  if (!taskType) throw new Error('taskType is required');
+
+  const ts = nowIso();
+  const doc = {
+    id: newId('dtask'),
+    userId: uid,
+    serverId,
+    taskType,
+    status: 'QUEUED',
+    payload: payload?.payload && typeof payload.payload === 'object' ? payload.payload : {},
+    result: null,
+    error: null,
+    leasedAt: null,
+    completedAt: null,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+
+  if (storeMode === 'mongodb') {
+    await mongoDb.collection('researchops_daemon_tasks').insertOne(doc);
+  } else {
+    memory.daemonTasks.push(doc);
+  }
+
+  return daemonTaskShape(doc);
+}
+
+async function getDaemonTask(userId, taskId) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(taskId);
+  if (!id) return null;
+
+  if (storeMode === 'mongodb') {
+    const doc = await mongoDb.collection('researchops_daemon_tasks').findOne({ id, userId: uid });
+    return doc ? daemonTaskShape(doc) : null;
+  }
+
+  const doc = memory.daemonTasks.find((item) => item.id === id && item.userId === uid);
+  return doc ? daemonTaskShape(doc) : null;
+}
+
+async function claimNextDaemonTask(userId, serverId) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const sid = cleanString(serverId);
+  if (!sid) throw new Error('serverId is required');
+  const ts = nowIso();
+
+  let doc = null;
+  if (storeMode === 'mongodb') {
+    const result = await mongoDb.collection('researchops_daemon_tasks').findOneAndUpdate(
+      { userId: uid, serverId: sid, status: 'QUEUED' },
+      { $set: { status: 'RUNNING', leasedAt: ts, updatedAt: ts } },
+      { sort: { createdAt: 1 }, returnDocument: 'after' }
+    );
+    doc = unwrapFindOneAndUpdate(result);
+  } else {
+    const idx = memory.daemonTasks
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.userId === uid && item.serverId === sid && item.status === 'QUEUED')
+      .sort((a, b) => String(a.item.createdAt).localeCompare(String(b.item.createdAt)))[0]?.index;
+    if (typeof idx === 'number') {
+      memory.daemonTasks[idx] = {
+        ...memory.daemonTasks[idx],
+        status: 'RUNNING',
+        leasedAt: ts,
+        updatedAt: ts,
+      };
+      doc = memory.daemonTasks[idx];
+    }
+  }
+
+  return doc ? daemonTaskShape(doc) : null;
+}
+
+async function completeDaemonTask(userId, taskId, payload = {}) {
+  await initStore();
+  const uid = normalizeUserId(userId);
+  const id = cleanString(taskId);
+  if (!id) return null;
+  const ok = payload?.ok !== false;
+  const ts = nowIso();
+  const patch = {
+    status: ok ? 'SUCCEEDED' : 'FAILED',
+    result: ok && payload?.result && typeof payload.result === 'object' ? payload.result : null,
+    error: ok ? null : cleanString(payload?.error) || 'Daemon task failed',
+    completedAt: ts,
+    updatedAt: ts,
+  };
+
+  let updated = null;
+  if (storeMode === 'mongodb') {
+    const result = await mongoDb.collection('researchops_daemon_tasks').findOneAndUpdate(
+      { id, userId: uid },
+      { $set: patch },
+      { returnDocument: 'after' }
+    );
+    updated = unwrapFindOneAndUpdate(result);
+  } else {
+    const idx = memory.daemonTasks.findIndex((item) => item.id === id && item.userId === uid);
+    if (idx === -1) return null;
+    memory.daemonTasks[idx] = {
+      ...memory.daemonTasks[idx],
+      ...patch,
+    };
+    updated = memory.daemonTasks[idx];
+  }
+
+  return updated ? daemonTaskShape(updated) : null;
 }
 
 const TERMINAL_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
@@ -2703,6 +3150,8 @@ function getStoreMode() {
 module.exports = {
   initStore,
   getStoreMode,
+  getUiConfig,
+  updateUiConfig,
   listProjects,
   createProject,
   getProject,
@@ -2731,6 +3180,14 @@ module.exports = {
   registerDaemon,
   heartbeatDaemon,
   listDaemons,
+  createDaemonBootstrapToken,
+  getDaemonBootstrapToken,
+  redeemDaemonBootstrapToken,
+  expireDaemonBootstrapTokenIfNeeded,
+  enqueueDaemonTask,
+  getDaemonTask,
+  claimNextDaemonTask,
+  completeDaemonTask,
   publishRunEvents,
   listRunEvents,
   upsertRunStep,

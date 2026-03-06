@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
+import { useAiNotesSettings } from '../hooks/useAiNotesSettings';
 
-function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onToggleRead, onTriggerCodeAnalysis, onDelete, onTagsUpdate, isAuthenticated, allTags, researchMode, isSelected, onToggleSelect }) {
+function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onToggleRead, onTriggerCodeAnalysis, onDelete, onTagsUpdate, onTitleUpdate, isAuthenticated, allTags, researchMode, isSelected, onToggleSelect, apiUrl, getAuthHeaders }) {
   const [downloading, setDownloading] = useState(false);
   const [togglingRead, setTogglingRead] = useState(false);
   const [triggeringAnalysis, setTriggeringAnalysis] = useState(false);
@@ -8,14 +9,34 @@ function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onTo
   const [error, setError] = useState(null);
   const [addingTag, setAddingTag] = useState(false);
   const [tagInput, setTagInput] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState(null);
+  const { vaultReady, exportToVault } = useAiNotesSettings();
   const [savingTags, setSavingTags] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState(document.title || '');
+  const [savingTitle, setSavingTitle] = useState(false);
   const tagInputRef = useRef(null);
+  const titleInputRef = useRef(null);
 
   useEffect(() => {
     if (addingTag && tagInputRef.current) {
       tagInputRef.current.focus();
     }
   }, [addingTag]);
+
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [editingTitle]);
+
+  useEffect(() => {
+    if (!editingTitle) {
+      setTitleInput(document.title || '');
+    }
+  }, [document.id, document.title, editingTitle]);
 
   const tagColorMap = {};
   if (allTags) {
@@ -80,6 +101,30 @@ function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onTo
     }
   };
 
+  const handleExportToVault = async () => {
+    if (!vaultReady || !apiUrl) return;
+    setExporting(true);
+    setExportResult(null);
+    try {
+      const res = await fetch(`${apiUrl}/documents/${document.id}/notes?inline=true`, {
+        headers: getAuthHeaders ? getAuthHeaders() : {},
+      });
+      if (!res.ok) throw new Error('Failed to fetch notes');
+      const data = await res.json();
+      const content = data.notesContent || data.content || data.notes || '';
+      if (!String(content).trim()) throw new Error('No notes content found');
+      await exportToVault(document.title, content);
+      setExportResult('ok');
+      setTimeout(() => setExportResult(null), 2000);
+    } catch (e) {
+      console.error('Vault export error:', e);
+      setExportResult('error');
+      setTimeout(() => setExportResult(null), 3000);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleAddTag = async (tagName) => {
     const normalized = tagName.toLowerCase().trim();
     if (!normalized || !onTagsUpdate) return;
@@ -125,6 +170,57 @@ function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onTo
     } else if (e.key === 'Escape') {
       setAddingTag(false);
       setTagInput('');
+    }
+  };
+
+  const handleStartTitleEdit = (e) => {
+    e.stopPropagation();
+    setError(null);
+    setTitleInput(document.title || '');
+    setEditingTitle(true);
+  };
+
+  const handleCancelTitleEdit = (e) => {
+    if (e) e.stopPropagation();
+    setEditingTitle(false);
+    setTitleInput(document.title || '');
+    setError(null);
+  };
+
+  const handleSaveTitle = async (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    if (!onTitleUpdate || savingTitle) return;
+    const nextTitle = String(titleInput || '').trim();
+    if (!nextTitle) {
+      setError('Title cannot be empty');
+      return;
+    }
+    if (nextTitle === document.title) {
+      setEditingTitle(false);
+      return;
+    }
+
+    setSavingTitle(true);
+    setError(null);
+    try {
+      await onTitleUpdate(document, nextTitle);
+      setEditingTitle(false);
+    } catch (err) {
+      setError(err.message || 'Failed to update title');
+      console.error('Update title error:', err);
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
+  const handleTitleInputKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancelTitleEdit();
     }
   };
 
@@ -175,6 +271,7 @@ function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onTo
   const readerMode = document.readerMode || 'vanilla';
   const codeAnalysisStatus = document.codeAnalysisStatus;
   const aiEditInProgress = document.aiEditStatus === 'queued' || document.aiEditStatus === 'processing';
+  const canEditTitle = isAuthenticated && typeof onTitleUpdate === 'function';
 
   const getReaderModeBadge = () => {
     if (readerMode === 'auto_reader') {
@@ -245,9 +342,44 @@ function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onTo
           {getReaderModeBadge()}
           {document.hasCode && <span className="code-indicator" title="Has code repository">{'</>'}</span>}
           {aiEditInProgress && <span className="status-badge status-processing">AI Editing</span>}
-          <span className="document-date">{formatDate(document.createdAt)}</span>
+          <div className="document-header-right">
+            <span className="document-date">{formatDate(document.createdAt)}</span>
+            {canEditTitle && !editingTitle && (
+              <button
+                className="title-edit-btn"
+                onClick={handleStartTitleEdit}
+                title="Edit title"
+                aria-label={`Edit title for ${document.title || 'document'}`}
+              >
+                &#9998;
+              </button>
+            )}
+          </div>
         </div>
-        <h3 className="document-title">{document.title}</h3>
+        {editingTitle ? (
+          <form className="document-title-editor" onSubmit={handleSaveTitle} onClick={(e) => e.stopPropagation()}>
+            <input
+              ref={titleInputRef}
+              type="text"
+              className="document-title-input"
+              value={titleInput}
+              onChange={(e) => setTitleInput(e.target.value)}
+              onKeyDown={handleTitleInputKeyDown}
+              disabled={savingTitle}
+              placeholder="Paper title..."
+            />
+            <div className="document-title-editor-actions">
+              <button type="submit" className="title-editor-btn save" disabled={savingTitle}>
+                {savingTitle ? 'Saving...' : 'Save'}
+              </button>
+              <button type="button" className="title-editor-btn cancel" onClick={handleCancelTitleEdit} disabled={savingTitle}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <h3 className="document-title">{document.title}</h3>
+        )}
         {document.originalUrl && (
           <a href={document.originalUrl} target="_blank" rel="noopener noreferrer" className="document-url">
             {new URL(document.originalUrl).hostname}
@@ -348,6 +480,16 @@ function DocumentCard({ document, onDownload, onViewNotes, onViewUserNotes, onTo
           ) : (
             <button className="action-btn status-btn" onClick={() => onViewNotes(document, 'paper')} title="View processing status">
               {processingStatus === 'processing' ? 'Processing...' : 'Queued...'}
+            </button>
+          )}
+          {hasNotes && vaultReady && (
+            <button
+              className="action-btn vault-btn"
+              onClick={handleExportToVault}
+              disabled={exporting}
+              title="Export notes to Obsidian vault"
+            >
+              {exporting ? '…' : exportResult === 'ok' ? '✓ Saved' : exportResult === 'error' ? '! Error' : '→ Vault'}
             </button>
           )}
           <button className="action-btn notes-btn" onClick={() => onViewUserNotes(document)} title="My personal notes">

@@ -6198,6 +6198,43 @@ function runStatusToNodeStatus(runStatus = '') {
   return '';
 }
 
+function shouldUseGitManagedTreeRun({
+  node = {},
+  runSource = 'run-step',
+} = {}) {
+  const normalizedKind = cleanString(node?.kind).toLowerCase();
+  if (normalizedKind === 'setup') return false;
+  if (cleanString(runSource).toLowerCase() === 'jumpstart') return false;
+  return true;
+}
+
+function buildTreeRunMetadata({
+  project = {},
+  node = {},
+  runSource = 'run-step',
+  commands = [],
+  clarifyMessages = [],
+} = {}) {
+  const joinedCommand = (Array.isArray(commands) ? commands : []).join(' && ') || 'echo "node has no commands"';
+  return {
+    sourceType: 'tree',
+    sourceLabel: 'Tree',
+    nodeId: node.id,
+    treeNodeId: node.id,
+    treeNodeTitle: String(node?.title || node?.id || '').trim(),
+    runSource,
+    planNodeKind: node.kind || 'experiment',
+    baseCommit: String(node?.git?.base || 'HEAD').trim(),
+    gitManaged: shouldUseGitManagedTreeRun({ node, runSource }),
+    commandCount: Array.isArray(commands) ? commands.length : 0,
+    experimentCommand: joinedCommand,
+    command: 'bash',
+    args: ['-lc', joinedCommand],
+    cwd: String(project?.projectPath || '').trim() || undefined,
+    ...(Array.isArray(clarifyMessages) && clarifyMessages.length > 0 ? { clarifyContext: clarifyMessages } : {}),
+  };
+}
+
 function extractNodeCommands(node = {}) {
   const commands = [];
   const raw = Array.isArray(node?.commands) ? node.commands : [];
@@ -6684,18 +6721,13 @@ async function executeTreeNodeRun({
         name: deliverableReportSkillService.SKILL_NAME,
       },
     ],
-    metadata: {
-      nodeId: node.id,
-      treeNodeId: node.id,
+    metadata: buildTreeRunMetadata({
+      project,
+      node,
       runSource,
-      planNodeKind: node.kind || 'experiment',
-      baseCommit: String(node?.git?.base || 'HEAD').trim(),
-      commandCount: commands.length,
-      experimentCommand: joinedCommand,
-      command: 'bash',
-      args: ['-lc', joinedCommand],
-      cwd: String(project?.projectPath || '').trim() || undefined,
-    },
+      commands,
+      clarifyMessages,
+    }),
   });
 
   let contextPack = null;
@@ -7609,5 +7641,8 @@ router.post('/runs/:runId/horizon-cancel', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Failed to cancel horizon session' });
   }
 });
+
+router.shouldUseGitManagedTreeRun = shouldUseGitManagedTreeRun;
+router.buildTreeRunMetadata = buildTreeRunMetadata;
 
 module.exports = router;

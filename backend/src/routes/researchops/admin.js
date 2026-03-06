@@ -6,7 +6,7 @@ const path = require('path');
 const { getDb } = require('../../db');
 const researchOpsStore = require('../../services/researchops/store');
 const researchOpsRunner = require('../../services/researchops/runner');
-const { parseLimit, getUserId, sanitizeError } = require('./shared');
+const { parseLimit, getUserId, sanitizeError, cleanString } = require('./shared');
 
 const CHATDSE_ENFORCED_HOST = 'compute.example.edu';
 const CHATDSE_PROJECT_ROOT = '/egr/research-dselab/testuser';
@@ -169,6 +169,182 @@ function withTimeout(promiseFactory, timeoutMs = 10000) {
   return promiseFactory(controller.signal).finally(() => clearTimeout(timer));
 }
 
+function shellQuote(value = '') {
+  return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function resolveResearchOpsApiBaseUrl(req) {
+  const configured = String(
+    process.env.RESEARCHOPS_API_BASE_URL
+    || process.env.AUTO_RESEARCHER_API_URL
+    || ''
+  ).trim().replace(/\/+$/, '');
+  if (configured) return configured;
+
+  const protocol = String(req?.protocol || 'http').trim() || 'http';
+  const host = String(req?.get?.('host') || '').trim();
+  if (!host) return '';
+  return `${protocol}://${host}/api`;
+}
+
+function createDaemonBootstrapResponse({
+  bootstrap,
+  apiBaseUrl = '',
+  requestedHostname = '',
+} = {}) {
+  const normalizedApiBaseUrl = String(apiBaseUrl || '').trim().replace(/\/+$/, '');
+  const hostname = String(requestedHostname || bootstrap?.requestedHostname || '').trim();
+  const scriptPath = path.join(process.cwd(), 'backend', 'scripts', 'researchops-bootstrap-client.sh');
+  const installCommand = [
+    `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
+    `RESEARCHOPS_BOOTSTRAP_ID=${shellQuote(bootstrap?.bootstrapId || bootstrap?.id || '')}`,
+    `RESEARCHOPS_BOOTSTRAP_SECRET=${shellQuote(bootstrap?.secret || '')}`,
+    hostname ? `RESEARCHOPS_DAEMON_HOSTNAME=${shellQuote(hostname)}` : '',
+    `sh ${shellQuote(scriptPath)}`,
+  ].filter(Boolean).join(' \\\n');
+
+  return {
+    bootstrapId: String(bootstrap?.bootstrapId || bootstrap?.id || '').trim(),
+    secret: String(bootstrap?.secret || '').trim(),
+    status: String(bootstrap?.status || 'PENDING').trim(),
+    expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
+    requestedHostname: hostname || null,
+    apiBaseUrl: normalizedApiBaseUrl,
+    installCommand,
+    bootstrapFile: {
+      apiBaseUrl: normalizedApiBaseUrl,
+      bootstrapId: String(bootstrap?.bootstrapId || bootstrap?.id || '').trim(),
+      bootstrapSecret: String(bootstrap?.secret || '').trim(),
+      requestedHostname: hostname || null,
+      expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
+    },
+  };
+}
+
+function buildUiConfigResponse(config = {}) {
+  return {
+    uiConfig: {
+      simplifiedAlphaMode: config?.simplifiedAlphaMode === true,
+      projectTemplates: normalizeProjectTemplates(config?.projectTemplates),
+      updatedAt: cleanString(config?.updatedAt) || null,
+    },
+  };
+}
+
+const PROJECT_TEMPLATE_SOURCE_TYPES = new Set(['pixi', 'requirements', 'docker']);
+
+function normalizeStringArray(input, { label = 'value' } = {}) {
+  if (input === undefined) return [];
+  if (!Array.isArray(input)) {
+    throw new Error(`${label} must be an array`);
+  }
+  const seen = new Set();
+  const values = [];
+  for (const item of input) {
+    const value = cleanString(item);
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    values.push(value);
+  }
+  return values;
+}
+
+function normalizeProjectTemplateTestSpec(input = {}) {
+  if (input === undefined || input === null) {
+    return { pythonImports: [], shellCommands: [] };
+  }
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('project template testSpec must be an object');
+  }
+  return {
+    pythonImports: normalizeStringArray(input.pythonImports, { label: 'project template testSpec.pythonImports' }),
+    shellCommands: normalizeStringArray(input.shellCommands, { label: 'project template testSpec.shellCommands' }),
+  };
+}
+
+function normalizeProjectTemplate(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('project template must be an object');
+  }
+  const id = cleanString(input.id);
+  const name = cleanString(input.name);
+  const description = cleanString(input.description);
+  const sourceType = cleanString(input.sourceType).toLowerCase();
+  const fileName = cleanString(input.fileName);
+  const fileContent = typeof input.fileContent === 'string' ? input.fileContent : cleanString(input.fileContent);
+  if (!id) throw new Error('project template id is required');
+  if (!name) throw new Error(`project template ${id} name is required`);
+  if (!description) throw new Error(`project template ${id} description is required`);
+  if (!PROJECT_TEMPLATE_SOURCE_TYPES.has(sourceType)) {
+    throw new Error(`project template ${id} sourceType must be pixi, requirements, or docker`);
+  }
+  if (!fileName) throw new Error(`project template ${id} fileName is required`);
+  if (!fileContent) throw new Error(`project template ${id} fileContent is required`);
+  return {
+    id,
+    name,
+    description,
+    sourceType,
+    fileName,
+    fileContent,
+    testSpec: normalizeProjectTemplateTestSpec(input.testSpec),
+    updatedAt: cleanString(input.updatedAt) || null,
+  };
+}
+
+function normalizeProjectTemplates(input) {
+  if (input === undefined) return [];
+  if (!Array.isArray(input)) {
+    throw new Error('projectTemplates must be an array');
+  }
+  const seen = new Set();
+  const templates = [];
+  for (const item of input) {
+    const template = normalizeProjectTemplate(item);
+    if (seen.has(template.id)) {
+      throw new Error(`project template ${template.id} is duplicated`);
+    }
+    seen.add(template.id);
+    templates.push(template);
+  }
+  return templates;
+}
+
+function normalizeUiConfigPatch(body = {}) {
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'simplifiedAlphaMode')) {
+    if (typeof body.simplifiedAlphaMode !== 'boolean') {
+      throw new Error('simplifiedAlphaMode must be a boolean');
+    }
+    patch.simplifiedAlphaMode = body.simplifiedAlphaMode;
+  }
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'projectTemplates')) {
+    patch.projectTemplates = normalizeProjectTemplates(body.projectTemplates);
+  }
+  return patch;
+}
+
+router.get('/ui-config', async (req, res) => {
+  try {
+    const config = await researchOpsStore.getUiConfig(getUserId(req));
+    return res.json(buildUiConfigResponse(config));
+  } catch (error) {
+    console.error('[ResearchOps] get ui-config failed:', error);
+    return res.status(500).json({ error: sanitizeError(error, 'Failed to load UI config') });
+  }
+});
+
+router.patch('/ui-config', async (req, res) => {
+  try {
+    const patch = normalizeUiConfigPatch(req.body || {});
+    const config = await researchOpsStore.updateUiConfig(getUserId(req), patch);
+    return res.json(buildUiConfigResponse(config));
+  } catch (error) {
+    console.error('[ResearchOps] patch ui-config failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to update UI config') });
+  }
+});
+
 router.get('/scheduler/queue', async (req, res) => {
   try {
     const items = await researchOpsStore.listQueue(getUserId(req), {
@@ -236,9 +412,59 @@ router.get('/runner/running', (req, res) => {
 });
 
 // Daemons
+router.post('/daemons/bootstrap', async (req, res) => {
+  try {
+    const bootstrap = await researchOpsStore.createDaemonBootstrapToken(getUserId(req), {
+      requestedHostname: String(req.body?.requestedHostname || '').trim(),
+      requestedPlatform: String(req.body?.requestedPlatform || '').trim(),
+      ttlMs: req.body?.ttlMs,
+    });
+    return res.status(201).json(createDaemonBootstrapResponse({
+      bootstrap,
+      apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+      requestedHostname: req.body?.requestedHostname,
+    }));
+  } catch (error) {
+    console.error('[ResearchOps] create daemon bootstrap failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to create daemon bootstrap token') });
+  }
+});
+
+router.get('/daemons/bootstrap/:bootstrapId', async (req, res) => {
+  try {
+    const bootstrapId = String(req.params.bootstrapId || '').trim();
+    if (!bootstrapId) return res.status(400).json({ error: 'bootstrapId is required' });
+    const bootstrap = await researchOpsStore.getDaemonBootstrapToken(getUserId(req), bootstrapId);
+    if (!bootstrap) return res.status(404).json({ error: 'Bootstrap token not found' });
+    return res.json({
+      bootstrapId: bootstrap.bootstrapId || bootstrap.id,
+      status: bootstrap.status,
+      expiresAt: bootstrap.expiresAt,
+      redeemedAt: bootstrap.redeemedAt,
+      redeemedServerId: bootstrap.redeemedServerId,
+      requestedHostname: bootstrap.requestedHostname,
+    });
+  } catch (error) {
+    console.error('[ResearchOps] get daemon bootstrap failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to load daemon bootstrap token') });
+  }
+});
+
 router.post('/daemons/register', async (req, res) => {
   try {
+    const bootstrapId = String(req.body?.bootstrapId || '').trim();
+    const bootstrapSecret = String(req.body?.bootstrapSecret || '').trim();
+    if ((bootstrapId && !bootstrapSecret) || (!bootstrapId && bootstrapSecret)) {
+      return res.status(400).json({ error: 'bootstrapId and bootstrapSecret are required together' });
+    }
     const daemon = await researchOpsStore.registerDaemon(getUserId(req), req.body || {});
+    if (bootstrapId || bootstrapSecret) {
+      await researchOpsStore.redeemDaemonBootstrapToken(getUserId(req), {
+        bootstrapId,
+        secret: bootstrapSecret,
+        serverId: daemon.id,
+      });
+    }
     return res.status(201).json({
       serverId: daemon.id,
       hostname: daemon.hostname,
@@ -264,6 +490,32 @@ router.post('/daemons/heartbeat', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] heartbeatDaemon failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update heartbeat') });
+  }
+});
+
+router.post('/daemons/tasks/claim', async (req, res) => {
+  try {
+    const serverId = String(req.body?.serverId || '').trim();
+    if (!serverId) return res.status(400).json({ error: 'serverId is required' });
+    const task = await researchOpsStore.claimNextDaemonTask(getUserId(req), serverId);
+    if (!task) return res.status(204).end();
+    return res.json({ task });
+  } catch (error) {
+    console.error('[ResearchOps] claim daemon task failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to claim daemon task') });
+  }
+});
+
+router.post('/daemons/tasks/:taskId/complete', async (req, res) => {
+  try {
+    const taskId = String(req.params.taskId || '').trim();
+    if (!taskId) return res.status(400).json({ error: 'taskId is required' });
+    const task = await researchOpsStore.completeDaemonTask(getUserId(req), taskId, req.body || {});
+    if (!task) return res.status(404).json({ error: 'Daemon task not found' });
+    return res.json({ task });
+  } catch (error) {
+    console.error('[ResearchOps] complete daemon task failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to complete daemon task') });
   }
 });
 
@@ -546,3 +798,6 @@ router.post('/experiments/execute', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.createDaemonBootstrapResponse = createDaemonBootstrapResponse;
+module.exports.buildUiConfigResponse = buildUiConfigResponse;
+module.exports.normalizeUiConfigPatch = normalizeUiConfigPatch;

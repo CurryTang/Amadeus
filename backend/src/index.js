@@ -15,6 +15,7 @@ const pdfService = require('./services/pdf.service');
 const codeAnalysisService = require('./services/code-analysis.service');
 const aiEditService = require('./services/ai-edit.service');
 const paperTrackerService = require('./services/paper-tracker.service');
+const agentSessionWatcher = require('./services/agent-session-watcher.service');
 const researchOpsRunner = require('./services/researchops/runner');
 const keypairService = require('./services/keypair.service');
 
@@ -191,6 +192,9 @@ async function startServer() {
     }
 
     if (isPrimaryWorker) {
+      agentSessionWatcher.start();
+      console.log('[ResearchOps] Observed agent session watcher started');
+
       const dispatcherState = researchOpsRunner.startAutoDispatch({
         enabled: process.env.RESEARCHOPS_AUTO_DISPATCH_ENABLED,
         userId: process.env.RESEARCHOPS_AUTO_DISPATCH_USER_ID,
@@ -220,6 +224,7 @@ process.on('SIGINT', async () => {
   codeAnalysisService.stopProcessor();
   aiEditService.stopProcessor();
   paperTrackerService.stop();
+  agentSessionWatcher.stop();
   researchOpsRunner.stopAutoDispatch();
   process.exit(0);
 });
@@ -230,6 +235,7 @@ process.on('SIGTERM', async () => {
   codeAnalysisService.stopProcessor();
   aiEditService.stopProcessor();
   paperTrackerService.stop();
+  agentSessionWatcher.stop();
   researchOpsRunner.stopAutoDispatch();
   process.exit(0);
 });

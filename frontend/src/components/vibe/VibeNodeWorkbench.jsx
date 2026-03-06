@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
 import EmptyState from '../ui/EmptyState';
+import ClarificationChat from './ClarificationChat';
 
 const TABS = ['summary', 'commands', 'diff', 'outputs', 'deliverables', 'notes'];
 
@@ -32,13 +34,21 @@ function parseCommands(node = {}) {
 function VibeNodeWorkbench({
   node,
   nodeState,
+  observedSession,
+  observedSessionRefreshing = false,
   mode,
   runReport,
   runReportLoading,
   onSaveCommands,
   onLoadSearch,
+  onRefreshObservedSession,
   searchData,
   searchLoading,
+  // Run Context Q&A props
+  apiUrl,
+  headers,
+  projectId,
+  onRunStep,
 }) {
   const [tab, setTab] = useState('summary');
   const [commandsDraft, setCommandsDraft] = useState('');
@@ -46,10 +56,89 @@ function VibeNodeWorkbench({
   const logContainerRef = useRef(null);
   const autoScrollRef = useRef(true);
 
+  // Run context Q&A state
+  const [clarifyMessages, setClarifyMessages] = useState([]);
+  const [clarifyQuestion, setClarifyQuestion] = useState('');
+  const [clarifyOptions, setClarifyOptions] = useState([]);
+  const [clarifyDone, setClarifyDone] = useState(false);
+  const [clarifyBusy, setClarifyBusy] = useState(false);
+  const [clarifySkipped, setClarifySkipped] = useState(false);
+  const [running, setRunning] = useState(false);
+
+  const isObservedNode = cleanString(node?.kind).toLowerCase() === 'observed_agent';
   const status = cleanString(nodeState?.status).toUpperCase() || 'PLANNED';
-  const editable = ['PLANNED', 'BLOCKED'].includes(status) && mode !== 'view';
+  const editable = !isObservedNode && ['PLANNED', 'BLOCKED'].includes(status) && mode !== 'view';
+  const canRun = !isObservedNode && ['PLANNED', 'BLOCKED'].includes(status) && !!onRunStep && mode !== 'view';
 
   const activeRunId = cleanString(nodeState?.lastRunId);
+
+  // Reset clarify state when node changes
+  const prevNodeIdRef = useRef(null);
+  useEffect(() => {
+    const nodeId = String(node?.id || '');
+    if (nodeId && nodeId !== prevNodeIdRef.current) {
+      prevNodeIdRef.current = nodeId;
+      setClarifyMessages([]);
+      setClarifyQuestion('');
+      setClarifyOptions([]);
+      setClarifyDone(false);
+      setClarifyBusy(false);
+      setClarifySkipped(false);
+      setRunning(false);
+      // Kick off first question if node can be run
+      if (canRun && apiUrl && projectId) {
+        fetchNextQuestion(nodeId, []);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node?.id]);
+
+  const fetchNextQuestion = useCallback(async (nodeId, msgs) => {
+    if (!apiUrl || !projectId || !nodeId) return;
+    setClarifyBusy(true);
+    try {
+      const res = await axios.post(
+        `${apiUrl}/researchops/projects/${projectId}/tree/nodes/${nodeId}/run-clarify`,
+        { messages: msgs },
+        { headers },
+      );
+      const { done, question, options } = res.data;
+      setClarifyDone(!!done);
+      setClarifyQuestion(done ? '' : (question || ''));
+      setClarifyOptions(done ? [] : (options || []));
+    } catch (_) {
+      setClarifyDone(true);
+    } finally {
+      setClarifyBusy(false);
+    }
+  }, [apiUrl, headers, projectId]);
+
+  const handleClarifySend = useCallback(async (text) => {
+    const userMsg = { role: 'user', content: text };
+    const nextMsgs = [...clarifyMessages, userMsg];
+    setClarifyMessages(nextMsgs);
+    await fetchNextQuestion(String(node?.id || ''), nextMsgs);
+  }, [clarifyMessages, fetchNextQuestion, node?.id]);
+
+  const handleClarifySkip = useCallback(() => {
+    setClarifySkipped(true);
+  }, []);
+
+  const handleClarifyUnskip = useCallback(() => {
+    setClarifySkipped(false);
+  }, []);
+
+  const handleRun = useCallback(async () => {
+    if (!onRunStep || running) return;
+    setRunning(true);
+    try {
+      await onRunStep(String(node?.id || ''), {
+        clarifyMessages: clarifySkipped ? [] : clarifyMessages,
+      });
+    } finally {
+      setRunning(false);
+    }
+  }, [clarifyMessages, clarifySkipped, node?.id, onRunStep, running]);
 
   useEffect(() => {
     if (status !== 'RUNNING' || !activeRunId) {
@@ -114,7 +203,17 @@ function VibeNodeWorkbench({
           <h3>{node.title || node.id}</h3>
           <p className="vibe-card-note">{node.kind || 'experiment'} · {status}</p>
         </div>
-        {node.kind === 'search' && (
+        {isObservedNode && (
+          <button
+            type="button"
+            className="vibe-secondary-btn"
+            onClick={() => onRefreshObservedSession?.(cleanString(observedSession?.id || node?.resources?.observedSession?.sessionId))}
+            disabled={observedSessionRefreshing}
+          >
+            {observedSessionRefreshing ? 'Refreshing…' : 'Refresh Session'}
+          </button>
+        )}
+        {!isObservedNode && node.kind === 'search' && (
           <button
             type="button"
             className="vibe-secondary-btn"
@@ -166,6 +265,34 @@ function VibeNodeWorkbench({
                 </ul>
               )}
             </article>
+            {isObservedNode && (
+              <article>
+                <h4>Observed Session</h4>
+                <div className="vibe-list">
+                  <div className="vibe-list-item">
+                    <div className="vibe-list-main">
+                      <strong>Provider</strong>
+                      <span>{cleanString(observedSession?.provider || node?.resources?.observedSession?.provider) || 'unknown'}</span>
+                    </div>
+                    <code>{status}</code>
+                  </div>
+                  <div className="vibe-list-item">
+                    <div className="vibe-list-main">
+                      <strong>Source</strong>
+                      <span>{cleanString(observedSession?.sessionFile || node?.resources?.observedSession?.sessionFile) || 'unknown'}</span>
+                    </div>
+                    <code>{cleanString(observedSession?.updatedAt || '') || '-'}</code>
+                  </div>
+                  <div className="vibe-list-item">
+                    <div className="vibe-list-main">
+                      <strong>Progress</strong>
+                      <span>{cleanString(observedSession?.latestProgressDigest) || 'No cached progress digest yet.'}</span>
+                    </div>
+                    <code>{cleanString(observedSession?.materialization || '') || '-'}</code>
+                  </div>
+                </div>
+              </article>
+            )}
           </div>
 
           <article>
@@ -357,6 +484,35 @@ function VibeNodeWorkbench({
             placeholder="Decision rationale, failed assumptions, and next step notes..."
           />
           <p className="vibe-card-note">Notes are currently local draft; persistence can be added through plan patch path `ui.notes`.</p>
+        </div>
+      )}
+
+      {/* Run Context Q&A + Run button — shown for runnable nodes */}
+      {canRun && (
+        <div className="vibe-workbench-run-section">
+          <ClarificationChat
+            messages={clarifyMessages}
+            currentQuestion={clarifyQuestion}
+            options={clarifyOptions}
+            done={clarifyDone}
+            busy={clarifyBusy}
+            skipped={clarifySkipped}
+            onSend={handleClarifySend}
+            onSkip={handleClarifySkip}
+            onUnskip={handleClarifyUnskip}
+            onProceed={handleRun}
+            proceedLabel={running ? 'Running…' : 'Run Step'}
+          />
+          {!clarifyDone && !clarifySkipped && (
+            <button
+              type="button"
+              className="vibe-launch-btn vibe-workbench-run-btn"
+              onClick={handleRun}
+              disabled={running}
+            >
+              {running ? 'Running…' : '▶ Run Step'}
+            </button>
+          )}
         </div>
       )}
     </section>

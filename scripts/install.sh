@@ -86,12 +86,22 @@ prompt_select "Remote networking strategy" \
   "FRP + Tailscale"
 network_choice="${REPLY_CHOICE}"
 
+prompt_select "Twitter/X Playwright refresh execution target" \
+  "Backend server (always-on refresh recommended)" \
+  "Client device via proxy (refresh only when client is online)"
+tracker_exec_choice="${REPLY_CHOICE}"
+
 mode_name=""
 frontend_default_api_url="https://your-domain-or-ip/api"
 backend_port="3000"
 reader_enabled="true"
 tracker_enabled="true"
 tracker_proxy_heavy_ops="false"
+tracker_proxy_strict="false"
+tracker_execution_target="backend"
+tracker_stale_auto_run="true"
+tracker_stale_proxy_auto_run="true"
+tracker_stale_run_trigger_ms="86400000"
 processing_enabled="false"
 processing_desktop_url="http://127.0.0.1:7001"
 tailscale_enabled="false"
@@ -154,16 +164,28 @@ esac
 
 if [[ "${network_choice}" == "2" ]]; then
   processing_enabled="true"
-  tracker_proxy_heavy_ops="true"
-  tracker_enabled="false"
   processing_desktop_url="http://127.0.0.1:7001"
 elif [[ "${network_choice}" == "3" ]]; then
   processing_enabled="true"
-  tracker_proxy_heavy_ops="true"
-  tracker_enabled="false"
   tailscale_enabled="true"
   tailscale_desktop_url="http://100.64.0.10:7001"
   processing_desktop_url="http://127.0.0.1:7001"
+fi
+
+if [[ "${tracker_exec_choice}" == "2" ]]; then
+  tracker_execution_target="client"
+  processing_enabled="true"
+  tracker_proxy_heavy_ops="true"
+  tracker_enabled="false"
+  # In client mode, do not fall back to backend-local heavy execution.
+  tracker_proxy_strict="true"
+  tracker_stale_proxy_auto_run="true"
+else
+  tracker_execution_target="backend"
+  tracker_proxy_heavy_ops="false"
+  tracker_enabled="true"
+  tracker_proxy_strict="false"
+  tracker_stale_proxy_auto_run="false"
 fi
 
 object_provider="aws-s3"
@@ -273,8 +295,13 @@ PROCESSING_DESKTOP_URL=${processing_desktop_url}
 PROCESSING_TIMEOUT=300000
 TRACKER_ENABLED=${tracker_enabled}
 TRACKER_PROXY_HEAVY_OPS=${tracker_proxy_heavy_ops}
+TRACKER_PROXY_STRICT=${tracker_proxy_strict}
 TRACKER_DESKTOP_URL=${processing_desktop_url:-http://127.0.0.1:7001}
 TRACKER_PROXY_TIMEOUT=120000
+TRACKER_EXECUTION_TARGET=${tracker_execution_target}
+TRACKER_STALE_AUTO_RUN=${tracker_stale_auto_run}
+TRACKER_STALE_PROXY_AUTO_RUN=${tracker_stale_proxy_auto_run}
+TRACKER_STALE_RUN_TRIGGER_MS=${tracker_stale_run_trigger_ms}
 TAILSCALE_ENABLED=${tailscale_enabled}
 TAILSCALE_DESKTOP_URL=${tailscale_desktop_url}
 
@@ -311,6 +338,7 @@ BACKEND_DEPLOY_ON=${backend_deploy_on}
 DOC_METADATA_PROVIDER=$( [[ "${doc_meta_choice}" == "1" ]] && echo "sqlite-local" || echo "turso-cloud" )
 RESEARCH_METADATA_PROVIDER=$( [[ "${research_meta_choice}" == "1" ]] && echo "mongodb-local" || echo "mongodb-atlas" )
 OBJECT_STORAGE_PROVIDER=${object_provider}
+TRACKER_EXECUTION_TARGET=${tracker_execution_target}
 EOF
 
 echo ""

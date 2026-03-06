@@ -15,11 +15,13 @@ const contextPackService = require('../../services/researchops/context-pack.serv
 const treePlanService = require('../../services/researchops/tree-plan.service');
 const treeStateService = require('../../services/researchops/tree-state.service');
 const contextRouterService = require('../../services/researchops/context-router.service');
+const { findRunReportHighlights } = require('../../services/researchops/run-report-view');
 const { getDb } = require('../../db');
 const {
   buildResearchOpsSshArgs,
   classifySshError,
 } = require('../../services/ssh-auth.service');
+const { assertProjectExecutionAllowed } = require('../../services/researchops/project-location.service');
 const {
   parseLimit, parseOffset, parseBoolean, cleanString,
   getUserId, sanitizeError, withArtifactDownloadUrl, expandHome,
@@ -147,6 +149,9 @@ async function resolveProjectContext(userId, projectId) {
     error.code = 'PROJECT_NOT_FOUND';
     throw error;
   }
+  if (project.locationType === 'client' && project.clientMode === 'browser') {
+    assertProjectExecutionAllowed(project, 'run execution');
+  }
   if (!project.projectPath && !project.kbFolderPath) {
     const error = new Error('Project path is missing');
     error.code = 'PROJECT_PATH_MISSING';
@@ -222,6 +227,8 @@ async function sshCheckTmux(server, session) {
 // ---------------------------------------------------------------------------
 
 function deriveResultSnippet(run) {
+  const snippet = cleanString(run?.metadata?.resultSnippet);
+  if (snippet) return snippet.slice(0, 120);
   // lastMessage is set by updateRunStatus whenever a message is passed (e.g. on SUCCEEDED/FAILED)
   if (run.lastMessage && typeof run.lastMessage === 'string') {
     return run.lastMessage.slice(0, 120);
@@ -635,6 +642,8 @@ router.get('/runs/:runId/report', async (req, res) => {
     let manifest = null;
     const summaryArtifact = artifacts.find((item) => item.kind === 'run_summary_md') || null;
     const manifestArtifact = artifacts.find((item) => item.kind === 'result_manifest') || null;
+    const runWorkspacePath = cleanString(run?.metadata?.runWorkspacePath);
+    const highlights = findRunReportHighlights(artifacts);
     if (includeInline) {
       if (summaryArtifact?.objectKey) {
         const buffer = await s3Service.downloadBuffer(summaryArtifact.objectKey).catch(() => null);
@@ -668,6 +677,11 @@ router.get('/runs/:runId/report', async (req, res) => {
       steps,
       artifacts: artifacts.map((item) => withArtifactDownloadUrl(item, runId)),
       checkpoints,
+      runWorkspacePath: runWorkspacePath || null,
+      workspace: {
+        path: runWorkspacePath || null,
+      },
+      highlights,
       summary: summaryText,
       manifest,
     });
@@ -939,5 +953,8 @@ router.post('/runs/:runId/horizon-cancel', async (req, res) => {
     return res.status(500).json({ error: 'Failed to cancel horizon session' });
   }
 });
+
+router.deriveResultSnippet = deriveResultSnippet;
+router.findRunReportHighlights = findRunReportHighlights;
 
 module.exports = router;

@@ -15,10 +15,16 @@ const twitterTracker = require('./twitter-tracker.service');
 const alphaxivTracker = require('./alphaxiv-tracker.service');
 const twitterPlaywrightTracker = require('./twitter-playwright-tracker.service');
 const financeTracker = require('./finance-tracker.service');
+const rssTracker = require('./rss-tracker.service');
 
 const DEFAULT_USER_ID = 'czk';
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours (daily)
 const DEFAULT_TWITTER_PLAYWRIGHT_INTERVAL_HOURS = 24;
+const SOURCE_TYPE_ALIASES = {
+  arxiv: 'alphaxiv',
+  huggingface: 'hf',
+  x: 'twitter',
+};
 const DEFAULT_SOURCE_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.TRACKER_SOURCE_TIMEOUT_MS || String(90 * 1000), 10);
   if (!Number.isFinite(raw)) return 90 * 1000;
@@ -30,8 +36,55 @@ let _lastRunAt = null;
 let _lastRunResult = null;
 let _running = false;
 
+function canonicalizeSourceType(type) {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (!normalized) return '';
+  return SOURCE_TYPE_ALIASES[normalized] || normalized;
+}
+
 function isDiscoveryOnlySource(type) {
-  return ['hf', 'arxiv_authors', 'alphaxiv', 'twitter', 'finance'].includes(String(type || '').toLowerCase());
+  return ['hf', 'arxiv_authors', 'alphaxiv', 'twitter', 'finance', 'rss']
+    .includes(canonicalizeSourceType(type));
+}
+
+function safeParseConfig(rawConfig) {
+  try {
+    const parsed = JSON.parse(rawConfig || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function normalizeSourceRow(row, { forceEnabled = null } = {}) {
+  const rawType = String(row?.type || '').trim().toLowerCase();
+  const type = canonicalizeSourceType(rawType);
+  const config = safeParseConfig(row?.config || '{}');
+  return {
+    id: row.id,
+    type,
+    ...(rawType && rawType !== type ? { legacyType: rawType } : {}),
+    name: row.name,
+    config,
+    enabled: forceEnabled === null ? row.enabled === 1 : forceEnabled,
+    lastCheckedAt: row.last_checked_at,
+    createdAt: row.created_at,
+  };
+}
+
+function parseSourcePriorityWeight(config = {}) {
+  const raw = parseInt(config?.priorityWeight ?? config?.weight ?? '0', 10);
+  if (!Number.isFinite(raw)) return 0;
+  return raw;
+}
+
+function sortSourcesByPriority(a, b) {
+  const weightDiff = parseSourcePriorityWeight(b?.config) - parseSourcePriorityWeight(a?.config);
+  if (weightDiff !== 0) return weightDiff;
+  const timeA = new Date(a?.createdAt || a?.lastCheckedAt || 0).getTime() || 0;
+  const timeB = new Date(b?.createdAt || b?.lastCheckedAt || 0).getTime() || 0;
+  if (timeA !== timeB) return timeA - timeB;
+  return Number(a?.id || 0) - Number(b?.id || 0);
 }
 
 function withTimeout(task, timeoutMs, label) {
@@ -49,11 +102,12 @@ function withTimeout(task, timeoutMs, label) {
 }
 
 function getSourceTimeoutMs(sourceType, sourceConfig = {}) {
+  const canonicalType = canonicalizeSourceType(sourceType);
   const configTimeout = parseInt(sourceConfig?.timeoutMs, 10);
   if (Number.isFinite(configTimeout)) {
     return Math.max(5000, Math.min(configTimeout, 15 * 60 * 1000));
   }
-  const envKey = `TRACKER_${String(sourceType || '').toUpperCase()}_TIMEOUT_MS`;
+  const envKey = `TRACKER_${String(canonicalType || '').toUpperCase()}_TIMEOUT_MS`;
   const envTimeout = parseInt(process.env[envKey] || '', 10);
   if (Number.isFinite(envTimeout)) {
     return Math.max(5000, Math.min(envTimeout, 15 * 60 * 1000));
@@ -66,15 +120,8 @@ function getSourceTimeoutMs(sourceType, sourceConfig = {}) {
 async function getSources() {
   const db = getDb();
   const result = await db.execute(`SELECT * FROM tracker_sources ORDER BY created_at ASC`);
-  return result.rows.map((r) => ({
-    id: r.id,
-    type: r.type,
-    name: r.name,
-    config: JSON.parse(r.config || '{}'),
-    enabled: r.enabled === 1,
-    lastCheckedAt: r.last_checked_at,
-    createdAt: r.created_at,
-  }));
+  const rows = result.rows.map((r) => normalizeSourceRow(r));
+  return rows.sort(sortSourcesByPriority);
 }
 
 async function getEnabledSources() {
@@ -82,21 +129,16 @@ async function getEnabledSources() {
   const result = await db.execute(
     `SELECT * FROM tracker_sources WHERE enabled = 1 ORDER BY created_at ASC`
   );
-  return result.rows.map((r) => ({
-    id: r.id,
-    type: r.type,
-    name: r.name,
-    config: JSON.parse(r.config || '{}'),
-    enabled: true,
-    lastCheckedAt: r.last_checked_at,
-  }));
+  const rows = result.rows.map((r) => normalizeSourceRow(r, { forceEnabled: true }));
+  return rows.sort(sortSourcesByPriority);
 }
 
 async function addSource(type, name, config = {}) {
+  const normalizedType = canonicalizeSourceType(type);
   const db = getDb();
   const result = await db.execute({
     sql: `INSERT INTO tracker_sources (type, name, config) VALUES (?, ?, ?)`,
-    args: [type, name, JSON.stringify(config)],
+    args: [normalizedType, name, JSON.stringify(config)],
   });
   return Number(result.lastInsertRowid);
 }
@@ -113,6 +155,40 @@ async function updateSource(id, updates) {
   if (sets.length === 0) return;
   args.push(id);
   await db.execute({ sql: `UPDATE tracker_sources SET ${sets.join(', ')} WHERE id = ?`, args });
+}
+
+async function reorderSources(sourceIds = []) {
+  const requestedIds = Array.from(new Set(
+    (Array.isArray(sourceIds) ? sourceIds : [])
+      .map((value) => parseInt(value, 10))
+      .filter((value) => Number.isFinite(value) && value > 0)
+  ));
+  if (requestedIds.length === 0) {
+    return getSources();
+  }
+
+  const sources = await getSources();
+  const byId = new Map(sources.map((source) => [Number(source.id), source]));
+  const orderedExistingIds = requestedIds.filter((id) => byId.has(id));
+  const remainingIds = sources
+    .map((source) => Number(source.id))
+    .filter((id) => !orderedExistingIds.includes(id));
+  const finalOrderIds = [...orderedExistingIds, ...remainingIds];
+
+  let weight = finalOrderIds.length * 10;
+  for (const sourceId of finalOrderIds) {
+    const source = byId.get(sourceId);
+    if (!source) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await updateSource(sourceId, {
+      config: {
+        ...(source.config || {}),
+        priorityWeight: weight,
+      },
+    });
+    weight -= 10;
+  }
+  return getSources();
 }
 
 async function deleteSource(id) {
@@ -364,19 +440,20 @@ async function importArxivPaper(arxivId, tags = [], notes = '') {
 // ─── Run One Source ─────────────────────────────────────────────────────────
 
 async function runSource(source) {
+  const sourceType = canonicalizeSourceType(source?.type);
   let papers = [];
   let discoveredCount = 0;
-  const sourceTag = `tracker:${source.type}`;
+  const sourceTag = `tracker:${sourceType}`;
   let archived = 0;
-  const sourceTimeoutMs = getSourceTimeoutMs(source.type, source.config || {});
+  const sourceTimeoutMs = getSourceTimeoutMs(sourceType, source.config || {});
 
   try {
-    switch (source.type) {
+    switch (sourceType) {
       case 'hf':
         papers = await withTimeout(
           () => hfTracker.getNewPapers(source.config),
           sourceTimeoutMs,
-          `${source.type}:${source.name || 'source'}`
+          `${sourceType}:${source.name || 'source'}`
         );
         discoveredCount = papers.length;
         break;
@@ -443,7 +520,7 @@ async function runSource(source) {
               onlyWithPaperLinks: trackingMode === 'paper' ? onlyWithModeMatches : false,
             }),
             sourceTimeoutMs,
-            `${source.type}:${source.name || 'source'}`
+            `${sourceType}:${source.name || 'source'}`
           );
 
           const archiveResult = await archiveTwitterPosts(source, scrapeResult.posts || []);
@@ -462,7 +539,7 @@ async function runSource(source) {
           const rawPapers = await withTimeout(
             () => twitterTracker.getNewPapers(source.config),
             sourceTimeoutMs,
-            `${source.type}:${source.name || 'source'}`
+            `${sourceType}:${source.name || 'source'}`
           );
           // Twitter tracker returns { arxivId, tweetUrl, tweetText }
           // — map to standard shape
@@ -477,11 +554,12 @@ async function runSource(source) {
         }
         break;
       }
+      case 'arxiv':
       case 'alphaxiv': {
         const raw = await withTimeout(
           () => alphaxivTracker.getNewPapers(source.config),
           sourceTimeoutMs,
-          `${source.type}:${source.name || 'source'}`
+          `${sourceType}:${source.name || 'source'}`
         );
         papers = raw.map((p) => ({
           ...p,
@@ -494,11 +572,23 @@ async function runSource(source) {
         const raw = await withTimeout(
           () => financeTracker.getLatestItems(source.config),
           sourceTimeoutMs,
-          `${source.type}:${source.name || 'source'}`
+          `${sourceType}:${source.name || 'source'}`
         );
         discoveredCount = raw.length;
         console.log(
           `[PaperTracker] Source "${source.name}" (finance): discovered ${discoveredCount} headline(s)`
+        );
+        break;
+      }
+      case 'rss': {
+        const raw = await withTimeout(
+          () => rssTracker.getLatestItems(source.config),
+          sourceTimeoutMs,
+          `${sourceType}:${source.name || 'source'}`
+        );
+        discoveredCount = raw.length;
+        console.log(
+          `[PaperTracker] Source "${source.name}" (rss): discovered ${discoveredCount} article(s)`
         );
         break;
       }
@@ -507,22 +597,22 @@ async function runSource(source) {
         return { imported: 0, skipped: 0, failed: 0, archived: 0, checked: false };
     }
   } catch (e) {
-    console.error(`[PaperTracker] Source "${source.name}" (${source.type}) fetch failed: ${e.message}`);
+    console.error(`[PaperTracker] Source "${source.name}" (${sourceType || source.type}) fetch failed: ${e.message}`);
     return { imported: 0, skipped: 0, failed: 1, archived: 0, error: e.message, checked: false };
   }
 
-  if (source.type === 'finance') {
+  if (sourceType === 'finance' || sourceType === 'rss') {
     console.log(`[PaperTracker] Source "${source.name}": found ${discoveredCount} item(s)`);
   } else {
     console.log(`[PaperTracker] Source "${source.name}": found ${papers.length} paper(s)`);
   }
 
-  if (isDiscoveryOnlySource(source.type)) {
+  if (isDiscoveryOnlySource(sourceType)) {
     console.log(
-      `[PaperTracker] Source "${source.name}" (${source.type}) is discovery-only; ` +
+      `[PaperTracker] Source "${source.name}" (${sourceType}) is discovery-only; ` +
       'skipping automatic import to library'
     );
-    const discovered = source.type === 'finance' ? discoveredCount : papers.length;
+    const discovered = (sourceType === 'finance' || sourceType === 'rss') ? discoveredCount : papers.length;
     return {
       imported: 0,
       skipped: discovered,
@@ -552,13 +642,13 @@ async function runSource(source) {
       }
 
       await importArxivPaper(arxivId, tags, paper.notes || '');
-      await markAsSeen(arxivId, source.type);
+      await markAsSeen(arxivId, sourceType);
       imported++;
       console.log(`[PaperTracker] Imported arXiv:${arxivId} "${paper.title?.slice(0, 60)}"`);
     } catch (e) {
       console.error(`[PaperTracker] Failed to import arXiv:${arxivId}: ${e.message}`);
       // Still mark as seen to avoid retry loops on permanent failures
-      await markAsSeen(arxivId, source.type).catch(() => {});
+      await markAsSeen(arxivId, sourceType).catch(() => {});
       failed++;
     }
   }
@@ -649,12 +739,14 @@ module.exports = {
   addSource,
   updateSource,
   deleteSource,
+  reorderSources,
   // Operations
   runAll,
   runSource,
   runSourceAndMark,
   getArchivedTwitterPosts,
   getStatus,
+  canonicalizeSourceType,
   // Scheduler
   start,
   stop,

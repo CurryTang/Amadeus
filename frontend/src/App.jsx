@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Theme, Tabs, Button } from '@radix-ui/themes';
 import DocumentList from './components/DocumentList';
@@ -10,33 +10,37 @@ import LoginPage from './components/LoginPage';
 import SshServersAdmin from './components/SshServersAdmin';
 import TrackerAdmin from './components/TrackerAdmin';
 import LibrarySettingsModal from './components/LibrarySettingsModal';
+import ObsidianBatchPanel from './components/ObsidianBatchPanel';
 import LatestPapers from './components/LatestPapers';
 import SendModal from './components/SendModal';
 import VibeResearcherPanel from './components/VibeResearcherPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAiNotesSettings } from './hooks/useAiNotesSettings';
 import { useObsidianExportBatch } from './hooks/useObsidianExportBatch';
+import { resolveApiConfig } from './lib/apiConfig';
+import { buildUiConfigPatch, normalizeUiConfig } from './lib/uiConfig';
 
 // API URL strategy:
 // - Development: prefer local proxy (/api) unless overridden with NEXT_PUBLIC_DEV_API_URL.
 // - Production: use NEXT_PUBLIC_API_URL when provided, otherwise default public endpoint.
-const ENV = (
-  (typeof import.meta !== 'undefined' && import.meta?.env)
-  || (typeof process !== 'undefined' && process?.env)
-  || {}
-);
-// Check MODE and NODE_ENV independently so import.meta.env (Vite) doesn't shadow
-// process.env.NODE_ENV (Next.js). In Next.js, import.meta.env exists but has no MODE/NODE_ENV.
-const IS_DEV = (() => {
-  const viteMode = typeof import.meta !== 'undefined' ? (import.meta?.env?.MODE || '') : '';
-  const nodeEnv = typeof process !== 'undefined' ? (process?.env?.NODE_ENV || '') : '';
-  const mode = viteMode || nodeEnv;
-  return mode ? mode.toLowerCase() !== 'production' : true;
-})();
-const DEV_API_URL = ENV.NEXT_PUBLIC_DEV_API_URL || ENV.VITE_DEV_API_URL || '/api';
-const PROD_API_URL = ENV.NEXT_PUBLIC_API_URL || ENV.VITE_API_URL || 'https://your-domain.example.com/api';
-const API_URL = IS_DEV ? DEV_API_URL : PROD_API_URL;
-const API_TIMEOUT_MS = Number(ENV.NEXT_PUBLIC_API_TIMEOUT_MS || ENV.VITE_API_TIMEOUT_MS || 15000);
+const importMetaEnv = import.meta.env || {};
+const viteEnv = {
+  MODE: importMetaEnv.MODE,
+  VITE_DEV_API_URL: importMetaEnv.VITE_DEV_API_URL,
+  VITE_API_URL: importMetaEnv.VITE_API_URL,
+  VITE_API_TIMEOUT_MS: importMetaEnv.VITE_API_TIMEOUT_MS,
+};
+const processEnv = {
+  NODE_ENV: process.env.NODE_ENV,
+  NEXT_PUBLIC_DEV_API_URL: process.env.NEXT_PUBLIC_DEV_API_URL,
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+  NEXT_PUBLIC_API_TIMEOUT_MS: process.env.NEXT_PUBLIC_API_TIMEOUT_MS,
+};
+const {
+  isDev: IS_DEV,
+  apiUrl: API_URL,
+  timeoutMs: API_TIMEOUT_MS,
+} = resolveApiConfig({ processEnv, viteEnv });
 
 function getApiErrorMessage(err, fallback) {
   if (err?.response?.status === 500) {
@@ -86,16 +90,21 @@ function AppContent() {
   const [showSshAdmin, setShowSshAdmin] = useState(false);
   const [showTrackerAdmin, setShowTrackerAdmin] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
+  const [uiConfig, setUiConfig] = useState(() => normalizeUiConfig(null));
+  const [uiConfigLoading, setUiConfigLoading] = useState(false);
 
   // Main area tab: 'latest' | 'library' | 'vibe'
   const [activeArea, setActiveArea] = useState('latest');
 
   const { isAuthenticated, isLoading: authLoading, username, logout, getAuthHeaders } = useAuth();
 
-  const { rounds, saveRounds, vaultHandle, vaultName, vaultReady, connectVault, disconnectVault, exportToVault } =
-    useAiNotesSettings();
+  const {
+    rounds, saveRounds,
+    provider, model, thinkingBudget, reasoningEffort, saveProviderSettings,
+    vaultHandle, vaultName, vaultReady, connectVault, disconnectVault, exportToVault,
+  } = useAiNotesSettings();
 
-  const { batchItems, addToBatch, clearCompleted, retryItem } = useObsidianExportBatch({
+  const { batchItems, addToBatch, clearCompleted, clearAll, retryItem, restoreItems, syncFromBackend, pollNow } = useObsidianExportBatch({
     apiUrl: API_URL,
     getAuthHeaders,
     exportToVault,
@@ -191,6 +200,51 @@ function AppContent() {
   // Fetch tags once on mount (only when authenticated)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (isAuthenticated) fetchTags(); }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUiConfig(normalizeUiConfig(null));
+      setUiConfigLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setUiConfigLoading(true);
+    axios.get(`${API_URL}/researchops/ui-config`, {
+      headers: getAuthHeaders(),
+      timeout: API_TIMEOUT_MS,
+    })
+      .then((response) => {
+        if (cancelled) return;
+        setUiConfig(normalizeUiConfig(response.data?.uiConfig));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to fetch UI config:', err);
+        setUiConfig(normalizeUiConfig(null));
+      })
+      .finally(() => {
+        if (!cancelled) setUiConfigLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getAuthHeaders, isAuthenticated]);
+
+  const saveUiConfig = async (nextConfig) => {
+    const response = await axios.patch(
+      `${API_URL}/researchops/ui-config`,
+      buildUiConfigPatch(nextConfig),
+      {
+        headers: getAuthHeaders(),
+        timeout: API_TIMEOUT_MS,
+      }
+    );
+    const normalized = normalizeUiConfig(response.data?.uiConfig);
+    setUiConfig(normalized);
+    return normalized;
+  };
 
   // Block the entire app until authenticated (after all hooks)
   if (authLoading) return <div className="login-page"><div className="login-page-card" style={{textAlign:'center',color:'#6b7280'}}>Loading…</div></div>;
@@ -318,6 +372,40 @@ function AppContent() {
     }
   };
 
+  // Update title for a document (requires auth)
+  const updateDocumentTitle = async (document, newTitle) => {
+    const title = String(newTitle || '').trim();
+    if (!title) {
+      throw new Error('Title cannot be empty');
+    }
+
+    try {
+      await axios.put(
+        `${API_URL}/documents/${document.id}`,
+        { title },
+        { headers: getAuthHeaders() }
+      );
+
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === document.id ? { ...doc, title } : doc
+        )
+      );
+      setSelectedDocument((prev) => (
+        prev && prev.id === document.id ? { ...prev, title } : prev
+      ));
+      setUserNotesDocument((prev) => (
+        prev && prev.id === document.id ? { ...prev, title } : prev
+      ));
+    } catch (err) {
+      console.error('Failed to update title:', err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
+      }
+      const message = err.response?.data?.error || err.response?.data?.message || 'Failed to update title';
+      throw new Error(message);
+    }
+  };
+
   // Delete a document (requires auth)
   const deleteDocument = async (document) => {
 
@@ -421,28 +509,52 @@ function AppContent() {
     setShowPaperList(true);
   };
 
-  const handleObsidianBatch = useCallback(async () => {
+  const buildRefinementRounds = () => {
+    return (rounds || [])
+      .map((round, idx) => ({
+        name: (round?.name || `Round ${idx + 1}`).trim(),
+        prompt: typeof round?.prompt === 'string' ? round.prompt.trim() : '',
+        input: typeof round?.input === 'string' ? round.input : (typeof round?.prompt === 'string' ? round.prompt : ''),
+        type: typeof round?.type === 'string' ? round.type : 'created',
+        sourceUrl: typeof round?.sourceUrl === 'string' ? round.sourceUrl : '',
+      }))
+      .filter((round) => round.prompt.length > 0);
+  };
+
+  const handleObsidianBatch = async () => {
     if (selectedDocIds.size === 0 || !vaultReady) return;
     const selected = documents.filter((d) => selectedDocIds.has(d.id));
-    const withNotes = selected.filter((d) => (d.processingStatus || '') === 'completed');
-    const withoutNotes = selected.filter((d) => (d.processingStatus || '') !== 'completed');
+    const refinementRounds = buildRefinementRounds();
+    if (refinementRounds.length === 0) {
+      setError('No reading skills configured. Open AI Settings → Generation and save at least one skill.');
+      setShowAiSettings(true);
+      return;
+    }
+    setError(null);
 
-    // Immediately export papers that already have notes
-    for (const doc of withNotes) {
-      try {
-        const res = await axios.get(`${API_URL}/documents/${doc.id}/notes?inline=true`, { headers: getAuthHeaders() });
-        const content = res.data?.content || res.data?.notes || '';
-        await exportToVault(doc.title, typeof content === 'string' ? content : JSON.stringify(content));
-      } catch (err) {
-        console.error('[ObsidianBatch] immediate export failed', doc.id, err);
-      }
+    const withNotes = selected.filter((d) => {
+      const status = d.processingStatus || d.processing_status || '';
+      return status === 'completed';
+    });
+    const withoutNotes = selected.filter((d) => {
+      const status = d.processingStatus || d.processing_status || '';
+      return status !== 'completed';
+    });
+
+    // Always show queue/progress panel first, including papers already completed.
+    if (withNotes.length > 0) {
+      restoreItems(withNotes.map((d) => ({ id: d.id, title: d.title })));
     }
 
-    // Queue papers without notes
     if (withoutNotes.length > 0) {
-      await addToBatch(withoutNotes.map((d) => ({ id: d.id, title: d.title })), rounds);
+      await addToBatch(
+        withoutNotes.map((d) => ({ id: d.id, title: d.title })),
+        refinementRounds,
+        { provider, model, thinkingBudget, reasoningEffort },
+      );
     }
-  }, [addToBatch, documents, exportToVault, getAuthHeaders, rounds, selectedDocIds, vaultReady]);
+    pollNow();
+  };
 
   const handleAuthClick = () => {
     if (isAuthenticated) {
@@ -498,15 +610,15 @@ function AppContent() {
                   >
                     Servers
                   </Button>
-                  {activeArea === 'library' && (
+                  {(activeArea === 'library' || activeArea === 'vibe') && (
                     <Button
                       className="header-btn"
                       variant="soft"
                       size="2"
                       onClick={() => setShowAiSettings(true)}
-                      title="AI Notes Settings"
+                      title="AI and release settings"
                     >
-                      AI Settings
+                      Settings
                     </Button>
                   )}
                 </>
@@ -658,6 +770,8 @@ function AppContent() {
           <VibeResearcherPanel
             apiUrl={API_URL}
             getAuthHeaders={getAuthHeaders}
+            isSimplifiedAlpha={uiConfig.simplifiedAlphaMode}
+            projectTemplates={uiConfig.projectTemplates}
           />
         )}
 
@@ -680,6 +794,7 @@ function AppContent() {
           onTriggerCodeAnalysis={triggerCodeAnalysis}
           onDelete={deleteDocument}
           onTagsUpdate={updateDocumentTags}
+          onTitleUpdate={updateDocumentTitle}
           loading={loading && documents.length === 0}
           isAuthenticated={isAuthenticated}
           allTags={allTags}
@@ -893,16 +1008,27 @@ function AppContent() {
       {showAiSettings && (
         <LibrarySettingsModal
           onClose={() => setShowAiSettings(false)}
+          apiUrl={API_URL}
+          getAuthHeaders={getAuthHeaders}
           rounds={rounds}
           saveRounds={saveRounds}
+          provider={provider}
+          model={model}
+          thinkingBudget={thinkingBudget}
+          reasoningEffort={reasoningEffort}
+          saveProviderSettings={saveProviderSettings}
           vaultName={vaultName}
           vaultReady={vaultReady}
           connectVault={connectVault}
           disconnectVault={disconnectVault}
           batchItems={batchItems}
           clearCompleted={clearCompleted}
-          retryItem={retryItem}
+          retryItem={(docId) => retryItem(docId, buildRefinementRounds(), { provider, model, thinkingBudget, reasoningEffort })}
+          syncFromBackend={syncFromBackend}
           exportRounds={rounds}
+          uiConfig={uiConfig}
+          uiConfigLoading={uiConfigLoading}
+          saveUiConfig={saveUiConfig}
         />
       )}
 
@@ -921,6 +1047,13 @@ function AppContent() {
           }}
         />
       )}
+
+      <ObsidianBatchPanel
+        items={batchItems}
+        onClearCompleted={clearCompleted}
+        onClearAll={clearAll}
+        onRetry={(docId) => retryItem(docId, buildRefinementRounds(), { provider, model, thinkingBudget, reasoningEffort })}
+      />
     </div>
   );
 }

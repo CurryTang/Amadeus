@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import MarkdownContent, { parseFrontmatter, cleanNotesContent } from './shared/MarkdownRenderer';
 import MarkdownEditor from './MarkdownEditor';
+import { useAiNotesSettings } from '../hooks/useAiNotesSettings';
 
 function NotesModal({ document, apiUrl, initialTab = 'paper', onClose, isAuthenticated, getAuthHeaders, onAiEditStatusChange, onViewUserNotes, onDocumentUpdate }) {
   const [notes, setNotes] = useState(null);
@@ -25,6 +26,7 @@ function NotesModal({ document, apiUrl, initialTab = 'paper', onClose, isAuthent
   const [selectedProvider, setSelectedProvider] = useState(document.analysisProvider || 'codex-cli');
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
+  const { rounds, reasoningEffort } = useAiNotesSettings();
   const generatePollRef = useRef(null);
 
   const parsedPaperNotes = useMemo(() => {
@@ -275,6 +277,20 @@ function NotesModal({ document, apiUrl, initialTab = 'paper', onClose, isAuthent
     setGenerateError(null);
 
     try {
+      const refinementRounds = (rounds || [])
+        .map((round, idx) => ({
+          name: (round?.name || `Round ${idx + 1}`).trim(),
+          prompt: typeof round?.prompt === 'string' ? round.prompt.trim() : '',
+          input: typeof round?.input === 'string' ? round.input : (typeof round?.prompt === 'string' ? round.prompt : ''),
+          type: typeof round?.type === 'string' ? round.type : 'created',
+          sourceUrl: typeof round?.sourceUrl === 'string' ? round.sourceUrl : '',
+        }))
+        .filter((round) => round.prompt.length > 0);
+
+      if (refinementRounds.length === 0) {
+        throw new Error('No reading skills configured. Open AI Settings and save at least one skill.');
+      }
+
       const response = await fetch(`${apiUrl}/reader/queue/${document.id}`, {
         method: 'POST',
         headers: {
@@ -284,6 +300,8 @@ function NotesModal({ document, apiUrl, initialTab = 'paper', onClose, isAuthent
         body: JSON.stringify({
           readerMode: selectedMode,
           provider: selectedProvider,
+          reasoningEffort,
+          refinementRounds,
         }),
       });
 
@@ -502,6 +520,16 @@ function NotesModal({ document, apiUrl, initialTab = 'paper', onClose, isAuthent
                           </select>
                         </div>
                       </div>
+                      <p className="hint" style={{ marginTop: 2 }}>
+                        {rounds.length} refinement round{rounds.length !== 1 ? 's' : ''} configured
+                        {' · '}
+                        <span
+                          style={{ color: '#155eef', cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => {/* AI Settings opened from App.jsx */}}
+                        >
+                          change in AI Settings
+                        </span>
+                      </p>
                       {generateError && <p className="hint error">{generateError}</p>}
                       <button
                         className="generate-btn-action"

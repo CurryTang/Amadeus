@@ -1,0 +1,214 @@
+.ui-surface {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  box-shadow: var(--ui-shadow-xs);
+}
+
+.ui-surface--muted {
+  background: var(--ui-surface-muted);
+}
+
+.ui-status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-border);
+  background: #f8fbff;
+}
+
+.ui-status-banner p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ui-text);
+}
+
+.ui-status-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-status-banner button {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm);
+  background: #ffffff;
+  color: var(--ui-text);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ui-status-banner--success {
+  border-color: rgba(15, 157, 102, 0.35);
+  background: rgba(15, 157, 102, 0.08);
+}
+
+.ui-status-banner--error {
+  border-color: rgba(199, 55, 55, 0.35);
+  background: rgba(199, 55, 55, 0.08);
+}
+
+.ui-status-banner--info {
+  border-color: rgba(20, 99, 204, 0.3);
+  background: rgba(20, 99, 204, 0.08);
+}
+
+.ui-empty-state {
+  margin: 16px 0;
+  padding: 34px 22px;
+  text-align: center;
+}
+
+.ui-empty-state-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--ui-text);
+}
+
+.ui-empty-state-hint {
+  margin: 10px auto 0;
+  max-width: 520px;
+  color: var(--ui-text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ui-empty-state-actions {
+  margin-top: 14px;
+}
+
+.ui-empty-state-actions button {
+  border: 1px solid var(--ui-border-strong);
+  background: #ffffff;
+  border-radius: var(--ui-radius-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ui-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 10px;
+  border: 1px solid var(--ui-border-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: #edf2fb;
+  color: #28456f;
+}
+
+.ui-status-badge--success {
+  background: rgba(15, 157, 102, 0.14);
+  border-color: rgba(15, 157, 102, 0.26);
+  color: #116943;
+}
+
+.ui-status-badge--danger {
+  background: rgba(199, 55, 55, 0.12);
+  border-color: rgba(199, 55, 55, 0.28);
+  color: #9d2f2f;
+}
+
+.ui-status-badge--warning {
+  background: rgba(183, 109, 22, 0.14);
+  border-color: rgba(183, 109, 22, 0.28);
+  color: #845010;
+}
+
+.ui-status-badge--info {
+  background: rgba(20, 99, 204, 0.12);
+  border-color: rgba(20, 99, 204, 0.26);
+  color: #1456ad;
+}
+
+.ui-skeleton-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.ui-skeleton-card {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  padding: 18px;
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-xs);
+}
+
+.ui-skeleton-line {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  margin-bottom: 10px;
+  background: linear-gradient(90deg, #e2e8f5 0%, #edf2fb 50%, #e2e8f5 100%);
+  background-size: 200% 100%;
+  animation: ui-skeleton-shimmer 1.5s ease infinite;
+}
+
+.ui-skeleton-line:last-child {
+  margin-bottom: 0;
+}
+
+@keyframes ui-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.header-subtitle {
+  margin-top: 6px;
+  color: var(--ui-text-muted);
+  font-size: 13px;
+}
+
+.header-stats {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.header-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--ui-border);
+  background: #ffffff;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #1e334f;
+  box-shadow: var(--ui-shadow-xs);
+}
+
+.header-stat-chip strong {
+  font-size: 13px;
+}
+
+@media (max-width: 800px) {
+  .ui-status-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-stats {
+    margin-top: 8px;
+  }
+}

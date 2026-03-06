@@ -167,6 +167,11 @@ ADMIN_TOKEN=your-admin-token  # For write operations
 
 # Remote offload optional
 TRACKER_PROXY_HEAVY_OPS=true
+TRACKER_PROXY_STRICT=true
+TRACKER_EXECUTION_TARGET=client # or backend
+TRACKER_STALE_AUTO_RUN=true
+TRACKER_STALE_PROXY_AUTO_RUN=true
+TRACKER_STALE_RUN_TRIGGER_MS=86400000
 TAILSCALE_ENABLED=false
 ```
 
@@ -191,10 +196,20 @@ npm install
 npx playwright install chromium
 ```
 
-2. (Optional but recommended) provide a logged-in storage state:
+2. Create a logged-in X session storage state (recommended for reliable latest timeline):
+```bash
+cd backend
+npm run setup:x-session
+# Example output path on WSL/Linux:
+# /home/<user>/.playwright/x-session.json
+```
+
+Then set in `backend/.env` on the same execution node:
 ```bash
 X_PLAYWRIGHT_STORAGE_STATE_PATH=/absolute/path/to/x-state.json
 ```
+
+If the backend host is headless (no GUI), generate `x-state.json` on a GUI machine first, then copy it to backend and point `X_PLAYWRIGHT_STORAGE_STATE_PATH` to that copied file.
 
 3. Run extractor with profile links:
 ```bash

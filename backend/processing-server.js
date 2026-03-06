@@ -9,6 +9,10 @@
  */
 
 require('dotenv').config();
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env.researchops-client'), override: true });
 const express = require('express');
 const config = require('./src/config');
 const { initDatabase } = require('./src/db');
@@ -23,9 +27,12 @@ const projectInsightsService = require('./src/services/project-insights.service'
 const paperTrackerService = require('./src/services/paper-tracker.service');
 const twitterPlaywrightTracker = require('./src/services/twitter-playwright-tracker.service');
 const agentSessionWatcher = require('./src/services/agent-session-watcher.service');
+const { startClientDaemon } = require('./src/services/researchops/client-daemon.service');
 
 const app = express();
 const PORT = process.env.PROCESSING_PORT || 3001;
+const RESEARCHOPS_CLIENT_ENV_PATH = path.join(__dirname, '.env.researchops-client');
+let clientDaemon = null;
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));
@@ -34,6 +41,31 @@ function clampInteger(raw, fallback, min, max) {
   const parsed = Number.parseInt(String(raw || ''), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, min), max);
+}
+
+async function persistResearchOpsClientEnv({
+  apiBaseUrl = '',
+  hostname = '',
+  adminToken = '',
+  heartbeatMs = '',
+  pollMs = '',
+  bootstrapId = '',
+  bootstrapSecret = '',
+} = {}) {
+  const lines = [
+    ['RESEARCHOPS_API_BASE_URL', apiBaseUrl],
+    ['RESEARCHOPS_DAEMON_HOSTNAME', hostname],
+    ['ADMIN_TOKEN', adminToken],
+    ['RESEARCHOPS_DAEMON_HEARTBEAT_MS', heartbeatMs],
+    ['RESEARCHOPS_DAEMON_POLL_MS', pollMs],
+    ['RESEARCHOPS_BOOTSTRAP_ID', bootstrapId],
+    ['RESEARCHOPS_BOOTSTRAP_SECRET', bootstrapSecret],
+  ]
+    .map(([key, value]) => [key, String(value || '').trim()])
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+
+  await fs.writeFile(RESEARCHOPS_CLIENT_ENV_PATH, `${lines.join('\n')}\n`, 'utf8');
 }
 
 // Health check
@@ -377,6 +409,45 @@ async function startServer() {
 
     agentSessionWatcher.start();
 
+    const researchOpsApiBaseUrl = String(
+      process.env.RESEARCHOPS_API_BASE_URL
+      || process.env.AUTO_RESEARCHER_API_URL
+      || ''
+    ).trim();
+    const researchOpsDaemonHostname = String(process.env.RESEARCHOPS_DAEMON_HOSTNAME || os.hostname()).trim();
+    const researchOpsHeartbeatMs = Math.max(Number(process.env.RESEARCHOPS_DAEMON_HEARTBEAT_MS) || 30000, 5000);
+    const researchOpsPollMs = Math.max(Number(process.env.RESEARCHOPS_DAEMON_POLL_MS) || 1500, 250);
+    const researchOpsBootstrapId = String(process.env.RESEARCHOPS_BOOTSTRAP_ID || '').trim();
+    const researchOpsBootstrapSecret = String(process.env.RESEARCHOPS_BOOTSTRAP_SECRET || '').trim();
+    if (researchOpsApiBaseUrl) {
+      clientDaemon = startClientDaemon({
+        apiBaseUrl: researchOpsApiBaseUrl,
+        adminToken: String(process.env.ADMIN_TOKEN || '').trim(),
+        bootstrapId: researchOpsBootstrapId,
+        bootstrapSecret: researchOpsBootstrapSecret,
+        hostname: researchOpsDaemonHostname,
+        heartbeatMs: researchOpsHeartbeatMs,
+        pollMs: researchOpsPollMs,
+        onRegistered: async ({ usedBootstrap }) => {
+          if (!usedBootstrap) return;
+          await persistResearchOpsClientEnv({
+            apiBaseUrl: researchOpsApiBaseUrl,
+            hostname: researchOpsDaemonHostname,
+            adminToken: String(process.env.ADMIN_TOKEN || '').trim(),
+            heartbeatMs: researchOpsHeartbeatMs,
+            pollMs: researchOpsPollMs,
+          });
+        },
+        logger: console,
+      });
+      clientDaemon.promise.catch((error) => {
+        console.error('[Processing] ResearchOps client daemon failed:', error);
+      });
+      console.log(`[Processing] ResearchOps client daemon enabled for ${researchOpsApiBaseUrl}`);
+    } else {
+      console.log('[Processing] ResearchOps client daemon disabled (RESEARCHOPS_API_BASE_URL not set)');
+    }
+
     app.listen(PORT, '127.0.0.1', () => {
       console.log(`[Processing] Desktop Processing Server running on port ${PORT}`);
       console.log(`[Processing] Ready to accept requests from DO server via FRP`);
@@ -391,6 +462,7 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('[Processing] Shutting down gracefully...');
+  if (clientDaemon?.stop) await clientDaemon.stop();
   agentSessionWatcher.stop();
   paperTrackerService.stop();
   await pdfService.cleanupAllTmpFiles();
@@ -399,6 +471,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   console.log('[Processing] Received SIGTERM, shutting down...');
+  if (clientDaemon?.stop) await clientDaemon.stop();
   agentSessionWatcher.stop();
   paperTrackerService.stop();
   await pdfService.cleanupAllTmpFiles();

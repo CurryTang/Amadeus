@@ -23,6 +23,7 @@ const projectInsightsProxy = require('../../services/project-insights-proxy.serv
 const projectInsightsService = require('../../services/project-insights.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
 const interactiveAgentService = require('../../services/researchops/interactive-agent.service');
+const observedSessionService = require('../../services/researchops/observed-session.service');
 const treePlanService = require('../../services/researchops/tree-plan.service');
 const treeStateService = require('../../services/researchops/tree-state.service');
 const searchExecutorService = require('../../services/researchops/search-executor.service');
@@ -32,6 +33,11 @@ const failureSignatureService = require('../../services/researchops/failure-sign
 const deliverableReportSkillService = require('../../services/researchops/deliverable-report-skill.service');
 const codebaseAchievementService = require('../../services/researchops/codebase-achievement.service');
 const todoGeneratorService = require('../../services/researchops/todo-generator.service');
+const {
+  normalizeProjectLocationPayload,
+  assertProjectExecutionAllowed,
+} = require('../../services/researchops/project-location.service');
+const { requestDaemonRpc } = require('../../services/researchops/daemon-rpc.service');
 const {
   buildSshArgs: buildSharedSshArgs,
   buildSshTransportCommand,
@@ -162,6 +168,10 @@ function runCommand(command, args = [], { timeoutMs = 15000, input = '' } = {}) 
   });
 }
 
+function shellQuote(value = '') {
+  return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
+}
+
 const GIT_LOG_FIELD_SEPARATOR = '\u001f';
 const GIT_LOG_PREFIX = '__COMMIT__:';
 const GIT_LOG_FORMAT = `${GIT_LOG_PREFIX}%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s`;
@@ -199,6 +209,7 @@ const KB_SYNC_JOB_TTL_MS = 6 * 60 * 60 * 1000;
 const CHATDSE_ENFORCED_HOST = 'compute.example.edu';
 const CHATDSE_PROJECT_ROOT = '/egr/research-dselab/testuser';
 const ACTIVE_PROJECT_RUN_STATUSES = ['PROVISIONING', 'RUNNING'];
+const PROJECT_MODES = new Set(['new_project', 'existing_codebase']);
 
 class GitLogEntry {
   constructor({
@@ -423,6 +434,9 @@ async function resolveProjectContext(userId, projectId) {
     error.code = 'PROJECT_NOT_FOUND';
     throw error;
   }
+  if (project.locationType === 'client' && project.clientMode === 'browser') {
+    assertProjectExecutionAllowed(project, 'project execution');
+  }
   if (!project.projectPath && !project.kbFolderPath) {
     const error = new Error('Project path is missing');
     error.code = 'PROJECT_PATH_MISSING';
@@ -438,7 +452,6 @@ async function resolveProjectContext(userId, projectId) {
     }
     return { project, server };
   }
-
   return { project, server: null };
 }
 
@@ -461,6 +474,39 @@ function resolveRecommendedVenvTool({
   if (hasPixiToml) return 'pixi';
   if (hasUvLock) return 'uv';
   return 'pixi';
+}
+
+const ENV_MARKER_NAMES = ['.pixi', '.uv', '.venv', 'node_modules', 'pixi.toml', 'uv.lock', 'requirements.txt', 'package.json'];
+
+async function hasLocalEnvironmentMarkers(projectPath) {
+  const rootPath = path.resolve(expandHome(String(projectPath || '').trim()));
+  for (const marker of ENV_MARKER_NAMES) {
+    // eslint-disable-next-line no-await-in-loop
+    const stat = await fs.stat(path.join(rootPath, marker)).catch(() => null);
+    if (stat) return true;
+  }
+  return false;
+}
+
+async function hasSshEnvironmentMarkers(server, projectPath) {
+  const rootPath = String(projectPath || '').trim();
+  if (!rootPath) return false;
+  const checks = ENV_MARKER_NAMES.map((m) => `[ -e "${rootPath}/${m}" ] && echo "FOUND"`).join('; ');
+  const { stdout } = await runSshScript(server, checks, [], 10000);
+  return String(stdout || '').includes('FOUND');
+}
+
+async function hasEnvironmentMarkers(project, server) {
+  const projectPath = String(project?.projectPath || '').trim();
+  if (!projectPath) return false;
+  try {
+    if (String(project?.locationType || '').toLowerCase() === 'ssh') {
+      return await hasSshEnvironmentMarkers(server, projectPath);
+    }
+    return await hasLocalEnvironmentMarkers(projectPath);
+  } catch {
+    return false;
+  }
 }
 
 async function detectLocalProjectVenvStatus(projectPath) {
@@ -1089,6 +1135,88 @@ async function ensureSshGitRepository(server, projectPath) {
   };
 }
 
+function isDaemonOnlineStatus(status = '') {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (!normalized) return false;
+  return !['OFFLINE', 'DISCONNECTED', 'ERROR'].includes(normalized);
+}
+
+async function getClientDeviceById(userId, clientDeviceId) {
+  const targetId = cleanString(clientDeviceId);
+  if (!targetId) return null;
+  const daemons = await researchOpsStore.listDaemons(userId, { limit: 500 });
+  return daemons.find((item) => cleanString(item.id) === targetId) || null;
+}
+
+async function buildProjectPathCheckResponse(input = {}, deps = {}) {
+  const normalized = normalizeProjectLocationPayload(input);
+  if (normalized.locationType === 'client' && normalized.clientMode === 'browser') {
+    throw new Error('Browser-backed client workspaces are validated in the browser');
+  }
+
+  if (normalized.locationType === 'client' && normalized.clientMode === 'agent') {
+    const getClientDevice = typeof deps.getClientDevice === 'function'
+      ? deps.getClientDevice
+      : async () => null;
+    const rpc = typeof deps.requestDaemonRpc === 'function'
+      ? deps.requestDaemonRpc
+      : null;
+    const device = await getClientDevice(normalized.clientDeviceId);
+    if (!device) {
+      const error = new Error(`Client device ${normalized.clientDeviceId} not found`);
+      error.code = 'CLIENT_DEVICE_NOT_FOUND';
+      throw error;
+    }
+    if (!isDaemonOnlineStatus(device.status)) {
+      const error = new Error(`Client device ${normalized.clientDeviceId} is offline`);
+      error.code = 'CLIENT_DEVICE_OFFLINE';
+      throw error;
+    }
+    const remoteResult = rpc
+      ? await rpc({
+        userId: deps.userId,
+        serverId: normalized.clientDeviceId,
+        taskType: 'project.checkPath',
+        payload: { projectPath: normalized.projectPath },
+      })
+      : {
+        normalizedPath: normalized.projectPath,
+        exists: false,
+        isDirectory: true,
+      };
+    return {
+      locationType: 'client',
+      clientMode: 'agent',
+      clientDeviceId: normalized.clientDeviceId,
+      serverId: normalized.serverId,
+      projectPath: remoteResult.normalizedPath || normalized.projectPath,
+      exists: Boolean(remoteResult.exists),
+      isDirectory: Boolean(remoteResult.isDirectory),
+      canCreate: !remoteResult.exists || Boolean(remoteResult.isDirectory),
+      deferred: false,
+      message: remoteResult.exists
+        ? (remoteResult.isDirectory
+          ? 'Path exists on client device and is a directory.'
+          : 'Path exists on client device but is not a directory.')
+        : 'Path does not exist on client device. It will be created on project creation.',
+    };
+  }
+
+  throw new Error(`Unsupported path-check locationType: ${normalized.locationType}`);
+}
+
+function normalizeProjectMode(value, fallback = 'new_project') {
+  const normalized = cleanString(value);
+  if (PROJECT_MODES.has(normalized)) return normalized;
+  return fallback;
+}
+
+function inferProjectModeFromPathCheck(result = {}) {
+  const explicit = cleanString(result?.projectMode);
+  if (PROJECT_MODES.has(explicit)) return explicit;
+  return result?.exists && result?.isDirectory ? 'existing_codebase' : 'new_project';
+}
+
 async function ensureProjectGitRepository(project, server) {
   const projectPath = String(project?.projectPath || '').trim();
   if (!projectPath) {
@@ -1098,6 +1226,41 @@ async function ensureProjectGitRepository(project, server) {
     return ensureSshGitRepository(server, projectPath);
   }
   return ensureLocalGitRepository(projectPath);
+}
+
+async function inferProjectModeForCreate(req, normalizedLocation = {}) {
+  const requested = cleanString(req.body?.projectMode);
+  if (PROJECT_MODES.has(requested)) return requested;
+
+  if (normalizedLocation.locationType === 'local') {
+    const usingProxy = config.projectInsights?.proxyHeavyOps === true;
+    const result = usingProxy
+      ? await projectInsightsProxy.checkPath({ projectPath: normalizedLocation.projectPath })
+      : await checkLocalPath(normalizedLocation.projectPath);
+    return inferProjectModeFromPathCheck(result);
+  }
+
+  if (normalizedLocation.locationType === 'ssh') {
+    const server = await getSshServerById(normalizedLocation.serverId);
+    if (!server) {
+      const error = new Error(`SSH server ${normalizedLocation.serverId} not found`);
+      error.code = 'SSH_SERVER_NOT_FOUND';
+      throw error;
+    }
+    const result = await checkSshPath(server, normalizedLocation.projectPath);
+    return inferProjectModeFromPathCheck(result);
+  }
+
+  if (normalizedLocation.locationType === 'client' && normalizedLocation.clientMode === 'agent') {
+    const result = await buildProjectPathCheckResponse(req.body || {}, {
+      userId: getUserId(req),
+      getClientDevice: async (clientDeviceId) => getClientDeviceById(getUserId(req), clientDeviceId),
+      requestDaemonRpc,
+    });
+    return inferProjectModeFromPathCheck(result);
+  }
+
+  return 'new_project';
 }
 
 function cleanupKbSyncJobs() {
@@ -3097,31 +3260,23 @@ router.get('/projects', async (req, res) => {
 
 router.post('/projects', async (req, res) => {
   try {
-    const locationType = String(req.body?.locationType || '').trim().toLowerCase() || 'local';
-    const projectPath = String(req.body?.projectPath || '').trim();
-    const serverId = String(req.body?.serverId || '').trim();
-    if (!projectPath) {
-      return res.status(400).json({ error: 'projectPath is required' });
-    }
-    if (!['local', 'ssh'].includes(locationType)) {
-      return res.status(400).json({ error: 'locationType must be local or ssh' });
-    }
-
-    let ensuredPath = projectPath;
-    let ensuredServerId;
+    const normalizedLocation = normalizeProjectLocationPayload(req.body || {});
+    const projectMode = await inferProjectModeForCreate(req, normalizedLocation);
+    let ensuredPath = normalizedLocation.projectPath;
+    let ensuredServerId = normalizedLocation.serverId;
     let gitInit = null;
-    if (locationType === 'local') {
+    if (normalizedLocation.locationType === 'local') {
       if (config.projectInsights?.proxyHeavyOps === true) {
         try {
-          const result = await projectInsightsProxy.ensurePath({ projectPath });
-          ensuredPath = String(result?.normalizedPath || '').trim() || path.resolve(expandHome(projectPath));
+          const result = await projectInsightsProxy.ensurePath({ projectPath: normalizedLocation.projectPath });
+          ensuredPath = String(result?.normalizedPath || '').trim() || path.resolve(expandHome(normalizedLocation.projectPath));
         } catch (proxyError) {
           return res.status(502).json({
             error: sanitizeError(proxyError, 'Local executor unavailable for local project path creation'),
           });
         }
       } else {
-        const result = await ensureLocalPath(projectPath);
+        const result = await ensureLocalPath(normalizedLocation.projectPath);
         ensuredPath = result.normalizedPath;
       }
       try {
@@ -3134,27 +3289,57 @@ router.post('/projects', async (req, res) => {
         }
         throw gitError;
       }
-    } else {
-      if (!serverId) {
-        return res.status(400).json({ error: 'serverId is required when locationType=ssh' });
-      }
-      const server = await getSshServerById(serverId);
+    } else if (normalizedLocation.locationType === 'ssh') {
+      const server = await getSshServerById(normalizedLocation.serverId);
       if (!server) {
-        return res.status(404).json({ error: `SSH server ${serverId} not found` });
+        return res.status(404).json({ error: `SSH server ${normalizedLocation.serverId} not found` });
       }
-      enforceSshProjectPathPolicy(server, projectPath);
-      const result = await ensureSshPath(server, projectPath);
+      enforceSshProjectPathPolicy(server, normalizedLocation.projectPath);
+      const result = await ensureSshPath(server, normalizedLocation.projectPath);
       ensuredPath = result.normalizedPath;
       ensuredServerId = String(server.id);
       gitInit = await ensureSshGitRepository(server, ensuredPath);
+    } else if (normalizedLocation.clientMode === 'agent') {
+      const device = await getClientDeviceById(getUserId(req), normalizedLocation.clientDeviceId);
+      if (!device) {
+        return res.status(404).json({ error: `Client device ${normalizedLocation.clientDeviceId} not found` });
+      }
+      if (!isDaemonOnlineStatus(device.status)) {
+        return res.status(409).json({ error: `Client device ${normalizedLocation.clientDeviceId} is offline` });
+      }
+      const ensured = await requestDaemonRpc({
+        userId: getUserId(req),
+        serverId: normalizedLocation.clientDeviceId,
+        taskType: 'project.ensurePath',
+        payload: { projectPath: normalizedLocation.projectPath },
+      });
+      ensuredPath = String(ensured?.normalizedPath || '').trim() || normalizedLocation.projectPath;
+      ensuredServerId = normalizedLocation.clientDeviceId;
+      gitInit = await requestDaemonRpc({
+        userId: getUserId(req),
+        serverId: normalizedLocation.clientDeviceId,
+        taskType: 'project.ensureGit',
+        payload: { projectPath: ensuredPath },
+      });
+    } else if (normalizedLocation.clientMode === 'browser') {
+      gitInit = {
+        mode: 'browser-workspace',
+        deferred: true,
+        message: 'Browser-backed workspaces do not support backend git initialization.',
+      };
     }
 
     const project = await researchOpsStore.createProject(getUserId(req), {
       name: req.body?.name,
       description: req.body?.description,
-      locationType,
-      serverId: locationType === 'ssh' ? ensuredServerId : undefined,
-      projectPath: ensuredPath,
+      projectMode,
+      locationType: normalizedLocation.locationType,
+      clientMode: normalizedLocation.clientMode,
+      clientDeviceId: normalizedLocation.clientDeviceId,
+      clientWorkspaceId: normalizedLocation.clientWorkspaceId,
+      clientWorkspaceMeta: normalizedLocation.clientWorkspaceMeta,
+      serverId: ensuredServerId || undefined,
+      projectPath: ensuredPath || undefined,
     });
     res.status(201).json({ project, git: gitInit });
   } catch (error) {
@@ -3168,12 +3353,9 @@ router.post('/projects/path-check', async (req, res) => {
     const locationType = String(req.body?.locationType || '').trim().toLowerCase() || 'local';
     const projectPath = String(req.body?.projectPath || '').trim();
     const serverId = String(req.body?.serverId || '').trim();
-    if (!projectPath) return res.status(400).json({ error: 'projectPath is required' });
-    if (!['local', 'ssh'].includes(locationType)) {
-      return res.status(400).json({ error: 'locationType must be local or ssh' });
-    }
 
     if (locationType === 'local') {
+      if (!projectPath) return res.status(400).json({ error: 'projectPath is required' });
       const usingProxy = config.projectInsights?.proxyHeavyOps === true;
       let result = null;
 
@@ -3203,6 +3385,20 @@ router.post('/projects/path-check', async (req, res) => {
       });
     }
 
+    if (locationType === 'client') {
+      const result = await buildProjectPathCheckResponse(req.body || {}, {
+        userId: getUserId(req),
+        getClientDevice: async (clientDeviceId) => getClientDeviceById(getUserId(req), clientDeviceId),
+        requestDaemonRpc,
+      });
+      return res.json(result);
+    }
+
+    if (locationType !== 'ssh') {
+      return res.status(400).json({ error: 'locationType must be local, ssh, or client' });
+    }
+
+    if (!projectPath) return res.status(400).json({ error: 'projectPath is required' });
     if (!serverId) return res.status(400).json({ error: 'serverId is required for ssh location' });
     const server = await getSshServerById(serverId);
     if (!server) {
@@ -3235,6 +3431,13 @@ router.patch('/projects/:projectId', async (req, res) => {
     const allowed = {};
     if (req.body?.name !== undefined) allowed.name = req.body.name;
     if (req.body?.description !== undefined) allowed.description = req.body.description;
+    if (req.body?.projectMode !== undefined) {
+      const projectMode = cleanString(req.body.projectMode);
+      if (!PROJECT_MODES.has(projectMode)) {
+        return res.status(400).json({ error: 'projectMode must be new_project or existing_codebase' });
+      }
+      allowed.projectMode = projectMode;
+    }
     if (req.body?.projectPath !== undefined) {
       const rawPath = String(req.body.projectPath || '').trim();
       if (!rawPath) return res.status(400).json({ error: 'projectPath cannot be empty' });
@@ -4053,7 +4256,10 @@ router.post('/projects/:projectId/kb/add-paper', async (req, res) => {
           for (const filename of Object.keys(filesToWrite)) {
             const localFile = path.join(tmpDir, filename);
             const remoteFile = `${paperFolderRemote}/${filename}`;
-            await copyToSsh(server, localFile, remoteFile, { timeoutMs: 120000, connectTimeout: 15 });
+            await copyToSsh(server, localFile, remoteFile, {
+              timeoutMs: 120000,
+              connectTimeout: 15,
+            });
           }
 
           paperFolder = paperFolderRemote;
@@ -4740,7 +4946,7 @@ function extractNodeCommands(node = {}) {
       if (text) commands.push(text);
       return;
     }
-    const text = String(item?.run || '').trim();
+    const text = String(item?.cmd || item?.run || '').trim();
     if (text) commands.push(text);
   });
   return commands;
@@ -4982,6 +5188,72 @@ async function resolveProjectAndTree(req, projectId) {
   };
 }
 
+async function listObservedSessionsForProject({
+  userId,
+  projectId,
+  resolveProjectContextFn = resolveProjectContext,
+  observedSessionService: observedSessions = observedSessionService,
+} = {}) {
+  const { project, server } = await resolveProjectContextFn(userId, projectId);
+  const result = await observedSessions.syncProjectObservedSessions({
+    project,
+    server,
+  });
+  return {
+    projectId: project.id,
+    items: Array.isArray(result?.items) ? result.items : [],
+    wrotePlan: Boolean(result?.wrotePlan),
+    refreshedAt: new Date().toISOString(),
+  };
+}
+
+async function getObservedSessionForProject({
+  userId,
+  projectId,
+  sessionId,
+  resolveProjectContextFn = resolveProjectContext,
+  observedSessionService: observedSessions = observedSessionService,
+} = {}) {
+  const result = await listObservedSessionsForProject({
+    userId,
+    projectId,
+    resolveProjectContextFn,
+    observedSessionService: observedSessions,
+  });
+  const targetId = cleanString(sessionId);
+  const item = result.items.find((entry) => cleanString(entry?.id) === targetId || cleanString(entry?.sessionId) === targetId) || null;
+  if (!item) {
+    const error = new Error(`Observed session not found: ${targetId}`);
+    error.code = 'OBSERVED_SESSION_NOT_FOUND';
+    throw error;
+  }
+  return {
+    ...result,
+    item,
+  };
+}
+
+async function refreshObservedSessionForProject({
+  userId,
+  projectId,
+  sessionId,
+  resolveProjectContextFn = resolveProjectContext,
+  observedSessionService: observedSessions = observedSessionService,
+} = {}) {
+  const { project, server } = await resolveProjectContextFn(userId, projectId);
+  const result = await observedSessions.refreshProjectObservedSession({
+    project,
+    server,
+    sessionId,
+  });
+  return {
+    projectId: project.id,
+    item: result?.item || null,
+    wrotePlan: Boolean(result?.wrotePlan),
+    refreshedAt: new Date().toISOString(),
+  };
+}
+
 function buildFallbackRootNode(project = {}, fallbackMessage = '') {
   const safeMessage = cleanString(fallbackMessage);
   return {
@@ -5219,11 +5491,15 @@ async function executeTreeNodeRun({
       },
     ],
     metadata: {
+      sourceType: 'tree',
+      sourceLabel: 'Tree',
       nodeId: node.id,
       treeNodeId: node.id,
+      treeNodeTitle: String(node?.title || node?.id || '').trim(),
       runSource,
       planNodeKind: node.kind || 'experiment',
       baseCommit: String(node?.git?.base || 'HEAD').trim(),
+      gitManaged: shouldUseGitManagedTreeRun({ node, runSource }),
       commandCount: commands.length,
       experimentCommand: joinedCommand,
       command: 'bash',
@@ -5337,7 +5613,103 @@ async function executeTreeNodeRun({
   };
 }
 
+function queueJumpstartAutoRun({
+  executeTreeNodeRunFn,
+  args = {},
+} = {}) {
+  const nodeId = cleanString(args?.node?.id);
+  const nodeTitle = cleanString(args?.node?.title || nodeId);
+  const completion = Promise.resolve().then(() => executeTreeNodeRunFn(args));
+  completion.catch((error) => {
+    console.warn('[ResearchOps] jumpstart auto-run failed:', error?.message || error);
+  });
+  return {
+    autoRun: {
+      queued: true,
+      deferred: true,
+      nodeId,
+      nodeTitle,
+      status: 'QUEUED',
+    },
+    completion,
+  };
+}
+
+function buildJumpstartQueuedState({
+  treeState,
+  node,
+} = {}) {
+  const nodeId = cleanString(node?.id);
+  if (!nodeId) return treeStateService.normalizeState(treeState);
+  return treeStateService.setNodeState(treeState, nodeId, {
+    status: 'QUEUED',
+    lastRunStatus: 'QUEUED',
+    runSource: 'jumpstart',
+  });
+}
+
+function shouldUseGitManagedTreeRun({
+  node = {},
+  runSource = 'run-step',
+} = {}) {
+  const normalizedKind = cleanString(node?.kind).toLowerCase();
+  if (normalizedKind === 'setup') return false;
+  if (cleanString(runSource).toLowerCase() === 'jumpstart') return false;
+  return true;
+}
+
 // ── Tree routes ───────────────────────────────────────────────────────────────
+
+router.get('/projects/:projectId/observed-sessions', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const result = await listObservedSessionsForProject({
+      userId: getUserId(req),
+      projectId,
+    });
+    return res.json(result);
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to list observed sessions'));
+  }
+});
+
+router.get('/projects/:projectId/observed-sessions/:sessionId', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const sessionId = String(req.params.sessionId || '').trim();
+    if (!projectId || !sessionId) return res.status(400).json({ error: 'projectId and sessionId are required' });
+    const result = await getObservedSessionForProject({
+      userId: getUserId(req),
+      projectId,
+      sessionId,
+    });
+    return res.json(result);
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'OBSERVED_SESSION_NOT_FOUND') return res.status(404).json({ error: 'Observed session not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to fetch observed session'));
+  }
+});
+
+router.post('/projects/:projectId/observed-sessions/:sessionId/refresh', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const sessionId = String(req.params.sessionId || '').trim();
+    if (!projectId || !sessionId) return res.status(400).json({ error: 'projectId and sessionId are required' });
+    const result = await refreshObservedSessionForProject({
+      userId: getUserId(req),
+      projectId,
+      sessionId,
+    });
+    return res.json(result);
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'OBSERVED_SESSION_NOT_FOUND') return res.status(404).json({ error: 'Observed session not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to refresh observed session'));
+  }
+});
 
 router.get('/projects/:projectId/tree/plan', async (req, res) => {
   try {
@@ -5352,17 +5724,17 @@ router.get('/projects/:projectId/tree/plan', async (req, res) => {
     let rootSummary = null;
     let degraded = planRead.degraded || null;
 
-    const hasNodes = Array.isArray(plan?.nodes) && plan.nodes.length > 0;
-    const looksLikeDefaultBootstrap = hasNodes
-      && plan.nodes.length === 1
-      && cleanString(plan.nodes[0]?.id) === 'init'
-      && cleanString(plan.nodes[0]?.kind).toLowerCase() === 'setup';
-    if (forceRoot || (bootstrapRoot && (!hasNodes || looksLikeDefaultBootstrap))) {
+    if (shouldBootstrapCodebaseRoot({
+      project,
+      plan,
+      bootstrapRoot,
+      forceRoot,
+    })) {
       const rooted = await ensurePlanRootNode({
         project,
         server,
         plan,
-        force: forceRoot || looksLikeDefaultBootstrap,
+        force: true,
         attachOrphans: true,
         persist: true,
       });
@@ -5378,6 +5750,20 @@ router.get('/projects/:projectId/tree/plan', async (req, res) => {
       degraded = degraded || rooted.degraded || null;
     }
 
+    // Detect environment markers for new_project projects without an environment_root node.
+    // This lets the frontend skip the jumpstart gate when the project already has an env.
+    let environmentDetected = null;
+    if (cleanString(project.projectMode) === 'new_project') {
+      const planNodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+      const hasEnvRoot = planNodes.some((node) => {
+        const tags = Array.isArray(node?.tags) ? node.tags : [];
+        return cleanString(node?.id) === 'project_environment' || tags.includes('environment_root');
+      });
+      if (!hasEnvRoot) {
+        environmentDetected = await hasEnvironmentMarkers(project, server).catch(() => false);
+      }
+    }
+
     return res.json({
       projectId: project.id,
       plan,
@@ -5385,6 +5771,7 @@ router.get('/projects/:projectId/tree/plan', async (req, res) => {
       paths: planRead.paths,
       rootSummary,
       degraded,
+      environmentDetected,
       refreshedAt: new Date().toISOString(),
     });
   } catch (error) {
@@ -5520,162 +5907,582 @@ router.post('/projects/:projectId/tree/plan/patches', async (req, res) => {
 });
 
 // ─── Jumpstart: generate the first plan node(s) for a project ────────────────
-function buildJumpstartPatches({ type, envManager = 'pixi', projectType = 'data-science', repoUrl = '', customPackages = '' }) {
-  if (type === 'existing_codebase') {
-    return [{
-      op: 'add_node',
-      node: {
-        id: 'baseline_codebase_scan',
-        title: 'Baseline: Read & Analyze Existing Codebase',
-        kind: 'knowledge',
-        assumption: ['Project repository is accessible on the server'],
-        target: [
-          'Key source files, entry points, and dependencies identified',
-          'Summary written to resource/codebase_analysis.md',
-        ],
-        commands: [
-          { cmd: "find . -maxdepth 4 -not -path './.git/*' \\( -name '*.py' -o -name '*.ipynb' -o -name 'README*' -o -name '*.toml' -o -name 'requirements*.txt' -o -name 'setup.py' \\) | LC_ALL=C sort | head -80", label: 'Discover source files' },
-          { cmd: "cat README.md 2>/dev/null || cat README.rst 2>/dev/null || echo '(no README)'", label: 'Read README' },
-          { cmd: "cat requirements.txt 2>/dev/null || cat pyproject.toml 2>/dev/null || cat setup.py 2>/dev/null || echo '(no dependency file found)'", label: 'Read dependencies' },
-          { cmd: "mkdir -p resource && printf '# Codebase Analysis\\n\\n> Fill in project summary, key modules, and entry points.\\n\\n## Overview\\n\\n## Key Modules\\n\\n## Entry Points\\n\\n## Dependencies\\n' > resource/codebase_analysis.md && echo 'Initialized resource/codebase_analysis.md'", label: 'Init analysis doc' },
-        ],
-        checks: [],
-        tags: ['baseline', 'analysis', 'jumpstart'],
-      },
-    }];
+function isPlaceholderBootstrapPlan(plan = {}) {
+  const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  return nodes.length === 1
+    && cleanString(nodes[0]?.id) === 'init'
+    && cleanString(nodes[0]?.kind).toLowerCase() === 'setup';
+}
+
+function shouldBootstrapCodebaseRoot({
+  project = {},
+  plan = {},
+  bootstrapRoot = true,
+  forceRoot = false,
+} = {}) {
+  if (forceRoot) return true;
+  if (!bootstrapRoot) return false;
+  if (normalizeProjectMode(project?.projectMode, 'new_project') === 'new_project') return false;
+  const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  return !nodes.some((node) => cleanString(node?.id) === 'baseline_root');
+}
+
+function buildExistingCodebaseAnalysisNode() {
+  return {
+    id: 'baseline_codebase_scan',
+    title: 'Baseline: Read & Analyze Existing Codebase',
+    kind: 'knowledge',
+    assumption: ['Project repository is accessible on the server'],
+    target: [
+      'Key source files, entry points, and dependencies identified',
+      'Summary written to resource/codebase_analysis.md',
+    ],
+    commands: [
+      { cmd: "find . -maxdepth 4 -not -path './.git/*' \\( -name '*.py' -o -name '*.ipynb' -o -name 'README*' -o -name '*.toml' -o -name 'requirements*.txt' -o -name 'setup.py' \\) | LC_ALL=C sort | head -80", label: 'Discover source files' },
+      { cmd: "cat README.md 2>/dev/null || cat README.rst 2>/dev/null || echo '(no README)'", label: 'Read README' },
+      { cmd: "cat requirements.txt 2>/dev/null || cat pyproject.toml 2>/dev/null || cat setup.py 2>/dev/null || echo '(no dependency file found)'", label: 'Read dependencies' },
+      { cmd: "mkdir -p resource && printf '# Codebase Analysis\\n\\n> Fill in project summary, key modules, and entry points.\\n\\n## Overview\\n\\n## Key Modules\\n\\n## Entry Points\\n\\n## Dependencies\\n' > resource/codebase_analysis.md && echo 'Initialized resource/codebase_analysis.md'", label: 'Init analysis doc' },
+    ],
+    checks: [],
+    tags: ['baseline', 'analysis', 'jumpstart'],
+    ui: {
+      bootstrapMode: 'existing_codebase',
+    },
+  };
+}
+
+function inferPackagesFromIntent(intent = '') {
+  const text = cleanString(intent).toLowerCase();
+  const packageHints = [
+    ['fastapi', 'fastapi'],
+    ['redis', 'redis'],
+    ['pandas', 'pandas'],
+    ['numpy', 'numpy'],
+    ['sklearn', 'scikit-learn'],
+    ['scikit-learn', 'scikit-learn'],
+    ['matplotlib', 'matplotlib'],
+    ['seaborn', 'seaborn'],
+    ['torch', 'torch'],
+    ['pytorch', 'torch'],
+    ['transformers', 'transformers'],
+    ['datasets', 'datasets'],
+  ];
+  const packages = [];
+  for (const [needle, pkg] of packageHints) {
+    if (text.includes(needle) && !packages.includes(pkg)) packages.push(pkg);
+  }
+  return packages;
+}
+
+function inferRuntimeTargetsFromIntent(intent = '', packages = []) {
+  const text = cleanString(intent).toLowerCase();
+  const wantsRust = /\brust\b|\bcargo\b/.test(text);
+  const wantsPython = /\bpython\b/.test(text) || packages.length > 0 || !wantsRust;
+  return {
+    python: wantsPython,
+    rust: wantsRust,
+  };
+}
+
+function buildFileWriteCommand(fileName, fileContent) {
+  const encoded = Buffer.from(String(fileContent || ''), 'utf8').toString('base64');
+  return [
+    "python - <<'PY'",
+    'from pathlib import Path',
+    'import base64',
+    `Path(${JSON.stringify(fileName)}).write_text(base64.b64decode(${JSON.stringify(encoded)}).decode("utf-8"))`,
+    'print("template file written")',
+    'PY',
+  ].join('\n');
+}
+
+function buildPythonImportCommand(imports = [], prefix = '') {
+  const interpreter = cleanString(prefix) || 'python';
+  if (!imports.length) return `${interpreter} --version`;
+  return `${interpreter} -c ${shellQuote(`import ${imports.join(', ')}; print("imports ok")`)}`;
+}
+
+function buildUserToolingPathExport() {
+  return 'export PATH="$HOME/.pixi/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"';
+}
+
+function buildPythonVenvCommand() {
+  return [
+    buildUserToolingPathExport(),
+    'if command -v uv >/dev/null 2>&1; then',
+    '  uv venv --seed .venv',
+    'else',
+    '  python -m venv .venv || {',
+    '    if ! command -v pip >/dev/null 2>&1; then',
+    '      curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/researchops-get-pip.py',
+    '      python /tmp/researchops-get-pip.py --user',
+    '      export PATH="$HOME/.local/bin:$PATH"',
+    '    fi',
+    '    python -m pip install --user --upgrade virtualenv',
+    '    python -m virtualenv .venv',
+    '  }',
+    'fi',
+  ].join('\n');
+}
+
+function buildPixiInstallCommand() {
+  return [
+    buildUserToolingPathExport(),
+    'if ! command -v pixi >/dev/null 2>&1; then',
+    '  curl -fsSL https://pixi.sh/install.sh | bash',
+    'fi',
+    buildUserToolingPathExport(),
+    'command -v pixi >/dev/null 2>&1 || { echo "pixi not found after bootstrap" >&2; exit 127; }',
+  ].join('\n');
+}
+
+function buildPixiInitCommand() {
+  return [
+    buildUserToolingPathExport(),
+    'if [ ! -f "pixi.toml" ]; then',
+    '  pixi init',
+    'fi',
+  ].join('\n');
+}
+
+function buildPixiAddPythonCommand(versionSpec = 'python=3.12') {
+  return [
+    buildUserToolingPathExport(),
+    `pixi add ${String(versionSpec || 'python=3.12').trim() || 'python=3.12'}`,
+  ].join('\n');
+}
+
+function buildPixiAddPypiPackagesCommand(packages = []) {
+  const safePackages = Array.from(new Set(
+    (Array.isArray(packages) ? packages : [])
+      .map((value) => cleanString(value))
+      .filter((value) => /^[a-z0-9][a-z0-9._-]*$/i.test(value))
+  ));
+  if (!safePackages.length) return '';
+  return [
+    buildUserToolingPathExport(),
+    `pixi add --pypi ${safePackages.join(' ')}`,
+  ].join('\n');
+}
+
+function buildPixiEnvironmentInstallCommand() {
+  return [
+    buildUserToolingPathExport(),
+    'pixi install',
+  ].join('\n');
+}
+
+function buildPixiPythonCommand(imports = []) {
+  return [
+    buildUserToolingPathExport(),
+    buildPythonImportCommand(imports, 'pixi run python'),
+  ].join('\n');
+}
+
+function buildPythonRequirementsInstallCommand(requirementsPath = 'requirements.txt') {
+  const safeRequirementsPath = cleanString(requirementsPath) || 'requirements.txt';
+  return [
+    buildUserToolingPathExport(),
+    'if command -v uv >/dev/null 2>&1; then',
+    `  uv pip install --python .venv/bin/python -r ${shellQuote(safeRequirementsPath)}`,
+    'else',
+    `  . .venv/bin/activate && python -m pip install --upgrade pip && python -m pip install -r ${shellQuote(safeRequirementsPath)}`,
+    'fi',
+  ].join('\n');
+}
+
+function buildRustToolchainCommand() {
+  return [
+    buildUserToolingPathExport(),
+    'if ! command -v cargo >/dev/null 2>&1; then',
+    '  if command -v rustup >/dev/null 2>&1; then',
+    '    rustup toolchain install stable --profile minimal >/dev/null 2>&1 || rustup default stable >/dev/null 2>&1 || true',
+    '  else',
+    '    curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal',
+    '  fi',
+    'fi',
+    'export PATH="$HOME/.cargo/bin:$PATH"',
+    'command -v cargo >/dev/null 2>&1 || { echo "cargo not found after bootstrap" >&2; exit 127; }',
+    'cargo --version',
+  ].join('\n');
+}
+
+function buildRustBootstrapCommand() {
+  return [
+    'mkdir -p src',
+    'if [ ! -f Cargo.toml ]; then',
+    "  cat > Cargo.toml <<'EOF'",
+    '[package]',
+    'name = "auto_researcher_bootstrap"',
+    'version = "0.1.0"',
+    'edition = "2021"',
+    '',
+    '[dependencies]',
+    'EOF',
+    'fi',
+    'if [ ! -f src/main.rs ]; then',
+    "  cat > src/main.rs <<'EOF'",
+    'fn main() {',
+    '    println!("auto-researcher bootstrap");',
+    '}',
+    'EOF',
+    'fi',
+  ].join('\n');
+}
+
+function buildRustSmokeTestCommand() {
+  return [
+    buildUserToolingPathExport(),
+    'command -v cargo >/dev/null 2>&1 || { echo "cargo not found for smoke test" >&2; exit 127; }',
+    'cargo test',
+  ].join('\n');
+}
+
+function buildTemplateEnvironmentNode(template = {}) {
+  const sourceType = cleanString(template.sourceType).toLowerCase();
+  const fileName = cleanString(template.fileName);
+  const fileContent = String(template.fileContent || '');
+  const pythonImports = Array.isArray(template?.testSpec?.pythonImports) ? template.testSpec.pythonImports.filter(Boolean) : [];
+  const shellCommands = Array.isArray(template?.testSpec?.shellCommands) ? template.testSpec.shellCommands.filter(Boolean) : [];
+  const commands = [
+    { cmd: buildFileWriteCommand(fileName, fileContent), label: `Write ${fileName}` },
+  ];
+  const checks = [
+    { condition: `test -f ${shellQuote(fileName)}`, label: `${fileName} exists` },
+  ];
+
+  if (sourceType === 'pixi') {
+    commands.push(
+      { cmd: buildPixiInstallCommand(), label: 'Ensure pixi is installed' },
+      { cmd: buildPixiEnvironmentInstallCommand(), label: 'Install pixi environment' },
+      { cmd: buildPixiPythonCommand(pythonImports), label: 'Verify pixi environment' },
+    );
+    checks.push({ condition: 'test -f pixi.toml', label: 'pixi.toml exists' });
+    checks.push({ condition: 'test -d .pixi', label: '.pixi exists' });
+    checks.push({ condition: buildPixiPythonCommand(pythonImports), label: 'pixi imports succeed' });
+  } else if (sourceType === 'requirements') {
+    commands.push(
+      { cmd: buildPythonVenvCommand(), label: 'Create virtual environment' },
+      { cmd: buildPythonRequirementsInstallCommand('requirements.txt'), label: 'Install requirements' },
+      { cmd: buildPythonImportCommand(pythonImports, '.venv/bin/python'), label: 'Verify requirements environment' },
+    );
+    checks.push({ condition: 'test -d .venv', label: '.venv exists' });
+    checks.push({ condition: buildPythonImportCommand(pythonImports, '.venv/bin/python'), label: 'requirements imports succeed' });
+  } else if (sourceType === 'docker') {
+    commands.push(
+      { cmd: 'docker build -t autoresearcher-bootstrap-env .', label: 'Build Docker image' },
+      ...(shellCommands.length > 0
+        ? shellCommands.map((command, index) => ({
+          cmd: `docker run --rm autoresearcher-bootstrap-env sh -lc ${shellQuote(command)}`,
+          label: `Run container smoke test ${index + 1}`,
+        }))
+        : [{ cmd: 'docker run --rm autoresearcher-bootstrap-env python --version', label: 'Verify Docker image' }]),
+    );
+    checks.push({ condition: 'docker image inspect autoresearcher-bootstrap-env >/dev/null 2>&1', label: 'Docker image exists' });
   }
 
-  // new_project — environment setup node
-  const mgr = String(envManager || 'pixi').toLowerCase() === 'uv' ? 'uv' : 'pixi';
-  const ptype = String(projectType || 'data-science').toLowerCase();
-  const safeRepoUrl = String(repoUrl || '').trim().replace(/'/g, "\\'");
-  const safePkgs = String(customPackages || '').split(/[\s,]+/).filter(Boolean);
+  if (shellCommands.length > 0 && sourceType !== 'docker') {
+    commands.push(...shellCommands.map((command, index) => ({
+      cmd: command,
+      label: `Run smoke test ${index + 1}`,
+    })));
+  }
 
-  const PIXI_INFO = {
-    'deep-learning': { pkgs: ['python', 'pytorch', 'torchvision', 'torchaudio'], channels: '-c pytorch -c conda-forge' },
-    'data-science': { pkgs: ['python', 'numpy', 'pandas', 'scikit-learn', 'matplotlib', 'seaborn', 'jupyterlab'], channels: '-c conda-forge' },
-    'nlp': { pkgs: ['python', 'transformers', 'datasets', 'tokenizers', 'accelerate'], channels: '-c conda-forge' },
-    'pure-text': { pkgs: [], channels: '-c conda-forge' },
+  return {
+    id: 'project_environment',
+    title: cleanString(template.name) || 'Project environment',
+    kind: 'setup',
+    assumption: [
+      cleanString(template.description) || 'Bootstrap a reusable project environment',
+      'Environment validation must pass before the project is considered ready.',
+    ],
+    target: [
+      `${fileName} is written and tracked as the bootstrap source.`,
+      'Environment setup commands complete without errors.',
+      'Automatic smoke tests pass.',
+    ],
+    commands,
+    checks,
+    resources: {
+      template: {
+        id: cleanString(template.id),
+        sourceType,
+        fileName,
+      },
+    },
+    ui: {
+      bootstrapMode: 'template',
+      entryGate: 'environment_root',
+    },
+    tags: ['setup', 'environment', 'environment_root', sourceType, 'jumpstart'],
   };
-  const UV_INFO = {
-    'deep-learning': { pkgs: ['torch', 'torchvision', 'torchaudio'] },
-    'data-science': { pkgs: ['numpy', 'pandas', 'scikit-learn', 'matplotlib', 'seaborn', 'jupyterlab'] },
-    'nlp': { pkgs: ['transformers', 'datasets', 'tokenizers', 'accelerate'] },
-    'pure-text': { pkgs: [] },
-  };
-  const VERIFY = {
-    'deep-learning': "import torch; print('torch', torch.__version__)",
-    'data-science': "import pandas; print('pandas', pandas.__version__)",
-    'nlp': "import transformers; print('transformers', transformers.__version__)",
-    'pure-text': "print('no packages needed')",
-    'from-repo': "print('packages from repo installed')",
-    'custom': "print('custom packages installed')",
-  };
-  const TYPE_LABELS = { 'deep-learning': 'Deep Learning', 'data-science': 'Data Science', 'nlp': 'NLP', 'pure-text': 'Pure Text', 'from-repo': 'From Repo', 'custom': 'Custom' };
+}
 
-  const pkgInfo = mgr === 'pixi' ? (PIXI_INFO[ptype] || PIXI_INFO['data-science']) : (UV_INFO[ptype] || UV_INFO['data-science']);
-  const packages = ptype === 'custom' ? safePkgs : (pkgInfo.pkgs || []);
-  const channels = mgr === 'pixi' ? (pkgInfo.channels || '-c conda-forge') : '';
-  const verifyCode = VERIFY[ptype] || "print('done')";
-  const typeLabel = TYPE_LABELS[ptype] || ptype;
-
+function buildIntentEnvironmentNode(freeformIntent = '') {
+  const packages = inferPackagesFromIntent(freeformIntent);
+  const runtimes = inferRuntimeTargetsFromIntent(freeformIntent, packages);
   const commands = [];
   const checks = [];
 
-  if (mgr === 'pixi') {
-    commands.push(
-      { cmd: 'command -v pixi || (curl -fsSL https://pixi.sh/install.sh | bash && export PATH="$HOME/.pixi/bin:$PATH")', label: 'Ensure pixi is installed' },
-      { cmd: 'test -f pixi.toml || pixi init', label: 'Initialize pixi project' },
-    );
-    if (safeRepoUrl) {
-      commands.push(
-        { cmd: `git clone --depth 1 '${safeRepoUrl}' _repo_tmp && cp _repo_tmp/requirements*.txt . 2>/dev/null || true && rm -rf _repo_tmp`, label: 'Copy dependencies from repo' },
-        { cmd: "pixi add $(grep -v '^#' requirements.txt | head -50 | tr '\\n' ' ') -c conda-forge 2>/dev/null || echo 'Installed from requirements.txt'", label: 'Install from requirements' },
-      );
-    } else if (packages.length > 0) {
-      commands.push({ cmd: `pixi add ${packages.join(' ')} ${channels}`, label: `Install ${typeLabel} packages` });
+  if (runtimes.python) {
+    commands.push({ cmd: buildPixiInstallCommand(), label: 'Ensure pixi is installed' });
+    commands.push({ cmd: buildPixiInitCommand(), label: 'Initialize pixi project' });
+    commands.push({ cmd: buildPixiAddPythonCommand('python=3.12'), label: 'Add Python 3.12 runtime' });
+    if (packages.length > 0) {
+      commands.push({ cmd: buildPixiAddPypiPackagesCommand(packages), label: 'Add inferred Python dependencies' });
     }
-    if (packages.length > 0 || safeRepoUrl) {
-      commands.push({ cmd: `pixi run python -c "${verifyCode}"`, label: 'Verify environment' });
-      checks.push({ condition: `pixi run python -c "${verifyCode}"`, label: 'Key packages importable' });
-    }
+    commands.push({ cmd: buildPixiEnvironmentInstallCommand(), label: 'Install pixi environment' });
+    commands.push({ cmd: buildPixiPythonCommand(packages), label: packages.length > 0 ? 'Verify inferred dependencies' : 'Verify base Python environment' });
     checks.push({ condition: 'test -f pixi.toml', label: 'pixi.toml exists' });
-  } else {
-    commands.push(
-      { cmd: 'command -v uv || (curl -LsSf https://astral.sh/uv/install.sh | sh && source "$HOME/.cargo/env")', label: 'Ensure uv is installed' },
-      { cmd: 'test -f pyproject.toml || uv init --python 3.11', label: 'Initialize uv project' },
-    );
-    if (safeRepoUrl) {
-      commands.push(
-        { cmd: `git clone --depth 1 '${safeRepoUrl}' _repo_tmp && cp _repo_tmp/requirements*.txt . 2>/dev/null || true && rm -rf _repo_tmp`, label: 'Copy dependencies from repo' },
-        { cmd: "uv add $(grep -v '^#' requirements.txt | head -50 | tr '\\n' ' ') 2>/dev/null || echo 'Installed from requirements.txt'", label: 'Install from requirements' },
-      );
-    } else if (packages.length > 0) {
-      commands.push({ cmd: `uv add ${packages.join(' ')}`, label: `Install ${typeLabel} packages` });
-    }
-    if (packages.length > 0 || safeRepoUrl) {
-      commands.push({ cmd: `uv run python -c "${verifyCode}"`, label: 'Verify environment' });
-      checks.push({ condition: `uv run python -c "${verifyCode}"`, label: 'Key packages importable' });
-    }
-    checks.push({ condition: 'test -f pyproject.toml', label: 'pyproject.toml exists' });
+    checks.push({ condition: 'test -d .pixi', label: '.pixi exists' });
+    checks.push({ condition: buildPixiPythonCommand(packages), label: packages.length > 0 ? 'intent imports succeed' : 'python is runnable' });
   }
 
-  const nodeTitle = ptype === 'pure-text'
-    ? `Initialize Project (${mgr})`
-    : `Set Up ${typeLabel} Environment (${mgr})`;
+  if (runtimes.rust) {
+    commands.push({ cmd: buildRustToolchainCommand(), label: 'Ensure Rust toolchain' });
+    commands.push({ cmd: buildRustBootstrapCommand(), label: 'Create bootstrap Cargo project' });
+    commands.push({ cmd: buildRustSmokeTestCommand(), label: 'Run Rust feasibility test' });
+    checks.push({ condition: 'test -f Cargo.toml', label: 'Cargo.toml exists' });
+    checks.push({ condition: buildRustSmokeTestCommand(), label: 'rust is runnable' });
+  }
 
-  return [{
-    op: 'add_node',
-    node: {
-      id: 'project_env_setup',
-      title: nodeTitle,
-      kind: 'setup',
-      assumption: [
-        `${mgr} will be installed on the server if missing`,
-        'Internet access available for package downloads',
-        ...(safeRepoUrl ? [`Repository at ${safeRepoUrl} is accessible`] : []),
-      ],
-      target: [
-        mgr === 'pixi' ? 'pixi.toml created' : 'pyproject.toml created',
-        ...(packages.length > 0 ? [`${typeLabel} packages installed and importable`] : []),
-        `Project runnable via \`${mgr} run python ...\``,
-      ],
-      commands,
-      checks,
-      tags: ['setup', 'environment', mgr, 'jumpstart'],
+  const target = [];
+  if (runtimes.python) {
+    target.push('A runnable pixi-managed Python 3.12 environment is created for the described project.');
+  }
+  if (runtimes.rust) {
+    target.push('A runnable Rust toolchain and bootstrap crate are created for the described project.');
+  }
+  target.push('Automatic smoke tests pass for the requested runtimes.');
+
+  return {
+    id: 'project_environment',
+    title: 'Bootstrap Environment from Project Intent',
+    kind: 'setup',
+    assumption: [
+      `Requested project intent: ${cleanString(freeformIntent) || 'No additional intent provided.'}`,
+      'The initial environment should be minimal and easy to expand.',
+    ],
+    target,
+    commands,
+    checks,
+    ui: {
+      bootstrapMode: 'intent',
+      entryGate: 'environment_root',
     },
-  }];
+    tags: ['setup', 'environment', 'environment_root', 'intent', 'jumpstart'],
+  };
+}
+
+function buildEmptyEnvironmentNode() {
+  return {
+    id: 'project_environment',
+    title: 'Initialize Empty Environment',
+    kind: 'setup',
+    assumption: [
+      'Start with a blank environment and layer dependencies later.',
+    ],
+    target: [
+      'A base pixi-managed Python 3.12 environment exists.',
+      'Python smoke checks pass.',
+    ],
+    commands: [
+      { cmd: buildPixiInstallCommand(), label: 'Ensure pixi is installed' },
+      { cmd: buildPixiInitCommand(), label: 'Initialize pixi project' },
+      { cmd: buildPixiAddPythonCommand('python=3.12'), label: 'Add Python 3.12 runtime' },
+      { cmd: buildPixiEnvironmentInstallCommand(), label: 'Install pixi environment' },
+      { cmd: buildPixiPythonCommand(), label: 'Verify Python runtime' },
+    ],
+    checks: [
+      { condition: 'test -f pixi.toml', label: 'pixi.toml exists' },
+      { condition: 'test -d .pixi', label: '.pixi exists' },
+      { condition: buildPixiPythonCommand(), label: 'python is runnable' },
+    ],
+    ui: {
+      bootstrapMode: 'empty',
+      entryGate: 'environment_root',
+    },
+    tags: ['setup', 'environment', 'environment_root', 'empty', 'jumpstart'],
+  };
+}
+
+function buildLegacyEnvironmentTemplate({ envManager = 'pixi', projectType = 'data-science', repoUrl = '', customPackages = '' } = {}) {
+  const safeManager = cleanString(envManager).toLowerCase() === 'uv' ? 'requirements' : 'pixi';
+  if (cleanString(repoUrl)) {
+    return {
+      id: 'legacy_repo_requirements',
+      name: 'Imported Requirements Environment',
+      description: `Bootstrap from dependency files copied from ${cleanString(repoUrl)}.`,
+      sourceType: 'requirements',
+      fileName: 'requirements.txt',
+      fileContent: cleanString(customPackages) ? `${String(customPackages).split(/[\s,]+/).filter(Boolean).join('\n')}\n` : '',
+      testSpec: {},
+    };
+  }
+  const presets = {
+    'deep-learning': ['torch', 'torchvision', 'torchaudio'],
+    'data-science': ['numpy', 'pandas', 'scikit-learn', 'matplotlib', 'seaborn'],
+    'nlp': ['transformers', 'datasets', 'tokenizers', 'accelerate'],
+    'pure-text': [],
+    'custom': String(customPackages || '').split(/[\s,]+/).filter(Boolean),
+  };
+  const packages = presets[cleanString(projectType).toLowerCase()] || presets['data-science'];
+  return safeManager === 'pixi'
+    ? {
+      id: 'legacy_pixi_template',
+      name: 'Legacy Pixi Environment',
+      description: `Bootstrap ${cleanString(projectType) || 'project'} environment with pixi.`,
+      sourceType: 'pixi',
+      fileName: 'pixi.toml',
+      fileContent: `[project]\nname = "auto-researcher"\nchannels = ["conda-forge"]\nplatforms = ["linux-64"]\n\n[dependencies]\npython = ">=3.11"\n${packages.map((item) => `${item} = "*"`) .join('\n')}\n`,
+      testSpec: { pythonImports: packages.slice(0, 3) },
+    }
+    : {
+      id: 'legacy_requirements_template',
+      name: 'Legacy Requirements Environment',
+      description: `Bootstrap ${cleanString(projectType) || 'project'} environment from requirements.`,
+      sourceType: 'requirements',
+      fileName: 'requirements.txt',
+      fileContent: `${packages.join('\n')}${packages.length ? '\n' : ''}`,
+      testSpec: { pythonImports: packages.slice(0, 3) },
+    };
+}
+
+function buildJumpstartPlan({
+  currentPlan = {},
+  projectMode = 'new_project',
+  bootstrapMode = '',
+  template = null,
+  freeformIntent = '',
+  legacyEnvironment = null,
+} = {}) {
+  const normalizedProjectMode = normalizeProjectMode(projectMode, 'new_project');
+  const plan = treePlanService.validateProjectPlan(currentPlan || {}).plan;
+  const existingNodes = Array.isArray(plan.nodes) ? plan.nodes : [];
+
+  if (normalizedProjectMode === 'existing_codebase' || bootstrapMode === 'existing_codebase') {
+    const analysisNode = buildExistingCodebaseAnalysisNode();
+    const nodes = existingNodes.filter((node) => cleanString(node?.id) !== analysisNode.id && cleanString(node?.id) !== 'init');
+    return {
+      plan: {
+        ...plan,
+        nodes: [analysisNode, ...nodes],
+      },
+      nodes: [analysisNode],
+      projectMode: 'existing_codebase',
+    };
+  }
+
+  let environmentNode = null;
+  if (bootstrapMode === 'template' && template) {
+    environmentNode = buildTemplateEnvironmentNode(template);
+  } else if (bootstrapMode === 'intent') {
+    environmentNode = buildIntentEnvironmentNode(freeformIntent);
+  } else if (legacyEnvironment) {
+    environmentNode = buildTemplateEnvironmentNode(legacyEnvironment);
+  } else {
+    environmentNode = buildEmptyEnvironmentNode();
+  }
+
+  const remainingNodes = existingNodes.filter((node) => {
+    const nodeId = cleanString(node?.id);
+    return nodeId !== 'init' && nodeId !== environmentNode.id;
+  }).map((node) => {
+    if (cleanString(node?.parent)) return node;
+    return {
+      ...node,
+      parent: environmentNode.id,
+    };
+  });
+
+  return {
+    plan: {
+      ...plan,
+      nodes: [environmentNode, ...remainingNodes],
+    },
+    nodes: [environmentNode],
+    projectMode: 'new_project',
+  };
 }
 
 router.post('/projects/:projectId/tree/jumpstart', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-    const { type, envManager, projectType, repoUrl, customPackages } = req.body || {};
-    if (!['existing_codebase', 'new_project'].includes(String(type || ''))) {
-      return res.status(400).json({ error: 'type must be existing_codebase or new_project' });
-    }
-    const patches = buildJumpstartPatches({
-      type: String(type),
-      envManager: String(envManager || 'pixi'),
-      projectType: String(projectType || 'data-science'),
-      repoUrl: String(repoUrl || ''),
-      customPackages: String(customPackages || ''),
-    });
     const { project, server } = await resolveProjectContext(getUserId(req), projectId);
-    const { state } = await treeStateService.readProjectState({ project, server });
-    const result = await treePlanService.applyProjectPlanPatches({ project, server, patches, state });
+    const currentPlanRead = await treePlanService.readProjectPlan({ project, server });
+    const uiConfig = await researchOpsStore.getUiConfig(getUserId(req));
+    const requestedProjectMode = normalizeProjectMode(
+      req.body?.projectMode || req.body?.type || project.projectMode,
+      normalizeProjectMode(project.projectMode, 'new_project')
+    );
+    const bootstrapMode = cleanString(req.body?.bootstrapMode)
+      || (cleanString(req.body?.templateId) ? 'template' : '')
+      || (cleanString(req.body?.freeformIntent) ? 'intent' : '')
+      || (requestedProjectMode === 'existing_codebase' ? 'existing_codebase' : '');
+    const templateId = cleanString(req.body?.templateId);
+    const template = templateId
+      ? (Array.isArray(uiConfig?.projectTemplates) ? uiConfig.projectTemplates.find((item) => cleanString(item.id) === templateId) : null)
+      : null;
+    if (templateId && !template) {
+      return res.status(404).json({ error: `Project template ${templateId} not found` });
+    }
+    const legacyEnvironment = (!bootstrapMode || bootstrapMode === 'legacy')
+      ? buildLegacyEnvironmentTemplate({
+        envManager: req.body?.envManager,
+        projectType: req.body?.projectType,
+        repoUrl: req.body?.repoUrl,
+        customPackages: req.body?.customPackages,
+      })
+      : null;
+    const built = buildJumpstartPlan({
+      currentPlan: currentPlanRead.plan,
+      projectMode: requestedProjectMode,
+      bootstrapMode: bootstrapMode || (requestedProjectMode === 'existing_codebase' ? 'existing_codebase' : 'empty'),
+      template,
+      freeformIntent: cleanString(req.body?.freeformIntent),
+      legacyEnvironment: requestedProjectMode === 'new_project' ? legacyEnvironment : null,
+    });
+    const result = await treePlanService.writeProjectPlan({ project, server, plan: built.plan });
+    if (cleanString(project.projectMode) !== built.projectMode) {
+      await researchOpsStore.updateProject(getUserId(req), projectId, { projectMode: built.projectMode });
+    }
+    let autoRun = null;
+    let autoRunError = null;
+    if (built.projectMode === 'new_project' && built.nodes[0]) {
+      try {
+        const { state } = await treeStateService.readProjectState({ project, server });
+        const queuedState = buildJumpstartQueuedState({
+          treeState: state,
+          node: built.nodes[0],
+        });
+        await treeStateService.writeProjectState({ project, server, state: queuedState });
+        autoRun = queueJumpstartAutoRun({
+          executeTreeNodeRunFn: executeTreeNodeRun,
+          args: {
+            userId: getUserId(req),
+            project,
+            server,
+            node: built.nodes[0],
+            treeState: queuedState,
+            runSource: 'jumpstart',
+          },
+        }).autoRun;
+      } catch (runError) {
+        autoRunError = toErrorPayload(runError, 'Failed to auto-run environment bootstrap');
+      }
+    }
     return res.json({
       projectId: project.id,
-      nodes: patches.map((p) => p.node),
+      projectMode: built.projectMode,
+      nodes: built.nodes,
       plan: result.plan,
       validation: result.validation,
+      autoRun,
+      autoRunError,
       updatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    if (error.code === 'PLAN_PATCH_CONFLICT') {
-      return res.status(409).json({ ...toErrorPayload(error, 'Plan patch conflict'), details: error.details || null });
-    }
     return res.status(400).json(toErrorPayload(error, 'Failed to create jumpstart node'));
   }
 });
@@ -6404,5 +7211,17 @@ Otherwise respond with ONLY valid JSON: {"question": "...", "options": ["A", "B"
     return res.status(500).json({ error: error.message });
   }
 });
+
+router.buildProjectPathCheckResponse = buildProjectPathCheckResponse;
+router.inferProjectModeFromPathCheck = inferProjectModeFromPathCheck;
+router.buildJumpstartPlan = buildJumpstartPlan;
+router.queueJumpstartAutoRun = queueJumpstartAutoRun;
+router.buildJumpstartQueuedState = buildJumpstartQueuedState;
+router.shouldUseGitManagedTreeRun = shouldUseGitManagedTreeRun;
+router.extractNodeCommands = extractNodeCommands;
+router.shouldBootstrapCodebaseRoot = shouldBootstrapCodebaseRoot;
+router.listObservedSessionsForProject = listObservedSessionsForProject;
+router.getObservedSessionForProject = getObservedSessionForProject;
+router.refreshObservedSessionForProject = refreshObservedSessionForProject;
 
 module.exports = router;

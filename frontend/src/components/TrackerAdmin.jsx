@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-const SOURCE_TYPES = ['twitter', 'arxiv_authors', 'hf', 'alphaxiv', 'finance'];
+const SOURCE_TYPES = ['twitter', 'rss', 'arxiv_authors', 'hf', 'alphaxiv', 'finance'];
 const SOURCE_TYPE_LABELS = {
   alphaxiv: 'Research Domain (arXiv)',
   twitter: 'Twitter/X',
+  rss: 'RSS / Blogs',
   finance: 'Finance',
   hf: 'HuggingFace Daily',
   arxiv_authors: 'Scholar Authors (arXiv)',
@@ -121,11 +122,8 @@ const CONFIG_FIELDS = {
     },
     {
       key: 'storageStatePath',
-      label: 'Browser Session File',
-      type: 'text',
-      placeholder: '/home/user/.playwright/x-session.json',
-      hint: 'Path to Playwright storage state JSON (saved login session for X/Twitter).',
-      showWhen: (config) => String(config.mode || 'nitter').toLowerCase() === 'playwright',
+      type: 'hidden', // rendered by SessionPathField below the generic fields
+      showWhen: () => false,
     },
     {
       key: 'maxPostsPerProfile',
@@ -157,6 +155,43 @@ const CONFIG_FIELDS = {
       type: 'textarea',
       placeholder: 'LLM\ntransformer\ndiffusion model',
       hint: 'Only show papers whose title or abstract contains at least one keyword. One per line.',
+    },
+  ],
+  rss: [
+    {
+      key: 'feedUrlsText',
+      label: 'Feed URLs',
+      type: 'textarea',
+      placeholder: 'https://lmsys.org/rss.xml\nhttps://spaces.ac.cn/feed',
+      hint: 'One RSS/Atom URL per line.',
+    },
+    {
+      key: 'maxItemsPerFeed',
+      label: 'Max Articles Per Feed',
+      type: 'number',
+      placeholder: '20',
+      hint: 'How many latest entries to fetch from each feed per refresh.',
+    },
+    {
+      key: 'timeoutMs',
+      label: 'Timeout (ms)',
+      type: 'number',
+      placeholder: '15000',
+      hint: 'Network timeout per feed request.',
+    },
+    {
+      key: 'lookbackDays',
+      label: 'Lookback Days',
+      type: 'number',
+      placeholder: '180',
+      hint: 'Only include RSS entries published within this many days (default: 180 = ~6 months).',
+    },
+    {
+      key: 'keywords',
+      label: 'Keyword Filter (optional)',
+      type: 'textarea',
+      placeholder: 'LLM\ninference\noptimization',
+      hint: 'Only show RSS entries whose title or summary contains at least one keyword.',
     },
   ],
   finance: [
@@ -253,6 +288,7 @@ const CONFIG_FIELDS = {
 };
 
 function ConfigField({ field, value, onChange }) {
+  if (field.type === 'hidden') return null;
   if (field.type === 'select') {
     const options = field.options || [];
     const firstOption = options[0];
@@ -360,17 +396,117 @@ function ConfigField({ field, value, onChange }) {
   );
 }
 
+function detectCrossOsPath(p) {
+  if (!p) return false;
+  // Mac path on any server, or Windows path anywhere
+  if (p.startsWith('/Users/')) return true;
+  if (/^[A-Za-z]:[/\\]/.test(p)) return true;
+  return false;
+}
+
+function SessionPathField({ value, onChange, apiUrl, getAuthHeaders }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadedPath, setUploadedPath] = useState('');
+
+  const isCrossOs = detectCrossOsPath(value);
+  const isSet = Boolean(value);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      const text = await file.text();
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (_) {
+        throw new Error('File is not valid JSON');
+      }
+      if (!Array.isArray(parsed.cookies) && !Array.isArray(parsed.origins)) {
+        throw new Error('Not a valid Playwright session file (no cookies or origins)');
+      }
+      const res = await axios.post(
+        `${apiUrl}/tracker/twitter/playwright/session-upload`,
+        { sessionJson: parsed },
+        { headers: getAuthHeaders() },
+      );
+      const serverPath = res.data?.path;
+      if (!serverPath) throw new Error('Server did not return a path');
+      onChange('storageStatePath', serverPath);
+      setUploadedPath(serverPath);
+    } catch (err) {
+      setUploadError(err?.response?.data?.error || err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  return (
+    <div className="ssh-form-row">
+      <label>Browser Session File</label>
+
+      {isSet && (
+        <div className={`session-path-display ${isCrossOs ? 'is-cross-os' : 'is-ok'}`}>
+          <code className="session-path-value">{value}</code>
+          {isCrossOs
+            ? <span className="session-path-badge warn">⚠ Mac/Windows path — upload below to fix</span>
+            : <span className="session-path-badge ok">✓ Server path</span>}
+        </div>
+      )}
+
+      <div className="session-upload-row">
+        <input ref={fileRef} type="file" accept=".json" onChange={handleFileChange} style={{ display: 'none' }} />
+        <button
+          type="button"
+          className={`ssh-btn-test session-upload-btn${isCrossOs ? ' is-urgent' : ''}`}
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          title="Select the Playwright session JSON from your device to upload it to the server"
+        >
+          {uploading ? 'Uploading…' : '📁 Upload Session File from this device'}
+        </button>
+      </div>
+
+      {/* Manual path override */}
+      <input
+        type="text"
+        className="session-path-manual-input"
+        value={value || ''}
+        onChange={(e) => onChange('storageStatePath', e.target.value)}
+        placeholder="/home/user/.playwright/x-session.json"
+      />
+
+      {uploadError && <p className="admin-error" style={{ margin: '4px 0 0' }}>{uploadError}</p>}
+      {uploadedPath && !uploadError && (
+        <p className="session-upload-success">✓ Saved to server at <code>{uploadedPath}</code></p>
+      )}
+
+      <p className="ssh-form-hint">
+        <strong>How to get the session file:</strong><br />
+        1. On your Mac/PC, log into X/Twitter in a browser.<br />
+        2. Export the session: <code>npm run setup:x-session</code> in the <code>backend/</code> folder, or use Playwright MCP → save storage state.<br />
+        3. Click <em>Upload Session File</em> above — the file is sent to the server and the path is set automatically.
+      </p>
+    </div>
+  );
+}
+
 function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
   const [feedPerSource, setFeedPerSource] = useState([]);
+  const [twitterPlaywrightSetup, setTwitterPlaywrightSetup] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [draggingSourceId, setDraggingSourceId] = useState(null);
 
   // Scholar import modal
   const [showImportModal, setShowImportModal] = useState(false);
@@ -388,11 +524,16 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
       return Number(entry.failed || 0) > 0;
     })
     : [];
+  const hasPlaywrightTwitterSource = sources.some((source) => (
+    String(source?.type || '').toLowerCase() === 'twitter'
+    && String(source?.config?.mode || 'nitter').toLowerCase() === 'playwright'
+  ));
 
   useEffect(() => {
     fetchSources();
     fetchStatus();
     fetchFeedSummary();
+    fetchTwitterPlaywrightSetupStatus();
   }, []);
 
   const fetchSources = async () => {
@@ -428,6 +569,18 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     }
   };
 
+  const fetchTwitterPlaywrightSetupStatus = async () => {
+    try {
+      const res = await axios.get(`${apiUrl}/tracker/twitter/playwright/setup-status`, {
+        headers: getAuthHeaders(),
+      });
+      setTwitterPlaywrightSetup(res.data || null);
+    } catch (_) {
+      // Optional diagnostics endpoint; ignore hard failures here.
+      setTwitterPlaywrightSetup(null);
+    }
+  };
+
   const handleEdit = (source) => {
     const config = { ...source.config };
     if (source.type === 'twitter') {
@@ -456,6 +609,12 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
       if (!config.lang) config.lang = 'en-US';
       if (!config.apiKey) config.apiKey = '';
     }
+    if (source.type === 'rss') {
+      config.feedUrlsText = Array.isArray(config.feedUrls) ? config.feedUrls.join('\n') : '';
+      if (config.maxItemsPerFeed === undefined) config.maxItemsPerFeed = 20;
+      if (config.timeoutMs === undefined) config.timeoutMs = 15000;
+      if (config.lookbackDays === undefined) config.lookbackDays = 180;
+    }
     if (source.type === 'arxiv_authors') {
       // authorsText is the editable textarea; authors is the stored array
       config.authorsText = Array.isArray(config.authors) ? config.authors.join('\n') : '';
@@ -472,6 +631,7 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     try {
       await axios.delete(`${apiUrl}/tracker/sources/${id}`, { headers: getAuthHeaders() });
       setSources((prev) => prev.filter((s) => s.id !== id));
+      fetchTwitterPlaywrightSetupStatus();
     } catch (e) {
       setError(e.response?.data?.error || 'Failed to delete source');
     }
@@ -481,6 +641,7 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     try {
       await axios.put(`${apiUrl}/tracker/sources/${source.id}`, { enabled: !source.enabled }, { headers: getAuthHeaders() });
       setSources((prev) => prev.map((s) => s.id === source.id ? { ...s, enabled: !s.enabled } : s));
+      fetchTwitterPlaywrightSetupStatus();
     } catch (e) {
       setError(e.response?.data?.error || 'Failed to update source');
     }
@@ -490,7 +651,10 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     setRunningId(source.id);
     try {
       await axios.post(`${apiUrl}/tracker/sources/${source.id}/run`, {}, { headers: getAuthHeaders() });
-      setTimeout(fetchStatus, 3000);
+      setTimeout(() => {
+        fetchStatus();
+        fetchTwitterPlaywrightSetupStatus();
+      }, 3000);
     } catch (e) {
       setError(e.response?.data?.error || 'Failed to run source');
     } finally {
@@ -502,11 +666,61 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
     setRunningAll(true);
     try {
       await axios.post(`${apiUrl}/tracker/run`, {}, { headers: getAuthHeaders() });
-      setTimeout(fetchStatus, 3000);
+      setTimeout(() => {
+        fetchStatus();
+        fetchTwitterPlaywrightSetupStatus();
+      }, 3000);
     } catch (e) {
       setError(e.response?.data?.error || 'Failed to run tracker');
     } finally {
       setTimeout(() => setRunningAll(false), 2000);
+    }
+  };
+
+  const persistSourceOrder = async (orderedSources) => {
+    const sourceIds = orderedSources.map((source) => source.id);
+    await axios.post(
+      `${apiUrl}/tracker/sources/reorder`,
+      { sourceIds },
+      { headers: getAuthHeaders() },
+    );
+  };
+
+  const handleDragStart = (sourceId) => {
+    setDraggingSourceId(sourceId);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingSourceId(null);
+  };
+
+  const handleDropOnSource = async (targetSourceId) => {
+    if (!draggingSourceId || draggingSourceId === targetSourceId) {
+      setDraggingSourceId(null);
+      return;
+    }
+
+    const current = [...sources];
+    const fromIndex = current.findIndex((source) => source.id === draggingSourceId);
+    const toIndex = current.findIndex((source) => source.id === targetSourceId);
+    if (fromIndex < 0 || toIndex < 0) {
+      setDraggingSourceId(null);
+      return;
+    }
+
+    const next = [...current];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setSources(next);
+    setDraggingSourceId(null);
+
+    try {
+      await persistSourceOrder(next);
+      fetchStatus();
+      fetchFeedSummary();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to persist source order');
+      fetchSources();
     }
   };
 
@@ -521,6 +735,8 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
       config: (
         type === 'twitter'
           ? { mode: 'nitter' }
+          : type === 'rss'
+            ? { feedUrlsText: '', maxItemsPerFeed: 20, timeoutMs: 15000, lookbackDays: 180 }
           : type === 'finance'
             ? { provider: 'yahoo_rss', region: 'US', lang: 'en-US', maxItemsPerSymbol: 8, lookbackDays: 7 }
             : type === 'arxiv_authors'
@@ -585,6 +801,7 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
       setForm(EMPTY_FORM);
       setEditingId(null);
       setShowForm(false);
+      fetchTwitterPlaywrightSetupStatus();
     } catch (e) {
       setError(e.response?.data?.error || 'Failed to save source');
     } finally {
@@ -668,9 +885,52 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
             </div>
           )}
 
+          {hasPlaywrightTwitterSource && twitterPlaywrightSetup && !twitterPlaywrightSetup.ready && (
+            <div className="tracker-info tracker-setup-warning" style={{ marginTop: 8 }}>
+              <p><strong>Twitter/X Playwright setup is incomplete on backend node.</strong></p>
+              {Array.isArray(twitterPlaywrightSetup.issues) && twitterPlaywrightSetup.issues.map((issue, idx) => (
+                <p key={`tracker-setup-issue-${idx}`} className="admin-error" style={{ margin: '2px 0' }}>
+                  {issue}
+                </p>
+              ))}
+
+              {/* Cross-OS sources: quick-fix upload per source */}
+              {Array.isArray(twitterPlaywrightSetup.sourceStatuses) &&
+                twitterPlaywrightSetup.sourceStatuses.filter((s) => s.pathLooksCrossOs || !s.storageStatePathExists).map((s) => (
+                  <div key={s.id} className="session-fix-row">
+                    <span className="session-fix-label">
+                      Source <strong>{s.name}</strong>: <code>{s.storageStatePath || '(no path)'}</code>
+                      {s.pathLooksCrossOs && <span className="session-path-badge warn"> ⚠ wrong OS path</span>}
+                      {!s.storageStatePathExists && !s.pathLooksCrossOs && <span className="session-path-badge warn"> ✗ file not found</span>}
+                    </span>
+                    <SessionPathField
+                      value={s.storageStatePath || ''}
+                      onChange={async (_key, newPath) => {
+                        try {
+                          await axios.put(`${apiUrl}/tracker/sources/${s.id}`, {
+                            config: { storageStatePath: newPath },
+                          }, { headers: getAuthHeaders() });
+                          await fetchTwitterPlaywrightSetupStatus();
+                        } catch (_) {}
+                      }}
+                      apiUrl={apiUrl}
+                      getAuthHeaders={getAuthHeaders}
+                    />
+                  </div>
+                ))}
+
+              {twitterPlaywrightSetup?.envPathLooksCrossOs && (
+                <p className="admin-error" style={{ marginTop: 6 }}>
+                  Env var <code>X_PLAYWRIGHT_STORAGE_STATE_PATH</code> = <code>{twitterPlaywrightSetup.envStorageStatePath}</code> looks like a Mac path. Update your backend <code>.env</code> to a server-side path.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Source list */}
           <div className="tracker-info">
             <p>All tracker sources are discovery-only and won&apos;t auto-add papers to your library. Papers are saved only when you click save. Server-side metadata refresh runs daily by default.</p>
+            <p style={{ marginTop: 4 }}>Drag sources to set weight (top = higher priority in tracker feed).</p>
           </div>
 
           {loading ? (
@@ -686,8 +946,17 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
                   {sources.map((source) => {
                     const sourceError = getSourceLastError(source);
                     return (
-                    <div key={source.id} className={`tracker-source-item ${source.enabled ? '' : 'disabled'}`}>
+                    <div
+                      key={source.id}
+                      className={`tracker-source-item ${source.enabled ? '' : 'disabled'} ${draggingSourceId === source.id ? 'is-dragging' : ''}`}
+                      draggable={sources.length > 1}
+                      onDragStart={() => handleDragStart(source.id)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDropOnSource(source.id)}
+                    >
                       <div className="tracker-source-info">
+                        <span className="tracker-drag-handle" title="Drag to change weight">⋮⋮</span>
                         <span className={`tracker-type-badge tracker-type-${source.type}`}>
                           {SOURCE_TYPE_LABELS[source.type] || source.type}
                         </span>
@@ -759,6 +1028,7 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
                         form.type === 'hf' ? 'HuggingFace Daily Papers' :
                         form.type === 'alphaxiv' ? 'Research Domain: cs.LG + cs.AI' :
                         form.type === 'twitter' ? '@karpathy' :
+                        form.type === 'rss' ? 'Blogs: LMSYS + Scientific Spaces' :
                         form.type === 'finance' ? 'Finance: AAPL + NVDA' :
                         form.type === 'arxiv_authors' ? 'My Research Group' :
                         'Source name'
@@ -819,16 +1089,32 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
                     </div>
                   )}
 
-                  {form.type === 'twitter' && String(form.config.mode || 'nitter').toLowerCase() === 'playwright' && (
+                  {form.type === 'rss' && (
                     <div className="ssh-form-row">
-                      <div className="tracker-requirement-note">
-                        <strong>Requirements:</strong>
-                        <ol style={{ margin: '6px 0 0 16px', padding: 0 }}>
-                          <li>A <strong>Codex CLI</strong> (or Claude Code) with <strong>Playwright MCP</strong> support must be running on this server to operate the browser.</li>
-                          <li>A <strong>Chrome / Chromium</strong> instance already <strong>logged into X/Twitter</strong> — use Playwright MCP to sign in once and export the session to the path above.</li>
-                        </ol>
-                      </div>
+                      <p className="ssh-form-hint">
+                        RSS mode tracks generic blogs/news feeds. Each feed entry appears as a separate article in <strong>Latest</strong>.
+                      </p>
                     </div>
+                  )}
+
+                  {form.type === 'twitter' && String(form.config.mode || 'nitter').toLowerCase() === 'playwright' && (
+                    <>
+                      <SessionPathField
+                        value={form.config.storageStatePath || ''}
+                        onChange={handleConfigChange}
+                        apiUrl={apiUrl}
+                        getAuthHeaders={getAuthHeaders}
+                      />
+                      <div className="ssh-form-row">
+                        <div className="tracker-requirement-note">
+                          <strong>Server requirements:</strong>
+                          <ol style={{ margin: '6px 0 0 16px', padding: 0 }}>
+                            <li>Playwright + Chromium installed on backend (<code>npx playwright install chromium</code>).</li>
+                            <li>A session file uploaded above (login session for X/Twitter).</li>
+                          </ol>
+                        </div>
+                      </div>
+                    </>
                   )}
 
                   <div className="ssh-form-actions">
@@ -944,6 +1230,23 @@ function normalizeFormConfig(type, config) {
       authors,
       maxPerAuthor: Number.isFinite(maxPerAuthorRaw) ? Math.max(1, Math.min(maxPerAuthorRaw, 20)) : 5,
       lookbackDays: Number.isFinite(lookbackDaysRaw) ? Math.max(1, Math.min(lookbackDaysRaw, 90)) : 30,
+    };
+  }
+
+  if (type === 'rss') {
+    const feedUrls = String(config.feedUrlsText || '')
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const maxRaw = parseInt(config.maxItemsPerFeed || '20', 10);
+    const timeoutRaw = parseInt(config.timeoutMs || '15000', 10);
+    const lookbackRaw = parseInt(config.lookbackDays || '180', 10);
+    return {
+      feedUrls,
+      maxItemsPerFeed: Number.isFinite(maxRaw) ? maxRaw : 20,
+      timeoutMs: Number.isFinite(timeoutRaw) ? timeoutRaw : 15000,
+      lookbackDays: Number.isFinite(lookbackRaw) ? Math.max(1, Math.min(lookbackRaw, 3650)) : 180,
+      keywords: String(config.keywords || '').trim(),
     };
   }
 

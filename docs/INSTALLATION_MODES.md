@@ -17,6 +17,7 @@ Installer prompts include:
 - Document metadata provider (sqlite/Turso)
 - ResearchOps metadata provider (Mongo local/Atlas)
 - Network topology (direct/FRP/FRP+Tailscale)
+- Twitter/X Playwright refresh execution target (backend vs client)
 - Frontend compile target + deploy target
 - Backend compile target + deploy target
 
@@ -67,8 +68,33 @@ Related env keys:
 - `PROCESSING_ENABLED`
 - `PROCESSING_DESKTOP_URL`
 - `TRACKER_PROXY_HEAVY_OPS`
+- `TRACKER_PROXY_STRICT`
+- `TRACKER_EXECUTION_TARGET`
+- `TRACKER_STALE_AUTO_RUN`
+- `TRACKER_STALE_PROXY_AUTO_RUN`
+- `TRACKER_STALE_RUN_TRIGGER_MS`
 - `TAILSCALE_ENABLED`
 - `TAILSCALE_DESKTOP_URL`
+
+## Tracker execution target
+
+Installer now asks where Twitter/X Playwright refresh should run:
+
+- `backend` target:
+  - `TRACKER_ENABLED=true`
+  - `TRACKER_PROXY_HEAVY_OPS=false`
+  - scheduler/refresh runs on backend node.
+
+- `client` target (proxied):
+  - `TRACKER_ENABLED=false`
+  - `TRACKER_PROXY_HEAVY_OPS=true`
+  - `TRACKER_PROXY_STRICT=true` (no fallback to backend-local heavy run)
+  - refresh only runs when the client executor is reachable/online.
+
+24h stale refresh behavior:
+- Installer sets `TRACKER_STALE_RUN_TRIGGER_MS=86400000` (24h).
+- On client checks (`/api/tracker/status`), if last refresh is older than threshold and client executor is online, backend triggers a proxied refresh.
+- If client executor is offline, no refresh is started.
 
 Helper scripts:
 

@@ -398,7 +398,7 @@ Why this paper might be important for researchers.`
   await db.execute(`
     CREATE TABLE IF NOT EXISTS tracker_sources (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL CHECK(type IN ('hf', 'twitter', 'scholar', 'alphaxiv', 'finance')),
+      type TEXT NOT NULL CHECK(type IN ('hf', 'huggingface', 'twitter', 'x', 'scholar', 'arxiv_authors', 'alphaxiv', 'arxiv', 'finance', 'rss')),
       name TEXT NOT NULL,
       config TEXT DEFAULT '{}',
       enabled INTEGER DEFAULT 1,
@@ -407,33 +407,144 @@ Why this paper might be important for researchers.`
     )
   `);
 
-  // Migration: ensure tracker_sources type CHECK includes all supported types.
+  // Recovery: previous failed migrations may leave tracker_sources_bak behind.
+  // Merge recoverable rows back before continuing, then drop stale backup table.
   try {
-    await db.execute({
-      sql: `INSERT INTO tracker_sources (type, name) VALUES ('finance', '__migration_test__')`,
-      args: [],
-    });
-    await db.execute({ sql: `DELETE FROM tracker_sources WHERE name = '__migration_test__'`, args: [] });
-  } catch (migErr) {
-    if (migErr.message?.toLowerCase().includes('check') || migErr.message?.toLowerCase().includes('constraint')) {
-      console.log('[Migration] Updating tracker_sources type CHECK constraint...');
-      await db.execute(`ALTER TABLE tracker_sources RENAME TO tracker_sources_bak`);
+    const bakTable = await db.execute(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'tracker_sources_bak'
+      LIMIT 1
+    `);
+    if ((bakTable.rows || []).length > 0) {
+      console.warn('[Migration] Found stale tracker_sources_bak; attempting recovery merge...');
       await db.execute(`
-        CREATE TABLE tracker_sources (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          type TEXT NOT NULL CHECK(type IN ('hf', 'twitter', 'scholar', 'alphaxiv', 'finance')),
-          name TEXT NOT NULL,
-          config TEXT DEFAULT '{}',
-          enabled INTEGER DEFAULT 1,
-          last_checked_at DATETIME,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
+        INSERT OR IGNORE INTO tracker_sources (id, type, name, config, enabled, last_checked_at, created_at)
+        SELECT
+          id,
+          CASE LOWER(type)
+            WHEN 'huggingface' THEN 'hf'
+            WHEN 'x' THEN 'twitter'
+            WHEN 'arxiv' THEN 'alphaxiv'
+            ELSE type
+          END,
+          name,
+          config,
+          enabled,
+          last_checked_at,
+          created_at
+        FROM tracker_sources_bak
       `);
-      await db.execute(`INSERT INTO tracker_sources SELECT * FROM tracker_sources_bak`);
       await db.execute(`DROP TABLE tracker_sources_bak`);
-      console.log('[Migration] tracker_sources updated');
+      console.log('[Migration] tracker_sources_bak recovered and removed');
+    }
+  } catch (recoverErr) {
+    console.warn('[Migration] Could not recover stale tracker_sources_bak:', recoverErr.message);
+  }
+
+  // Migration: ensure tracker_sources type CHECK includes all supported types + legacy aliases.
+  let trackerSourceTypeConstraintOk = true;
+  for (const testType of ['rss', 'arxiv_authors', 'arxiv', 'huggingface']) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await db.execute({
+        sql: `INSERT INTO tracker_sources (type, name) VALUES (?, ?)`,
+        args: [testType, '__migration_test__'],
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await db.execute({ sql: `DELETE FROM tracker_sources WHERE name = '__migration_test__'`, args: [] });
+    } catch (probeErr) {
+      if (probeErr.message?.toLowerCase().includes('check') || probeErr.message?.toLowerCase().includes('constraint')) {
+        trackerSourceTypeConstraintOk = false;
+        break;
+      }
     }
   }
+  if (!trackerSourceTypeConstraintOk) {
+    console.log('[Migration] Updating tracker_sources type CHECK constraint...');
+    const backupTable = 'tracker_sources_mig_bak';
+    await db.execute(`DROP TABLE IF EXISTS ${backupTable}`);
+    await db.execute(`ALTER TABLE tracker_sources RENAME TO ${backupTable}`);
+    await db.execute(`
+      CREATE TABLE tracker_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL CHECK(type IN ('hf', 'huggingface', 'twitter', 'x', 'scholar', 'arxiv_authors', 'alphaxiv', 'arxiv', 'finance', 'rss')),
+        name TEXT NOT NULL,
+        config TEXT DEFAULT '{}',
+        enabled INTEGER DEFAULT 1,
+        last_checked_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try {
+      await db.execute(`
+        INSERT INTO tracker_sources (id, type, name, config, enabled, last_checked_at, created_at)
+        SELECT
+          id,
+          CASE LOWER(type)
+            WHEN 'huggingface' THEN 'hf'
+            WHEN 'x' THEN 'twitter'
+            WHEN 'arxiv' THEN 'alphaxiv'
+            ELSE type
+          END,
+          name,
+          config,
+          enabled,
+          last_checked_at,
+          created_at
+        FROM ${backupTable}
+      `);
+      await db.execute(`DROP TABLE ${backupTable}`);
+      console.log('[Migration] tracker_sources updated');
+    } catch (migrationCopyErr) {
+      console.error('[Migration] tracker_sources migration copy failed; rolling back:', migrationCopyErr.message);
+      await db.execute(`DROP TABLE IF EXISTS tracker_sources`);
+      await db.execute(`ALTER TABLE ${backupTable} RENAME TO tracker_sources`);
+      throw migrationCopyErr;
+    }
+  }
+
+  // Audit trail for tracker source CRUD to prevent silent source-loss incidents.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS tracker_sources_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_id INTEGER,
+      op TEXT NOT NULL CHECK(op IN ('insert', 'update', 'delete')),
+      type TEXT,
+      name TEXT,
+      config TEXT,
+      enabled INTEGER,
+      captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_tracker_sources_audit_source_time
+    ON tracker_sources_audit(source_id, captured_at DESC)
+  `);
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS trg_tracker_sources_audit_insert
+    AFTER INSERT ON tracker_sources
+    BEGIN
+      INSERT INTO tracker_sources_audit (source_id, op, type, name, config, enabled)
+      VALUES (NEW.id, 'insert', NEW.type, NEW.name, NEW.config, NEW.enabled);
+    END
+  `);
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS trg_tracker_sources_audit_update
+    AFTER UPDATE ON tracker_sources
+    BEGIN
+      INSERT INTO tracker_sources_audit (source_id, op, type, name, config, enabled)
+      VALUES (NEW.id, 'update', NEW.type, NEW.name, NEW.config, NEW.enabled);
+    END
+  `);
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS trg_tracker_sources_audit_delete
+    AFTER DELETE ON tracker_sources
+    BEGIN
+      INSERT INTO tracker_sources_audit (source_id, op, type, name, config, enabled)
+      VALUES (OLD.id, 'delete', OLD.type, OLD.name, OLD.config, OLD.enabled);
+    END
+  `);
 
   // Create tracker seen papers table for deduplication
   await db.execute(`
@@ -487,6 +598,37 @@ Why this paper might be important for researchers.`
       source_count INTEGER DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  // Tracker interaction events for feed personalization and ranking evaluation.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS tracker_item_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      item_type TEXT DEFAULT '',
+      arxiv_id TEXT DEFAULT '',
+      url TEXT DEFAULT '',
+      source_type TEXT DEFAULT '',
+      source_name TEXT DEFAULT '',
+      rank_position INTEGER DEFAULT 0,
+      rank_score REAL DEFAULT 0,
+      metadata_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_tracker_item_events_user_time
+    ON tracker_item_events(user_id, created_at DESC)
+  `);
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_tracker_item_events_user_event_time
+    ON tracker_item_events(user_id, event_type, created_at DESC)
+  `);
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_tracker_item_events_item_key_time
+    ON tracker_item_events(item_key, created_at DESC)
   `);
 
   // Knowledge groups for research mode / vibe workspace KB

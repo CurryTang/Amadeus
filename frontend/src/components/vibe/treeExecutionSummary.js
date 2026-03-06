@@ -1,0 +1,57 @@
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeStatus(status = '') {
+  return cleanString(status).toUpperCase() || 'PLANNED';
+}
+
+function hasManualApproval(node = {}) {
+  return Array.isArray(node?.checks) && node.checks.some((item) => cleanString(item?.type).toLowerCase() === 'manual_approve');
+}
+
+function buildTreeExecutionSummary(plan = {}, treeState = {}) {
+  const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  const stateNodes = treeState?.nodes && typeof treeState.nodes === 'object' ? treeState.nodes : {};
+  return nodes.reduce((summary, node) => {
+    const nodeState = stateNodes[node.id] || {};
+    const status = normalizeStatus(nodeState?.status);
+    if (status === 'RUNNING' || status === 'QUEUED') {
+      summary.running += 1;
+      return summary;
+    }
+    if (status === 'PASSED' || status === 'SUCCEEDED') {
+      summary.done += 1;
+      return summary;
+    }
+    if (status === 'FAILED') {
+      summary.failed += 1;
+      return summary;
+    }
+    if (
+      status === 'BLOCKED'
+      || (hasManualApproval(node) && !nodeState?.manualApproved)
+    ) {
+      summary.needsReview += 1;
+    }
+    return summary;
+  }, {
+    running: 0,
+    needsReview: 0,
+    done: 0,
+    failed: 0,
+  });
+}
+
+function getPrimaryTreeAction(node = {}, nodeState = {}) {
+  const status = normalizeStatus(nodeState?.status);
+  if (hasManualApproval(node) && !nodeState?.manualApproved) return 'Approve';
+  if (status === 'FAILED' && cleanString(nodeState?.lastRunId)) return 'Resume';
+  if (status === 'RUNNING' || status === 'QUEUED' || cleanString(nodeState?.lastRunId)) return 'View Run';
+  return 'Start';
+}
+
+export {
+  buildTreeExecutionSummary,
+  getPrimaryTreeAction,
+};

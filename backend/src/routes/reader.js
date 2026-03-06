@@ -5,6 +5,49 @@ const schedulerService = require('../services/scheduler.service');
 const readerService = require('../services/reader.service');
 const { requireAuth } = require('../middleware/auth');
 
+function asTrimmedText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeRefinementRounds(rounds) {
+  if (!Array.isArray(rounds)) return null;
+
+  const normalized = [];
+  for (let i = 0; i < rounds.length; i++) {
+    const round = rounds[i];
+    if (!round) continue;
+
+    if (typeof round === 'string') {
+      const prompt = asTrimmedText(round);
+      if (!prompt) continue;
+      normalized.push({
+        name: `Round ${i + 1}`,
+        prompt,
+        input: prompt,
+        type: 'legacy',
+        sourceUrl: '',
+      });
+      continue;
+    }
+
+    if (typeof round !== 'object') continue;
+
+    const prompt = asTrimmedText(round.prompt) || asTrimmedText(round.input);
+    if (!prompt) continue;
+
+    const sourceUrl = asTrimmedText(round.sourceUrl);
+    normalized.push({
+      name: asTrimmedText(round.name) || `Round ${i + 1}`,
+      prompt,
+      input: asTrimmedText(round.input) || prompt,
+      type: asTrimmedText(round.type) || (sourceUrl ? 'url' : 'created'),
+      sourceUrl,
+    });
+  }
+
+  return normalized;
+}
+
 /**
  * GET /api/reader/modes
  * Get available reader modes
@@ -108,6 +151,14 @@ router.post('/queue/:documentId', requireAuth, async (req, res) => {
   try {
     const { documentId } = req.params;
     const { priority = 0, readerMode = 'auto_reader_v2', codeUrl, provider, refinementRounds, model, thinkingBudget } = req.body;
+    if (refinementRounds !== undefined && !Array.isArray(refinementRounds)) {
+      return res.status(400).json({ error: 'refinementRounds must be an array when provided' });
+    }
+
+    const normalizedRounds = normalizeRefinementRounds(refinementRounds);
+    if (Array.isArray(refinementRounds) && refinementRounds.length > 0 && (!normalizedRounds || normalizedRounds.length === 0)) {
+      return res.status(400).json({ error: 'No valid refinement rounds provided' });
+    }
 
     // Update document with reader mode, provider, and code URL before queuing
     const { getDb } = require('../db');
@@ -143,13 +194,18 @@ router.post('/queue/:documentId', requireAuth, async (req, res) => {
       args,
     });
 
-    const result = await queueService.enqueueDocument(parseInt(documentId), priority, refinementRounds || null);
+    const result = await queueService.enqueueDocument(
+      parseInt(documentId),
+      priority,
+      normalizedRounds && normalizedRounds.length > 0 ? normalizedRounds : null
+    );
 
     res.json({
       ...result,
       readerMode,
       provider,
       codeUrl,
+      refinementRounds: normalizedRounds || null,
     });
   } catch (error) {
     console.error('Error enqueueing document:', error);
