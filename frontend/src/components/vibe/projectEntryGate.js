@@ -69,6 +69,9 @@ export function shouldShowProjectEntryGate({
   if (!project || cleanString(project?.projectMode) !== 'new_project') return false;
   // If the backend detected environment markers on the filesystem, skip the gate.
   if (environmentDetected === true) return false;
+  const planNodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  // If the plan already has nodes, the project is past the bootstrap phase.
+  if (planNodes.length > 0) return false;
   const environmentRoot = findEnvironmentRoot(plan);
   if (!environmentRoot) return true;
   const rootStatus = normalizeStatus(treeState?.nodes?.[environmentRoot.id]?.status);

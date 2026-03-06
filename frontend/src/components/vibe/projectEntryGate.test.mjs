@@ -44,12 +44,20 @@ test('hides the gate after the environment root succeeds', () => {
   }), false);
 });
 
-test('reopens the gate when the environment root fails', () => {
+test('hides the gate when plan already has nodes (project past bootstrap)', () => {
+  // Even with a failed environment_root, once the plan has nodes the gate stays hidden
   assert.equal(shouldShowProjectEntryGate({
     project: { projectMode: 'new_project' },
     plan: { nodes: [{ id: 'project_environment', tags: ['environment_root'] }] },
     treeState: { nodes: { project_environment: { status: 'FAILED' } } },
-  }), true);
+  }), false);
+
+  // Plan with non-environment nodes (e.g. baseline_root, experiments)
+  assert.equal(shouldShowProjectEntryGate({
+    project: { projectMode: 'new_project' },
+    plan: { nodes: [{ id: 'baseline_root', tags: ['baseline', 'root'] }, { id: 'init', tags: [] }] },
+    treeState: { nodes: {} },
+  }), false);
 });
 
 test('never shows the gate for existing-codebase projects', () => {
