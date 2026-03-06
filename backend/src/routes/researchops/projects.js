@@ -492,8 +492,10 @@ async function hasSshEnvironmentMarkers(server, projectPath) {
   const rootPath = String(projectPath || '').trim();
   if (!rootPath) return false;
   const checks = ENV_MARKER_NAMES.map((m) => `[ -e "${rootPath}/${m}" ] && echo "FOUND"`).join('; ');
-  const { stdout } = await runSshScript(server, checks, [], 10000);
-  return String(stdout || '').includes('FOUND');
+  const { stdout } = await runSshScript(server, checks, [], 30000);
+  const found = String(stdout || '').includes('FOUND');
+  console.log(`[ResearchOps] env-markers SSH check: path=${rootPath} server=${server?.host || '?'} found=${found}`);
+  return found;
 }
 
 async function hasEnvironmentMarkers(project, server) {
@@ -504,7 +506,8 @@ async function hasEnvironmentMarkers(project, server) {
       return await hasSshEnvironmentMarkers(server, projectPath);
     }
     return await hasLocalEnvironmentMarkers(projectPath);
-  } catch {
+  } catch (err) {
+    console.error(`[ResearchOps] env-markers check failed: ${err.message || err}`);
     return false;
   }
 }
@@ -3465,6 +3468,13 @@ router.patch('/projects/:projectId', async (req, res) => {
     }
     if (req.body?.gitBranch !== undefined) {
       allowed.gitBranch = String(req.body.gitBranch || '').trim() || null;
+    }
+    if (req.body?.serverId !== undefined) {
+      const newServerId = String(req.body.serverId || '').trim();
+      if (!newServerId) return res.status(400).json({ error: 'serverId cannot be empty' });
+      const newServer = await getSshServerById(newServerId);
+      if (!newServer) return res.status(404).json({ error: `SSH server ${newServerId} not found` });
+      allowed.serverId = String(newServer.id);
     }
 
     const project = await researchOpsStore.updateProject(getUserId(req), projectId, allowed);

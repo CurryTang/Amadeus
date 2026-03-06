@@ -820,6 +820,10 @@ async function updateProject(userId, projectId, payload = {}) {
   if (payload.gitBranch !== undefined) {
     patch.gitBranch = cleanString(payload.gitBranch) || null;
   }
+  if (payload.serverId !== undefined) {
+    const sid = cleanString(payload.serverId);
+    if (sid) patch.serverId = sid;
+  }
 
   let updated = null;
   if (storeMode === 'mongodb') {
