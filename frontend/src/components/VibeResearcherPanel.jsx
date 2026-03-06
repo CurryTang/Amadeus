@@ -3,8 +3,7 @@ import axios from 'axios';
 import GitLogEntry from '../models/GitLogEntry';
 import VibeKnowledgeHubModal from './VibeKnowledgeHubModal';
 import VibeHomeView from './vibe/VibeHomeView';
-import VibeObservedSessionsStrip from './vibe/VibeObservedSessionsStrip';
-import VibeRecentRunsStrip from './vibe/VibeRecentRunsStrip';
+import VibeActivityFeedStrip from './vibe/VibeActivityFeedStrip';
 import VibeRunDetailModal from './vibe/VibeRunDetailModal';
 import VibeRunHistory from './vibe/VibeRunHistory';
 import VibeTreeCanvas from './vibe/VibeTreeCanvas';
@@ -21,7 +20,9 @@ import { getVibeUiMode } from './vibe/vibeUiMode';
 import { DEFAULT_LAUNCHER_SKILL, getLauncherPromptPrefix } from './vibe/launcherRouting';
 import { buildPayloadWithContinuation, addContinuationChip } from './vibe/launcherContinuation';
 import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
+import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { buildRecentRunCards } from './vibe/runPresentation';
+import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
 import { linkClientWorkspace } from '../hooks/useClientWorkspaceRegistry';
 
@@ -562,6 +563,7 @@ function VibeResearcherPanel({
   const [treePlan, setTreePlan] = useState(null);
   const [treeValidation, setTreeValidation] = useState(null);
   const [treeState, setTreeState] = useState(null);
+  const [treeWorkspaceReady, setTreeWorkspaceReady] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState('');
   const [treeRootSummary, setTreeRootSummary] = useState(null);
@@ -1217,6 +1219,9 @@ function VibeResearcherPanel({
         markProjectPollingBlocked(targetProjectId);
       }
     } finally {
+      if (selectedProjectRef.current === targetProjectId) {
+        setTreeWorkspaceReady(true);
+      }
       treeWorkspaceInFlightRef.current.delete(inFlightKey);
       if (!silent) setTreeLoading(false);
     }
@@ -2610,24 +2615,74 @@ function VibeResearcherPanel({
   }, [apiUrl, headers, loadAll, loadRunHistoryPage, loadTreeWorkspace, runAllScope, selectedNodeId, selectedProjectId]);
 
   const handleDeleteRun = useCallback(async (runId) => {
+    const projectId = String(selectedProjectId || '').trim();
+    if (!projectId) return;
+    const previousRuns = runs;
+    const previousRunHistoryItems = runHistoryItems;
+    const nextState = removeProjectRunsFromState({
+      runs: previousRuns,
+      runHistoryItems: previousRunHistoryItems,
+      projectId,
+      runId,
+    });
+    setRuns(nextState.runs);
+    setRunHistoryItems(nextState.runHistoryItems);
+    if (cleanString(selectedRunId) === cleanString(runId)) {
+      setSelectedRunId('');
+      setRunReport(null);
+      setShowRunDetailModal(false);
+    }
     try {
       await axios.delete(`${apiUrl}/researchops/runs/${runId}`, { headers });
-      await loadRunHistoryPage(selectedProjectId, { reset: true });
+      await Promise.all([
+        loadRunHistoryPage(projectId, { reset: true }),
+        loadAll({ silent: true }),
+      ]);
     } catch (err) {
       console.error('Failed to delete run:', err);
+      setRuns(previousRuns);
+      setRunHistoryItems(previousRunHistoryItems);
+      await Promise.all([
+        loadRunHistoryPage(projectId, { reset: true }),
+        loadAll({ silent: true }),
+      ]);
     }
-  }, [apiUrl, headers, loadRunHistoryPage, selectedProjectId]);
+  }, [apiUrl, headers, loadAll, loadRunHistoryPage, runHistoryItems, runs, selectedProjectId, selectedRunId]);
 
   const handleClearRuns = useCallback(async (status = '') => {
     const projectId = String(selectedProjectId || '').trim();
     if (!projectId) return;
+    const previousRuns = runs;
+    const previousRunHistoryItems = runHistoryItems;
+    const nextState = removeProjectRunsFromState({
+      runs: previousRuns,
+      runHistoryItems: previousRunHistoryItems,
+      projectId,
+      status,
+    });
+    setRuns(nextState.runs);
+    setRunHistoryItems(nextState.runHistoryItems);
+    if (!status || cleanString(selectedRun?.status).toUpperCase() === cleanString(status).toUpperCase()) {
+      setSelectedRunId('');
+      setRunReport(null);
+      setShowRunDetailModal(false);
+    }
     try {
       await axios.delete(`${apiUrl}/researchops/projects/${projectId}/runs${status ? `?status=${status}` : ''}`, { headers });
-      await loadRunHistoryPage(projectId, { reset: true });
+      await Promise.all([
+        loadRunHistoryPage(projectId, { reset: true }),
+        loadAll({ silent: true }),
+      ]);
     } catch (err) {
       console.error('Failed to clear run history:', err);
+      setRuns(previousRuns);
+      setRunHistoryItems(previousRunHistoryItems);
+      await Promise.all([
+        loadRunHistoryPage(projectId, { reset: true }),
+        loadAll({ silent: true }),
+      ]);
     }
-  }, [apiUrl, headers, loadRunHistoryPage, selectedProjectId]);
+  }, [apiUrl, headers, loadAll, loadRunHistoryPage, runHistoryItems, runs, selectedProjectId, selectedRun]);
 
   const handleRerunRun = useCallback(async (runId) => {
     try {
@@ -2961,6 +3016,10 @@ function VibeResearcherPanel({
     () => buildRecentRunCards(visibleRuns).slice(0, 18),
     [visibleRuns]
   );
+  const activityFeed = useMemo(
+    () => buildActivityFeed({ runCards: recentRunCards, observedSessionCards }),
+    [observedSessionCards, recentRunCards]
+  );
   const selectedRun = useMemo(
     () => visibleRuns.find((run) => run.id === selectedRunId) || null,
     [selectedRunId, visibleRuns]
@@ -2996,7 +3055,9 @@ function VibeResearcherPanel({
     plan: treePlan,
     treeState: effectiveTreeState,
     environmentDetected: treeEnvironmentDetected,
-  }), [effectiveTreeState, selectedProject, treePlan, treeEnvironmentDetected]);
+    todoCount: selectedProjectIdeas.length,
+    treeWorkspaceReady,
+  }), [effectiveTreeState, selectedProject, treePlan, treeEnvironmentDetected, treeWorkspaceReady, selectedProjectIdeas.length]);
 
   const selectedTreeNode = useMemo(() => {
     if (!selectedNodeId || !Array.isArray(treePlan?.nodes)) return null;
@@ -3424,6 +3485,23 @@ function VibeResearcherPanel({
     }
   }, [selectedProject]);
 
+  const handleChangeProjectServer = useCallback(async (newServerId) => {
+    if (!selectedProject || !newServerId) return;
+    try {
+      await axios.patch(
+        `${apiUrl}/researchops/projects/${selectedProject.id}`,
+        { serverId: newServerId },
+        { headers },
+      );
+      setProjects((prev) => prev.map((p) =>
+        p.id === selectedProject.id ? { ...p, serverId: newServerId } : p
+      ));
+      setRunServerId(newServerId);
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to change project server');
+    }
+  }, [selectedProject, apiUrl, headers]);
+
   useEffect(() => {
     if (!selectedProjectId) {
       sshPollCooldownRef.current.clear();
@@ -3447,6 +3525,7 @@ function VibeResearcherPanel({
       setTreeValidation(null);
       setTreeState(null);
       setTreeEnvironmentDetected(null);
+      setTreeWorkspaceReady(false);
       setTreeError('');
       setTreeLoading(false);
       setSelectedNodeId('');
@@ -3464,6 +3543,7 @@ function VibeResearcherPanel({
       runHistoryLoadingMoreRef.current = false;
       return;
     }
+    setTreeWorkspaceReady(false);
     setGitLogLimit(5);
     loadProjectInsightsRef.current?.(selectedProjectId, { gitLimit: 5, force: true });
     loadProjectFileTreeRef.current?.(selectedProjectId, '', { force: true });
@@ -3694,9 +3774,19 @@ function VibeResearcherPanel({
               <p>{selectedProject.description || 'No project description provided.'}</p>
             </div>
             <div className="vibe-workspace-meta">
-              <span className="vibe-workspace-loc">
-                {selectedProject.locationType === 'ssh' ? 'SSH project' : 'Local project'}
-              </span>
+              {selectedProject.locationType === 'ssh' ? (
+                <select
+                  className="vibe-workspace-server-select"
+                  value={selectedProject.serverId || ''}
+                  onChange={(e) => handleChangeProjectServer(e.target.value)}
+                >
+                  {sshServers.map((s) => (
+                    <option key={s.id} value={String(s.id)}>{s.name || s.host}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="vibe-workspace-loc">Local project</span>
+              )}
             </div>
           </div>
 
@@ -3906,16 +3996,14 @@ function VibeResearcherPanel({
             </form>
           </div>
 
-          <VibeRecentRunsStrip
-            cards={recentRunCards}
+          <VibeActivityFeedStrip
+            items={activityFeed.items}
+            runCount={activityFeed.runCount}
+            sessionCount={activityFeed.sessionCount}
             selectedRunId={selectedRunId}
-            onOpenRun={handleOpenRunDetail}
-          />
-
-          <VibeObservedSessionsStrip
-            cards={observedSessionCards}
-            loading={observedSessionsLoading}
+            loadingSessions={observedSessionsLoading}
             refreshingId={observedSessionRefreshingId}
+            onOpenRun={handleOpenRunDetail}
             onOpenSession={handleOpenObservedSession}
             onRefreshSession={handleRefreshObservedSession}
           />

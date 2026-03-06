@@ -65,10 +65,15 @@ export function shouldShowProjectEntryGate({
   plan = null,
   treeState = null,
   environmentDetected = null,
+  todoCount = 0,
+  treeWorkspaceReady = true,
 } = {}) {
   if (!project || cleanString(project?.projectMode) !== 'new_project') return false;
+  if (treeWorkspaceReady !== true) return false;
   // If the backend detected environment markers on the filesystem, skip the gate.
   if (environmentDetected === true) return false;
+  // If the project has TODOs / ideas, it's past the bootstrap phase.
+  if (typeof todoCount === 'number' && todoCount > 0) return false;
   const planNodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
   // If the plan already has nodes, the project is past the bootstrap phase.
   if (planNodes.length > 0) return false;

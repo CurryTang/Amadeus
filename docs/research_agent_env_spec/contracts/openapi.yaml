@@ -1,0 +1,338 @@
+openapi: 3.1.0
+info:
+  title: ResearchOps Current API
+  version: 0.2.0
+servers:
+  - url: http://localhost:8080/researchops
+
+paths:
+  /dashboard:
+    get:
+      summary: Load researchops dashboard aggregates
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/plan:
+    get:
+      summary: Read tree plan
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+    put:
+      summary: Write tree plan
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/plan/validate:
+    post:
+      summary: Validate a candidate tree plan
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/plan/patches:
+    post:
+      summary: Apply plan patches
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/plan/impact-preview:
+    post:
+      summary: Preview plan impact
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/state:
+    get:
+      summary: Read tree state
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/nodes/{nodeId}/run-step:
+    post:
+      summary: Execute a single tree node
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string }
+      responses:
+        "202":
+          description: Accepted
+
+  /projects/{projectId}/tree/nodes/{nodeId}/approve:
+    post:
+      summary: Mark node gate approved
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/run-all:
+    post:
+      summary: Queue execution across scoped nodes
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "202":
+          description: Accepted
+
+  /projects/{projectId}/tree/control/pause:
+    post:
+      summary: Pause tree queue
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/control/resume:
+    post:
+      summary: Resume tree queue
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/control/abort:
+    post:
+      summary: Abort queued tree runs
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/nodes/{nodeId}/search:
+    get:
+      summary: Read search state for a search node
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/nodes/{nodeId}/promote/{trialId}:
+    post:
+      summary: Promote a successful search trial into a new node
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: trialId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /projects/{projectId}/tree/nodes/{nodeId}/run-clarify:
+    post:
+      summary: Generate next clarify question before executing node
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: nodeId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs:
+    get:
+      summary: List runs
+      responses:
+        "200":
+          description: OK
+
+  /runs/enqueue-v2:
+    post:
+      summary: Enqueue a run using current workflow schema
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}:
+    get:
+      summary: Get run detail
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/events:
+    get:
+      summary: Read run events
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/steps:
+    get:
+      summary: Read run steps
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/artifacts:
+    get:
+      summary: List run artifacts
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/report:
+    get:
+      summary: Build or read run report
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/context-pack:
+    get:
+      summary: Build run-oriented context pack
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/context-pack/preview:
+    post:
+      summary: Preview routed context for a run
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/cancel:
+    post:
+      summary: Cancel run
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+
+  /runs/{runId}/retry:
+    post:
+      summary: Retry run
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK

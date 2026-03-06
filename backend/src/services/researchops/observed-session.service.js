@@ -44,6 +44,7 @@ function normalizeObservedSession(input = {}) {
     status: cleanString(input.status).toUpperCase() || 'UNKNOWN',
     startedAt: cleanString(input.startedAt),
     updatedAt: cleanString(input.updatedAt),
+    contentHash: cleanString(input.contentHash || ''),
   };
 }
 
@@ -302,8 +303,10 @@ async function refreshObservedSessionRecord({
 } = {}) {
   const normalized = normalizeObservedSession(session);
   const paths = getObservedSessionCachePaths(projectPath, normalized.id);
-  const content = await readFile(normalized.sessionFile, 'utf8');
-  const contentHash = sha1(content);
+  const providedContent = typeof session?.content === 'string' ? session.content : '';
+  const canUseRemoteSummary = Boolean(normalized.contentHash && normalized.latestProgressDigest);
+  const content = providedContent || (!canUseRemoteSummary ? await readFile(normalized.sessionFile, 'utf8') : '');
+  const contentHash = cleanString(normalized.contentHash) || sha1(content);
   const cached = await readObservedSessionCache(paths.recordPath);
 
   if (cached && cleanString(cached.contentHash) === contentHash) {
@@ -319,10 +322,17 @@ async function refreshObservedSessionRecord({
     };
   }
 
-  const summary = await summarizeSessionFile({
-    content,
-    session: normalized,
-  });
+  const summary = canUseRemoteSummary && !providedContent
+    ? {
+      latestProgressDigest: normalized.latestProgressDigest,
+      messageCount: Number(session?.messageCount) || 0,
+      toolCallCount: Number(session?.toolCallCount) || 0,
+      touchedFiles: Array.isArray(session?.touchedFiles) ? session.touchedFiles : [],
+    }
+    : await summarizeSessionFile({
+      content,
+      session: normalized,
+    });
 
   const record = {
     ...normalized,
@@ -443,6 +453,7 @@ async function processObservedSession({
 async function syncProjectObservedSessions({
   project = null,
   server = null,
+  sessions = null,
   watcher = agentSessionWatcher,
   autoMaterialize = true,
   forceClassify = false,
@@ -453,10 +464,12 @@ async function syncProjectObservedSessions({
   classifyFn = defaultClassifyObservedSession,
 } = {}) {
   const projectPath = cleanString(project?.projectPath);
-  const sessions = listProjectObservedSessions({
-    projectPath,
-    watcher,
-  });
+  const sourceSessions = Array.isArray(sessions)
+    ? sessions.map((item) => normalizeObservedSession(item))
+    : listProjectObservedSessions({
+      projectPath,
+      watcher,
+    });
 
   let currentPlan = null;
   let planDirty = false;
@@ -466,7 +479,7 @@ async function syncProjectObservedSessions({
   }
 
   const items = [];
-  for (const session of sessions) {
+  for (const session of sourceSessions) {
     const processed = await processObservedSession({
       projectPath,
       session,
@@ -498,6 +511,8 @@ async function refreshProjectObservedSession({
   project = null,
   server = null,
   sessionId = '',
+  session = null,
+  sessions = null,
   watcher = agentSessionWatcher,
   autoMaterialize = true,
   forceClassify = true,
@@ -509,12 +524,16 @@ async function refreshProjectObservedSession({
 } = {}) {
   const projectPath = cleanString(project?.projectPath);
   const targetId = cleanString(sessionId);
-  const sessions = listProjectObservedSessions({
-    projectPath,
-    watcher,
-  });
-  const session = sessions.find((item) => cleanString(item.id) === targetId || cleanString(item.sessionId) === targetId);
-  if (!session) {
+  const sourceSessions = Array.isArray(sessions)
+    ? sessions.map((item) => normalizeObservedSession(item))
+    : listProjectObservedSessions({
+      projectPath,
+      watcher,
+    });
+  const targetSession = session
+    ? normalizeObservedSession(session)
+    : sourceSessions.find((item) => cleanString(item.id) === targetId || cleanString(item.sessionId) === targetId);
+  if (!targetSession) {
     const error = new Error(`Observed session not found: ${targetId}`);
     error.code = 'OBSERVED_SESSION_NOT_FOUND';
     throw error;
@@ -528,7 +547,7 @@ async function refreshProjectObservedSession({
 
   const processed = await processObservedSession({
     projectPath,
-    session,
+    session: targetSession,
     project,
     autoMaterialize,
     forceClassify,

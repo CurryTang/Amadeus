@@ -4935,6 +4935,20 @@ body > #d[id*="mermaid"] {
   padding: 3px 8px;
 }
 
+.vibe-workspace-server-select {
+  font-size: 0.75rem;
+  color: #1e40af;
+  background: #dce8ff;
+  border: 1px solid #9bb8ef;
+  border-radius: 999px;
+  padding: 3px 8px;
+  cursor: pointer;
+  outline: none;
+}
+.vibe-workspace-server-select:focus {
+  border-color: #3b82f6;
+}
+
 .vibe-workspace-meta code {
   font-size: 0.73rem;
   color: #334155;
@@ -7649,6 +7663,57 @@ button.vibe-skill-chip.is-active {
 
 .vibe-recent-runs {
   margin: 0 0 16px;
+}
+
+.vibe-activity-feed {
+  margin: 0 0 16px;
+}
+
+.vibe-activity-feed-head-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vibe-activity-feed-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #dbe5f2;
+  background: #f8fbff;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.vibe-activity-feed-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-gutter: stable;
+}
+
+.vibe-activity-feed-card {
+  position: relative;
+  padding-top: 36px;
+}
+
+.vibe-activity-feed-type {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #dbe5f2;
+  background: rgba(255, 255, 255, 0.92);
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .vibe-recent-runs-strip {

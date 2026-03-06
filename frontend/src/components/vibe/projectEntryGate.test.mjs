@@ -14,6 +14,15 @@ test('shows the gate for new projects without an environment root', () => {
   }), true);
 });
 
+test('hides the gate until the tree workspace has loaded for the selected project', () => {
+  assert.equal(shouldShowProjectEntryGate({
+    project: { projectMode: 'new_project' },
+    plan: null,
+    treeState: null,
+    treeWorkspaceReady: false,
+  }), false);
+});
+
 test('hides the gate while the environment root is queued or running', () => {
   assert.equal(shouldShowProjectEntryGate({
     project: { projectMode: 'new_project' },
@@ -92,6 +101,31 @@ test('still shows the gate when environmentDetected is null', () => {
     plan: { nodes: [] },
     treeState: { nodes: {} },
     environmentDetected: null,
+  }), true);
+});
+
+test('hides the gate when project has TODOs (todoCount > 0)', () => {
+  assert.equal(shouldShowProjectEntryGate({
+    project: { projectMode: 'new_project' },
+    plan: { nodes: [] },
+    treeState: { nodes: {} },
+    todoCount: 1,
+  }), false);
+
+  assert.equal(shouldShowProjectEntryGate({
+    project: { projectMode: 'new_project' },
+    plan: { nodes: [] },
+    treeState: { nodes: {} },
+    todoCount: 5,
+  }), false);
+});
+
+test('shows the gate when todoCount is 0', () => {
+  assert.equal(shouldShowProjectEntryGate({
+    project: { projectMode: 'new_project' },
+    plan: { nodes: [] },
+    treeState: { nodes: {} },
+    todoCount: 0,
   }), true);
 });
 

@@ -57,6 +57,7 @@ reference/
 
 # Playwright MCP screenshots and logs
 .playwright-mcp/
+.worktrees/
 
 # Ad-hoc test/debug screenshots
 *.png

@@ -33,6 +33,7 @@ const failureSignatureService = require('../../services/researchops/failure-sign
 const deliverableReportSkillService = require('../../services/researchops/deliverable-report-skill.service');
 const codebaseAchievementService = require('../../services/researchops/codebase-achievement.service');
 const todoGeneratorService = require('../../services/researchops/todo-generator.service');
+const sshObservedSessionProxyService = require('../../services/researchops/ssh-observed-session-proxy.service');
 const {
   normalizeProjectLocationPayload,
   assertProjectExecutionAllowed,
@@ -5203,11 +5204,19 @@ async function listObservedSessionsForProject({
   projectId,
   resolveProjectContextFn = resolveProjectContext,
   observedSessionService: observedSessions = observedSessionService,
+  sshObservedSessionProxy = sshObservedSessionProxyService,
 } = {}) {
   const { project, server } = await resolveProjectContextFn(userId, projectId);
+  const remoteSessions = String(project?.locationType || '').toLowerCase() === 'ssh' && server
+    ? await sshObservedSessionProxy.listObservedSessionsViaSshObserver({
+      server,
+      gitRoot: project.projectPath,
+    })
+    : null;
   const result = await observedSessions.syncProjectObservedSessions({
     project,
     server,
+    ...(Array.isArray(remoteSessions?.items) ? { sessions: remoteSessions.items } : {}),
   });
   return {
     projectId: project.id,
@@ -5223,12 +5232,14 @@ async function getObservedSessionForProject({
   sessionId,
   resolveProjectContextFn = resolveProjectContext,
   observedSessionService: observedSessions = observedSessionService,
+  sshObservedSessionProxy = sshObservedSessionProxyService,
 } = {}) {
   const result = await listObservedSessionsForProject({
     userId,
     projectId,
     resolveProjectContextFn,
     observedSessionService: observedSessions,
+    sshObservedSessionProxy,
   });
   const targetId = cleanString(sessionId);
   const item = result.items.find((entry) => cleanString(entry?.id) === targetId || cleanString(entry?.sessionId) === targetId) || null;
@@ -5249,12 +5260,20 @@ async function refreshObservedSessionForProject({
   sessionId,
   resolveProjectContextFn = resolveProjectContext,
   observedSessionService: observedSessions = observedSessionService,
+  sshObservedSessionProxy = sshObservedSessionProxyService,
 } = {}) {
   const { project, server } = await resolveProjectContextFn(userId, projectId);
+  const remoteSession = String(project?.locationType || '').toLowerCase() === 'ssh' && server
+    ? await sshObservedSessionProxy.getObservedSessionViaSshObserver({
+      server,
+      sessionId,
+    })
+    : null;
   const result = await observedSessions.refreshProjectObservedSession({
     project,
     server,
     sessionId,
+    ...(remoteSession?.item ? { session: remoteSession.item } : {}),
   });
   return {
     projectId: project.id,
