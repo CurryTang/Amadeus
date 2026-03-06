@@ -21,8 +21,8 @@ import { DEFAULT_LAUNCHER_SKILL, getLauncherPromptPrefix } from './vibe/launcher
 import { buildPayloadWithContinuation, addContinuationChip } from './vibe/launcherContinuation';
 import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
-import { buildRecentRunCards } from './vibe/runPresentation';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
+import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
 import { linkClientWorkspace } from '../hooks/useClientWorkspaceRegistry';
 
@@ -3012,14 +3012,22 @@ function VibeResearcherPanel({
   const visibleRuns = useMemo(() => (
     runHistoryItems.length > 0 ? runHistoryItems : selectedProjectRuns
   ), [runHistoryItems, selectedProjectRuns]);
+  const scopedVisibleRuns = useMemo(
+    () => filterRunsForSelectedNode(visibleRuns, selectedNodeId),
+    [selectedNodeId, visibleRuns]
+  );
   const recentRunCards = useMemo(
-    () => buildRecentRunCards(visibleRuns).slice(0, 18),
-    [visibleRuns]
+    () => buildRecentRunCards(scopedVisibleRuns).slice(0, 18),
+    [scopedVisibleRuns]
   );
   const activityFeed = useMemo(
     () => buildActivityFeed({ runCards: recentRunCards, observedSessionCards }),
     [observedSessionCards, recentRunCards]
   );
+  const recentRunsScopeLabel = useMemo(() => {
+    if (!selectedNodeId) return 'Project scope';
+    return scopedVisibleRuns.length !== visibleRuns.length ? 'Node scope' : 'Project scope';
+  }, [scopedVisibleRuns.length, selectedNodeId, visibleRuns.length]);
   const selectedRun = useMemo(
     () => visibleRuns.find((run) => run.id === selectedRunId) || null,
     [selectedRunId, visibleRuns]
@@ -4002,7 +4010,9 @@ function VibeResearcherPanel({
             sessionCount={activityFeed.sessionCount}
             selectedRunId={selectedRunId}
             loadingSessions={observedSessionsLoading}
-            refreshingId={observedSessionRefreshingId}
+            onOpenRun={handleOpenRunDetail}
+            scopeLabel={recentRunsScopeLabel}
+            refreshingSessionId={observedSessionRefreshingId}
             onOpenRun={handleOpenRunDetail}
             onOpenSession={handleOpenObservedSession}
             onRefreshSession={handleRefreshObservedSession}

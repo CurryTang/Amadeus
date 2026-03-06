@@ -48,11 +48,13 @@ test('findRunReportHighlights returns summary and final output artifact ids', ()
   const highlights = findRunReportHighlights([
     { id: 'art_summary', kind: 'run_summary_md' },
     { id: 'art_final', kind: 'agent_final_json' },
+    { id: 'art_deliverable', kind: 'deliverable_report' },
     { id: 'art_plot', kind: 'plot' },
   ]);
 
   assert.deepEqual(highlights, {
     summaryArtifactId: 'art_summary',
     finalOutputArtifactId: 'art_final',
+    deliverableArtifactIds: ['art_summary', 'art_final', 'art_deliverable'],
   });
 });

@@ -157,6 +157,7 @@ test('syncProjectObservedSessions materializes a qualifying observed session int
   assert.equal(result.items.length, 1);
   assert.equal(result.items[0].hasDetachedNode, true);
   assert.match(result.items[0].detachedNodeId, /^observed_obs_/);
+  assert.equal(result.items[0].detachedNodeTitle, 'Implement observed session sync in the runner and tree');
   assert.equal(result.wrotePlan, true);
   assert.equal(writtenPlan.nodes.length, 2);
   assert.equal(writtenPlan.nodes[1].kind, 'observed_agent');

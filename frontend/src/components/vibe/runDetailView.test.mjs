@@ -46,6 +46,7 @@ test('buildRunDetailOutput surfaces summary, final output artifact, and figures'
     summary: 'Implementation completed successfully.',
     artifacts: [
       { id: 'art_final', kind: 'agent_final_json', title: 'Final Output', objectUrl: '/final.json' },
+      { id: 'art_summary', kind: 'run_summary_md', title: 'Summary', objectUrl: '/summary.md' },
       { id: 'art_plot', kind: 'plot', title: 'Loss Curve', objectUrl: '/plot.png', mimeType: 'image/png' },
     ],
     manifest: {
@@ -53,6 +54,7 @@ test('buildRunDetailOutput surfaces summary, final output artifact, and figures'
       tables: [],
     },
     highlights: {
+      deliverableArtifactIds: ['art_summary', 'art_final'],
       finalOutputArtifactId: 'art_final',
     },
   });
@@ -60,4 +62,5 @@ test('buildRunDetailOutput surfaces summary, final output artifact, and figures'
   assert.equal(output.summary, 'Implementation completed successfully.');
   assert.equal(output.finalOutputArtifact?.id, 'art_final');
   assert.equal(output.deliverables.length, 1);
+  assert.deepEqual(output.deliverableArtifacts.map((item) => item.id), ['art_summary', 'art_final']);
 });

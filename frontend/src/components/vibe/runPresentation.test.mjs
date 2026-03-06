@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildRecentRunCards,
   buildContinuationChip,
+  filterRunsForSelectedNode,
   getRunSourceLabel,
 } from './runPresentation.js';
 
@@ -40,6 +41,27 @@ test('buildRecentRunCards sorts newest runs first and exposes source labels', ()
   assert.equal(cards[1].sourceLabel, 'Launcher');
 });
 
+test('buildRecentRunCards can read linked node titles from attempt-shaped runs', () => {
+  const cards = buildRecentRunCards([
+    {
+      id: 'run_attempt',
+      status: 'SUCCEEDED',
+      runType: 'EXPERIMENT',
+      createdAt: '2026-03-05T11:00:00.000Z',
+      metadata: {
+        experimentCommand: 'python eval.py',
+      },
+      attempt: {
+        treeNodeId: 'node_eval',
+        treeNodeTitle: 'Evaluation branch',
+      },
+    },
+  ]);
+
+  assert.equal(cards[0].sourceLabel, 'Tree');
+  assert.equal(cards[0].linkedNodeTitle, 'Evaluation branch');
+});
+
 test('getRunSourceLabel falls back to linked entities when sourceType is absent', () => {
   assert.equal(getRunSourceLabel({ metadata: { treeNodeId: 'node_a' } }), 'Tree');
   assert.equal(getRunSourceLabel({ metadata: { todoId: 'todo_a' } }), 'TODO');
@@ -59,4 +81,21 @@ test('buildContinuationChip prefers the run title and keeps the run id', () => {
     runId: 'run_ctx',
     label: 'Using run: Investigate benchmark drift',
   });
+});
+
+test('filterRunsForSelectedNode narrows to the active node but falls back when empty', () => {
+  const runs = [
+    {
+      id: 'run_a',
+      metadata: { treeNodeId: 'node_a' },
+    },
+    {
+      id: 'run_b',
+      attempt: { nodeId: 'node_b' },
+    },
+  ];
+
+  assert.deepEqual(filterRunsForSelectedNode(runs, 'node_a').map((item) => item.id), ['run_a']);
+  assert.deepEqual(filterRunsForSelectedNode(runs, 'node_b').map((item) => item.id), ['run_b']);
+  assert.deepEqual(filterRunsForSelectedNode(runs, 'node_missing').map((item) => item.id), ['run_a', 'run_b']);
 });

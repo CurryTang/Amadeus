@@ -4,8 +4,9 @@ function cleanString(value) {
 
 function getRunSourceLabel(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+  const attempt = run?.attempt && typeof run.attempt === 'object' ? run.attempt : {};
   const sourceType = cleanString(metadata.sourceType).toLowerCase();
-  if (sourceType === 'tree' || cleanString(metadata.treeNodeId)) return 'Tree';
+  if (sourceType === 'tree' || cleanString(metadata.treeNodeId) || cleanString(attempt.treeNodeId || attempt.nodeId)) return 'Tree';
   if (sourceType === 'todo' || cleanString(metadata.todoId)) return 'TODO';
   if (sourceType === 'custom') return 'Custom';
   return 'Launcher';
@@ -43,6 +44,7 @@ function buildRecentRunCards(runs = []) {
     })
     .map((run) => {
       const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+      const attempt = run?.attempt && typeof run.attempt === 'object' ? run.attempt : {};
       return {
         id: cleanString(run?.id),
         status: cleanString(run?.status).toUpperCase() || 'UNKNOWN',
@@ -50,12 +52,24 @@ function buildRecentRunCards(runs = []) {
         runTypeLabel: cleanString(run?.runType).toUpperCase() === 'EXPERIMENT' ? 'Experiment' : 'Implement',
         sourceLabel: getRunSourceLabel(run),
         title: getRunTitle(run),
-        linkedNodeTitle: cleanString(metadata.treeNodeTitle),
+        linkedNodeTitle: cleanString(metadata.treeNodeTitle) || cleanString(attempt.treeNodeTitle),
         snippet: cleanString(run?.resultSnippet),
         timestamp: formatTimestamp(run?.createdAt),
         raw: run,
       };
     });
+}
+
+function filterRunsForSelectedNode(runs = [], selectedNodeId = '') {
+  if (!Array.isArray(runs)) return [];
+  const targetNodeId = cleanString(selectedNodeId);
+  if (!targetNodeId) return runs;
+  const filtered = runs.filter((run) => {
+    const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+    const attempt = run?.attempt && typeof run.attempt === 'object' ? run.attempt : {};
+    return cleanString(metadata.treeNodeId || metadata.nodeId || attempt.treeNodeId || attempt.nodeId) === targetNodeId;
+  });
+  return filtered.length > 0 ? filtered : runs;
 }
 
 function buildContinuationChip(run = {}) {
@@ -71,5 +85,6 @@ function buildContinuationChip(run = {}) {
 export {
   buildContinuationChip,
   buildRecentRunCards,
+  filterRunsForSelectedNode,
   getRunSourceLabel,
 };

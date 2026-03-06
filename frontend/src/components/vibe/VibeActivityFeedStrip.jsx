@@ -7,6 +7,7 @@ function VibeActivityFeedStrip({
   selectedRunId = '',
   loadingSessions = false,
   refreshingSessionId = '',
+  scopeLabel = 'Project scope',
   onOpenRun,
   onOpenSession,
   onRefreshSession,
@@ -18,7 +19,7 @@ function VibeActivityFeedStrip({
       <div className="vibe-card-head">
         <h3>Activity</h3>
         <div className="vibe-activity-feed-head-meta">
-          <span className="vibe-activity-feed-chip">Runs {runCount}</span>
+          <span className="vibe-activity-feed-chip">Runs {runCount} · {scopeLabel}</span>
           <span className="vibe-activity-feed-chip">
             {loadingSessions ? 'Sessions Loading…' : `Sessions ${sessionCount}`}
           </span>

@@ -64,11 +64,17 @@ function buildRunDetailOutput(run = {}, runReport = {}) {
     ...(Array.isArray(manifest.figures) ? manifest.figures : []),
     ...(Array.isArray(manifest.tables) ? manifest.tables : []),
   ];
+  const deliverableArtifacts = Array.isArray(highlights?.deliverableArtifactIds)
+    ? highlights.deliverableArtifactIds
+      .map((artifactId) => findArtifactById(artifacts, artifactId))
+      .filter(Boolean)
+    : [];
   return {
     status: cleanString(run?.status).toUpperCase() || 'UNKNOWN',
     summary: cleanString(runReport?.summary),
     finalOutputArtifact: findFinalOutputArtifact(artifacts, highlights),
     deliverables,
+    deliverableArtifacts,
     errorText: cleanString(run?.lastMessage),
   };
 }
