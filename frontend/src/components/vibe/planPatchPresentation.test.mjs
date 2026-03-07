@@ -53,3 +53,12 @@ test('getPlanPatchFeedback formats schema invalid payloads with the first valida
     },
   });
 });
+
+test('getPlanPatchFeedback falls back to a plain message when no structured payload exists', () => {
+  const feedback = getPlanPatchFeedback(new Error('Network unavailable'));
+
+  assert.deepEqual(feedback, {
+    message: 'Network unavailable',
+    validation: null,
+  });
+});

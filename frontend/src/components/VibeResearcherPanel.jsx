@@ -1315,27 +1315,47 @@ function VibeResearcherPanel({
   const savePlanDsl = useCallback(async (nextPlan) => {
     const projectId = String(selectedProjectId || '').trim();
     if (!projectId || !nextPlan || typeof nextPlan !== 'object') return null;
-    const response = await axios.put(
-      `${apiUrl}/researchops/projects/${projectId}/tree/plan`,
-      { plan: nextPlan },
-      { headers }
-    );
-    setTreePlan(response.data?.plan || null);
-    setTreeValidation(response.data?.validation || null);
-    await loadTreeWorkspace(projectId, { silent: true });
-    return response.data || null;
+    try {
+      const response = await axios.put(
+        `${apiUrl}/researchops/projects/${projectId}/tree/plan`,
+        { plan: nextPlan },
+        { headers }
+      );
+      setTreePlan(response.data?.plan || null);
+      setTreeValidation(response.data?.validation || null);
+      setTreeError('');
+      await loadTreeWorkspace(projectId, { silent: true });
+      return response.data || null;
+    } catch (err) {
+      const feedback = getPlanPatchFeedback(err);
+      if (feedback.validation) {
+        setTreeValidation(feedback.validation);
+      }
+      setTreeError(feedback.message);
+      throw err;
+    }
   }, [apiUrl, headers, loadTreeWorkspace, selectedProjectId]);
 
   const validatePlanDsl = useCallback(async (nextPlan) => {
     const projectId = String(selectedProjectId || '').trim();
     if (!projectId || !nextPlan || typeof nextPlan !== 'object') return null;
-    const response = await axios.post(
-      `${apiUrl}/researchops/projects/${projectId}/tree/plan/validate`,
-      { plan: nextPlan },
-      { headers }
-    );
-    setTreeValidation(response.data?.validation || null);
-    return response.data || null;
+    try {
+      const response = await axios.post(
+        `${apiUrl}/researchops/projects/${projectId}/tree/plan/validate`,
+        { plan: nextPlan },
+        { headers }
+      );
+      setTreeValidation(response.data?.validation || null);
+      setTreeError('');
+      return response.data || null;
+    } catch (err) {
+      const feedback = getPlanPatchFeedback(err);
+      if (feedback.validation) {
+        setTreeValidation(feedback.validation);
+      }
+      setTreeError(feedback.message);
+      throw err;
+    }
   }, [apiUrl, headers, selectedProjectId]);
 
   const loadRunHistoryPage = useCallback(async (projectId, { reset = false } = {}) => {
