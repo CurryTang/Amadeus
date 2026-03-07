@@ -189,6 +189,49 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
   return rows;
 }
 
+function buildRunObservabilitySummary(run = {}, runReport = {}) {
+  const steps = Array.isArray(runReport?.steps) ? runReport.steps : [];
+  const artifacts = Array.isArray(runReport?.artifacts) ? runReport.artifacts : [];
+  const checkpoints = Array.isArray(runReport?.checkpoints) ? runReport.checkpoints : [];
+  const highlights = runReport?.highlights && typeof runReport.highlights === 'object'
+    ? runReport.highlights
+    : {};
+  const pendingCheckpointCount = checkpoints
+    .filter((item) => cleanString(item?.status).toUpperCase() === 'PENDING')
+    .length;
+  const resolvedCheckpointCount = Math.max(checkpoints.length - pendingCheckpointCount, 0);
+  const deliverableArtifactIds = Array.isArray(highlights.deliverableArtifactIds)
+    ? highlights.deliverableArtifactIds.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const finalOutputArtifact = findFinalOutputArtifact(artifacts, highlights);
+
+  const rows = [];
+  if (steps.length > 0) {
+    rows.push({ label: 'Steps', value: `${steps.length} recorded` });
+  }
+  if (artifacts.length > 0) {
+    rows.push({ label: 'Artifacts', value: `${artifacts.length} captured` });
+  }
+  if (checkpoints.length > 0) {
+    rows.push({
+      label: 'Checkpoints',
+      value: pendingCheckpointCount > 0
+        ? `${pendingCheckpointCount} pending · ${resolvedCheckpointCount} resolved`
+        : `${resolvedCheckpointCount} resolved`,
+    });
+  }
+  if (cleanString(runReport?.summary)) {
+    rows.push({ label: 'Summary', value: 'Present' });
+  }
+  if (finalOutputArtifact) {
+    rows.push({ label: 'Final Output', value: 'Present' });
+  }
+  if (deliverableArtifactIds.length > 0) {
+    rows.push({ label: 'Deliverables', value: `${deliverableArtifactIds.length} captured` });
+  }
+  return rows;
+}
+
 function deriveRunCompareTargetId(run = {}, runReport = {}) {
   const runId = cleanString(run?.id);
   const runFollowUp = run?.followUp && typeof run.followUp === 'object' ? run.followUp : {};
@@ -373,6 +416,7 @@ export {
   buildRunContractSummary,
   buildRunDetailContext,
   buildRunBridgeSummary,
+  buildRunObservabilitySummary,
   buildRunExecutionSummary,
   buildRunFollowUpSummary,
   buildRunSnapshotSummary,

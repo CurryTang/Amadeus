@@ -9,6 +9,7 @@ import {
   buildRunExecutionSummary,
   buildRunFollowUpSummary,
   buildRunBridgeSummary,
+  buildRunObservabilitySummary,
   buildRunSnapshotSummary,
   deriveRunCompareTargetId,
   buildRunDetailPrompt,
@@ -193,6 +194,31 @@ test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task s
     { label: 'Missing Bridge Tasks', value: 'bridge.submitRunNote' },
     { label: 'Bridge Report Task', value: 'bridge.fetchRunReport' },
     { label: 'Bridge Note Task', value: 'bridge.submitRunNote' },
+  ]);
+});
+
+test('buildRunObservabilitySummary exposes step, artifact, checkpoint, and output readiness counts', () => {
+  const summary = buildRunObservabilitySummary(BASE_RUN, {
+    steps: [{ id: 'step_1' }, { id: 'step_2' }, { id: 'step_3' }],
+    artifacts: [{ id: 'art_1' }, { id: 'art_2' }, { id: 'art_3' }, { id: 'art_4' }],
+    checkpoints: [
+      { id: 'chk_1', status: 'PENDING' },
+      { id: 'chk_2', status: 'APPROVED' },
+    ],
+    summary: 'Execution completed successfully.',
+    highlights: {
+      finalOutputArtifactId: 'art_4',
+      deliverableArtifactIds: ['art_2', 'art_4'],
+    },
+  });
+
+  assert.deepEqual(summary, [
+    { label: 'Steps', value: '3 recorded' },
+    { label: 'Artifacts', value: '4 captured' },
+    { label: 'Checkpoints', value: '1 pending · 1 resolved' },
+    { label: 'Summary', value: 'Present' },
+    { label: 'Final Output', value: 'Present' },
+    { label: 'Deliverables', value: '2 captured' },
   ]);
 });
 

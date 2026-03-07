@@ -6,6 +6,7 @@ import {
   buildRunExecutionSummary,
   buildRunDetailOutput,
   buildRunFollowUpSummary,
+  buildRunObservabilitySummary,
   buildRunDetailPrompt,
   buildRunSnapshotSummary,
 } from './runDetailView.js';
@@ -31,6 +32,7 @@ function VibeRunDetailModal({
   const followUpSummary = buildRunFollowUpSummary(run, runReport || {});
   const snapshotSummary = buildRunSnapshotSummary(run, runReport || {});
   const bridgeSummary = buildRunBridgeSummary(run, runReport || {});
+  const observabilitySummary = buildRunObservabilitySummary(run, runReport || {});
   const compareSummary = buildRunCompareSummary(runCompare || {});
   const contractSummary = buildRunContractSummary(run, runReport || {});
   const prompt = buildRunDetailPrompt(run);
@@ -154,6 +156,23 @@ function VibeRunDetailModal({
               <dl className="vibe-run-detail-grid">
                 {bridgeSummary.map((row) => (
                   <div key={row.label} className={row.label.includes('Tasks') ? 'vibe-run-detail-grid-span' : undefined}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+
+          {observabilitySummary.length > 0 && (
+            <section className="vibe-run-detail-section">
+              <div className="vibe-card-head">
+                <h4>Observability</h4>
+                <span className="vibe-card-note">steps + artifacts + checkpoints</span>
+              </div>
+              <dl className="vibe-run-detail-grid">
+                {observabilitySummary.map((row) => (
+                  <div key={row.label}>
                     <dt>{row.label}</dt>
                     <dd>{row.value}</dd>
                   </div>
