@@ -123,3 +123,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Project workspace snapshot, venv, git-log, server-files, and changed-files responses now use a normalized project-insights payload family with compatible roots plus follow-up actions, so those project insight helpers no longer remain ad-hoc route-local wrappers
   - Run delete, bridge-note, tree approve, and skill-content save routes now emit their success markers directly from normalized payload services instead of wrapping payloads in route-local `{ ok: true, ... }` shells
   - Runner `running` and cluster `agent-capacity` responses now use normalized execution-status payloads with follow-up actions, and `backend/data.sqlite` is now ignored locally via `backend/.gitignore`
+  - Monolith daemon register/heartbeat now reuse the same normalized daemon payloads as admin routes instead of returning a narrower ad-hoc subset

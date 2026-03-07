@@ -79,7 +79,9 @@ const {
   buildObservedSessionListPayload,
 } = require('../services/researchops/observed-session-payload.service');
 const {
+  buildDaemonHeartbeatPayload,
   buildDaemonListPayload,
+  buildDaemonRegistrationPayload,
 } = require('../services/researchops/daemon-payload.service');
 const {
   buildAgentCapacityPayload,
@@ -6194,12 +6196,7 @@ router.get('/runner/running', (req, res) => {
 router.post('/daemons/register', async (req, res) => {
   try {
     const daemon = await researchOpsStore.registerDaemon(getUserId(req), req.body || {});
-    return res.status(201).json({
-      serverId: daemon.id,
-      hostname: daemon.hostname,
-      status: daemon.status,
-      heartbeatAt: daemon.heartbeatAt,
-    });
+    return res.status(201).json(buildDaemonRegistrationPayload({ daemon }));
   } catch (error) {
     console.error('[ResearchOps] registerDaemon failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to register daemon') });
@@ -6210,12 +6207,7 @@ router.post('/daemons/heartbeat', async (req, res) => {
   try {
     const daemon = await researchOpsStore.heartbeatDaemon(getUserId(req), req.body || {});
     if (!daemon) return res.status(404).json({ error: 'Server not found for heartbeat' });
-    return res.json({
-      serverId: daemon.id,
-      hostname: daemon.hostname,
-      status: daemon.status,
-      heartbeatAt: daemon.heartbeatAt,
-    });
+    return res.json(buildDaemonHeartbeatPayload({ daemon }));
   } catch (error) {
     console.error('[ResearchOps] heartbeatDaemon failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update heartbeat') });
