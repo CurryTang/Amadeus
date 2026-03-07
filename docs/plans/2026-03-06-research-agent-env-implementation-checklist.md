@@ -230,3 +230,36 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - The selected-node workbench `Review / Evidence` summary now also surfaces current-run and bridge-fallback summary/final-output presence, so node-centered evidence triage no longer requires opening the full run-detail output section just to know whether key outputs exist
   - Run compare summaries and node review compare rows now also surface compare-side summary/final-output presence, so compare triage no longer requires opening the full output section to tell whether the alternate run actually produced key deliverables
   - A Node-side verifier now checks that the Rust prototype task catalog stays aligned with the JS daemon catalog, so the new Rust bridge/runtime prototype cannot silently drift away from the current `v0` task contract
+
+## Section Status Audit
+
+- `01 Design Principles`: effectively complete in implementation terms; current-vs-target distinctions are now consistently reflected in shipped read models and UI seams
+- `02 System Architecture`: mostly complete for the current architecture; remaining gap is target-state convergence of runtime/control-plane pieces
+- `03 Domain Model and State Machines`: mostly complete; `Attempt ≈ Run`, `TreeNode`, `RunReport`, `AgentSession`, and `ObservedSession` are all reflected in current payloads and UI
+- `04 Execution Environment and Sandbox`: partially complete; runtime hints, bridge transports, snapshot capture, and Rust daemon prototype exist, but full long-running runtime/container backend is still incomplete
+- `05 Agent API / Context / Session Sync`: mostly complete for current APIs; remaining gap is stronger unified control-plane behavior rather than route-shape normalization
+- `06 Frontend and Interaction Spec`: mostly complete for the tree-centered workbench; remaining gap is deeper target-state runtime/review console behavior
+- `07 Review / Deliverables / Observability`: mostly complete for current run-centered review; remaining gap is fuller project/node review workflow convergence
+- `08 Parallel Implementation Plan`: Phase A is effectively done, Phase B is mostly done, and Phase C is underway but not finished
+- `09 Repo Layout and Module Boundaries`: mostly complete at the seam level; remaining gap is deeper runtime backend consolidation rather than route/service wrapper cleanup
+
+## Unified Final Step
+
+All meaningful remaining work should now be treated as one unified step:
+
+**Target-State Convergence**
+
+This step covers the remaining cross-cutting gap between the current-compatible implementation and the target architecture:
+
+- Turn the Rust daemon from a verified prototype into a stable long-running local runtime/session-bridge surface
+- Promote typed bridge flows from “discoverable and executable” into the default managed execution/control path
+- Converge review, compare, output, transport, snapshot, contract, and observability signals into a single consistent node/project triage model
+- Finish the runtime boundary needed for stronger container/isolation backends without re-breaking current workbench flows
+
+### Practical meaning
+
+From this point on, remaining work should not be tracked as many unrelated small slices.
+
+It should be judged by one question:
+
+**Can the system now operate as a unified runtime + bridge + review control surface, rather than a collection of compatible current-state seams?**

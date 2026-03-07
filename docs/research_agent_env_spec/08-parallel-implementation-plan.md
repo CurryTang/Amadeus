@@ -111,6 +111,39 @@
 
 但这部分必须建立在 A、B 两个阶段已经稳定的前提上。
 
+### 当前剩余工作应合并为一个统一步骤
+
+在当前仓库里，最有价值的做法已经不是继续拆很多零散小流，而是把剩余目标态缺口收成一个统一步骤：
+
+**Unified Final Step: Target-State Convergence**
+
+这一统一步骤的目标不是“再补几个 payload”，而是把当前已经铺好的 current-compatible seam 真正推进到目标态可运行边界：
+
+- 把 Rust daemon 从 prototype 提升为长期运行的本地 runtime / session-bridge 管理面
+- 把当前 `bridge-context / bridge-run / bridge-report / bridge-note / snapshot capture` 这套 typed bridge flow 接成稳定的 daemon-consumable control plane
+- 把 review / compare / observability 从 run-centered current views 提升为更完整的 project-level and node-level review surface
+- 把 runtime / snapshot / transport / contract / observability 这些分散信号，进一步汇聚到统一的 execution and review control surface
+- 为更强的 container / isolation backend 预留真正可切换的 runtime boundary，而不是仅停留在 payload-level hints
+
+### 统一步骤的验收标准
+
+只有当下面这些结果成立时，才算真正完成 Phase C：
+
+- Rust daemon 不再只是 prototype / smoke target，而是可以被当前系统稳定探测、启动、执行和调试
+- bridge workflow 不再只是 capability metadata，而是成为默认可消费、可追踪、可回退的执行路径
+- review / compare / observability 不再只存在于 run detail 和零散 strip，而是形成一致的 node/project triage 口径
+- runtime backend 的切换点清晰，后续接 container-guarded / microvm-strong 不需要再次推翻当前 read-model 和 UI 结构
+
+### 当前完成度判断
+
+按这份计划的三阶段定义看，当前状态更接近：
+
+- Phase A：基本完成
+- Phase B：大部分完成
+- Phase C：已开始，但仍处于前半段
+
+因此后续不再建议把剩余工作拆成很多新的小 phase，而是统一按 **Target-State Convergence** 这一最终步骤推进。
+
 ## 8.5 当前推荐并行切分
 
 推荐按当前仓库模块切，而不是按未来 crate 切：
