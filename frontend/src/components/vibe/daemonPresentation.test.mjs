@@ -89,6 +89,23 @@ test('buildRustDaemonStatusNote reports rust daemon probe failures', () => {
   assert.equal(note, 'Rust daemon probe failed via http: connection refused.');
 });
 
+test('buildRustDaemonStatusNote also accepts dedicated rust status payloads', () => {
+  const note = buildRustDaemonStatusNote({
+    enabled: true,
+    status: 'ok',
+    transport: 'http',
+    runtime: {
+      task_catalog_version: 'v0',
+      supports_local_bridge_workflow: true,
+    },
+    catalogParity: {
+      status: 'aligned',
+    },
+  });
+
+  assert.equal(note, 'Rust daemon ready via http (catalog v0 · bridge ready).');
+});
+
 test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parity gaps', () => {
   const rows = buildRustDaemonStatusRows({
     rustDaemon: {
@@ -118,6 +135,31 @@ test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parit
     { label: 'Rust Catalog Parity', value: 'mismatch' },
     { label: 'Rust Missing Tasks', value: 'bridge.submitRunNote' },
     { label: 'Rust Extra Tasks', value: 'bridge.extraTask' },
+  ]);
+});
+
+test('buildRustDaemonStatusRows also accepts dedicated rust status payloads', () => {
+  const rows = buildRustDaemonStatusRows({
+    enabled: true,
+    status: 'ok',
+    transport: 'http',
+    endpoint: 'http://127.0.0.1:7788',
+    taskCatalog: {
+      version: 'v0',
+      tasks: [{ task_type: 'project.checkPath' }],
+    },
+    catalogParity: {
+      status: 'aligned',
+      missingTaskTypes: [],
+      extraTaskTypes: [],
+    },
+  });
+
+  assert.deepEqual(rows, [
+    { label: 'Rust Transport', value: 'http' },
+    { label: 'Rust Endpoint', value: 'http://127.0.0.1:7788' },
+    { label: 'Rust Task Catalog', value: 'v0 (1 tasks)' },
+    { label: 'Rust Catalog Parity', value: 'aligned' },
   ]);
 });
 

@@ -23,8 +23,14 @@ function buildClientDeviceOption(device = {}) {
   };
 }
 
+function getRustDaemonPayload(input = null) {
+  if (!input || typeof input !== 'object') return null;
+  if (input.rustDaemon && typeof input.rustDaemon === 'object') return input.rustDaemon;
+  return input;
+}
+
 function buildRustDaemonStatusNote(health = null) {
-  const rustDaemon = health && typeof health === 'object' ? health.rustDaemon : null;
+  const rustDaemon = getRustDaemonPayload(health);
   if (!rustDaemon || typeof rustDaemon !== 'object') return '';
   if (rustDaemon.enabled !== true) return '';
   const transport = cleanString(rustDaemon.transport) || 'unknown';
@@ -53,7 +59,7 @@ function buildRustDaemonStatusNote(health = null) {
 }
 
 function buildRustDaemonStatusRows(health = null) {
-  const rustDaemon = health && typeof health === 'object' ? health.rustDaemon : null;
+  const rustDaemon = getRustDaemonPayload(health);
   if (!rustDaemon || typeof rustDaemon !== 'object' || rustDaemon.enabled !== true) return [];
   const rows = [];
   const transport = cleanString(rustDaemon.transport);
@@ -155,4 +161,5 @@ export {
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
+  getRustDaemonPayload,
 };

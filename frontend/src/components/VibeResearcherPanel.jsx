@@ -504,7 +504,7 @@ function VibeResearcherPanel({
   const [projectPath, setProjectPath] = useState('');
   const [pathCheckResult, setPathCheckResult] = useState(null);
   const [clientDevices, setClientDevices] = useState([]);
-  const [researchOpsHealth, setResearchOpsHealth] = useState(null);
+  const [rustDaemonStatus, setRustDaemonStatus] = useState(null);
   const [loadingClientDevices, setLoadingClientDevices] = useState(false);
   const [clientBootstrapOpen, setClientBootstrapOpen] = useState(false);
   const [clientBootstrapBusy, setClientBootstrapBusy] = useState(false);
@@ -1550,18 +1550,18 @@ function VibeResearcherPanel({
   const loadClientDevices = useCallback(async () => {
     setLoadingClientDevices(true);
     try {
-      const [devicesResult, healthResult] = await Promise.allSettled([
+      const [devicesResult, rustStatusResult] = await Promise.allSettled([
         axios.get(`${apiUrl}/researchops/daemons`, { headers }),
-        axios.get(`${apiUrl}/researchops/health`, { headers }),
+        axios.get(`${apiUrl}/researchops/daemons/rust/status`, { headers }),
       ]);
       if (devicesResult.status !== 'fulfilled') {
         throw devicesResult.reason;
       }
       const devices = Array.isArray(devicesResult.value?.data?.items) ? devicesResult.value.data.items : [];
       setClientDevices(devices);
-      setResearchOpsHealth(
-        healthResult.status === 'fulfilled' && healthResult.value?.data && typeof healthResult.value.data === 'object'
-          ? healthResult.value.data
+      setRustDaemonStatus(
+        rustStatusResult.status === 'fulfilled' && rustStatusResult.value?.data && typeof rustStatusResult.value.data === 'object'
+          ? rustStatusResult.value.data
           : null
       );
       if (!projectClientDeviceId && devices.length > 0) {
@@ -1580,12 +1580,12 @@ function VibeResearcherPanel({
     [clientDevices],
   );
   const rustDaemonStatusNote = useMemo(
-    () => buildRustDaemonStatusNote(researchOpsHealth),
-    [researchOpsHealth],
+    () => buildRustDaemonStatusNote(rustDaemonStatus),
+    [rustDaemonStatus],
   );
   const rustDaemonStatusRows = useMemo(
-    () => buildRustDaemonStatusRows(researchOpsHealth),
-    [researchOpsHealth],
+    () => buildRustDaemonStatusRows(rustDaemonStatus),
+    [rustDaemonStatus],
   );
   const clientBootstrapRuntimeCommands = useMemo(
     () => buildBootstrapRuntimeCommands(clientBootstrapData),
