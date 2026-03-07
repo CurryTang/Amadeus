@@ -4,6 +4,7 @@ const {
   BUILT_IN_DAEMON_TASK_TYPES,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
+  missingDaemonTaskTypes,
   normalizeDaemonTaskTypes,
   listDaemonTaskDescriptors,
 } = require('./daemon-task-descriptor.service');
@@ -53,12 +54,26 @@ function buildDaemonActions() {
 function buildDaemonCapabilities(daemon = null) {
   const source = asObject(daemon);
   const supportedTaskTypes = normalizeDaemonTaskTypes(source.supportedTaskTypes);
+  const effectiveSupportedTaskTypes = supportedTaskTypes.length > 0 ? supportedTaskTypes : BUILT_IN_DAEMON_TASK_TYPES;
+  const projectBootstrapTaskTypes = ['project.ensurePath', 'project.ensureGit'];
+  const missingProjectTaskTypes = missingDaemonTaskTypes(
+    { supportedTaskTypes: effectiveSupportedTaskTypes },
+    projectBootstrapTaskTypes,
+  );
+  const missingBridgeTaskTypes = missingDaemonTaskTypes(
+    { supportedTaskTypes: effectiveSupportedTaskTypes },
+    OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  );
   return {
     canClaimTasks: true,
     taskCatalogVersion: cleanString(source.taskCatalogVersion) || DAEMON_TASK_CATALOG_VERSION,
     builtInTaskTypes: BUILT_IN_DAEMON_TASK_TYPES,
     optionalTaskTypes: OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
-    supportedTaskTypes: supportedTaskTypes.length > 0 ? supportedTaskTypes : BUILT_IN_DAEMON_TASK_TYPES,
+    supportedTaskTypes: effectiveSupportedTaskTypes,
+    supportsProjectBootstrap: missingProjectTaskTypes.length === 0,
+    missingProjectTaskTypes,
+    supportsLocalBridgeWorkflow: missingBridgeTaskTypes.length === 0,
+    missingBridgeTaskTypes,
     taskDescriptors: listDaemonTaskDescriptors(),
   };
 }

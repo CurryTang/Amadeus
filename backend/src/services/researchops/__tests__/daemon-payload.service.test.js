@@ -43,6 +43,16 @@ test('normalizeDaemon uppercases status and exposes a stable execution summary',
     'project.ensurePath',
     'project.ensureGit',
   ]);
+  assert.equal(daemon.capabilities.supportsProjectBootstrap, true);
+  assert.deepEqual(daemon.capabilities.missingProjectTaskTypes, []);
+  assert.equal(daemon.capabilities.supportsLocalBridgeWorkflow, false);
+  assert.deepEqual(daemon.capabilities.missingBridgeTaskTypes, [
+    'bridge.fetchNodeContext',
+    'bridge.fetchContextPack',
+    'bridge.submitNodeRun',
+    'bridge.fetchRunReport',
+    'bridge.submitRunNote',
+  ]);
   assert.deepEqual(daemon.capabilities.optionalTaskTypes, [
     'bridge.fetchNodeContext',
     'bridge.fetchContextPack',
@@ -86,6 +96,18 @@ test('buildDaemonRegistrationPayload keeps legacy top-level fields while exposin
   assert.deepEqual(payload.daemon.capabilities.supportedTaskTypes, [
     'project.checkPath',
     'bridge.fetchRunReport',
+  ]);
+  assert.equal(payload.daemon.capabilities.supportsProjectBootstrap, false);
+  assert.deepEqual(payload.daemon.capabilities.missingProjectTaskTypes, [
+    'project.ensurePath',
+    'project.ensureGit',
+  ]);
+  assert.equal(payload.daemon.capabilities.supportsLocalBridgeWorkflow, false);
+  assert.deepEqual(payload.daemon.capabilities.missingBridgeTaskTypes, [
+    'bridge.fetchNodeContext',
+    'bridge.fetchContextPack',
+    'bridge.submitNodeRun',
+    'bridge.submitRunNote',
   ]);
 });
 

@@ -13,9 +13,13 @@ function buildClientDeviceOption(device = {}) {
   const hostname = cleanString(device?.hostname) || id;
   const status = cleanString(device?.status).toUpperCase() || 'UNKNOWN';
   const location = cleanString(device?.execution?.location).toLowerCase();
+  const bridgeReady = device?.capabilities?.supportsLocalBridgeWorkflow === true;
+  const parts = [status];
+  if (location) parts.push(location);
+  if (bridgeReady) parts.push('bridge ready');
   return {
     value: id,
-    label: `${hostname} (${location ? `${status} · ${location}` : status})`,
+    label: `${hostname} (${parts.join(' · ')})`,
   };
 }
 

@@ -6,7 +6,7 @@ import {
   filterOnlineClientDevices,
 } from './daemonPresentation.js';
 
-test('buildClientDeviceOption includes hostname, status, and location label', () => {
+test('buildClientDeviceOption includes hostname, status, location, and bridge readiness label', () => {
   const option = buildClientDeviceOption({
     id: 'srv_1',
     hostname: 'client-host',
@@ -14,11 +14,14 @@ test('buildClientDeviceOption includes hostname, status, and location label', ()
     execution: {
       location: 'client',
     },
+    capabilities: {
+      supportsLocalBridgeWorkflow: true,
+    },
   });
 
   assert.deepEqual(option, {
     value: 'srv_1',
-    label: 'client-host (ONLINE · client)',
+    label: 'client-host (ONLINE · client · bridge ready)',
   });
 });
 
