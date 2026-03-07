@@ -32,6 +32,11 @@ const { buildRunEventListPayload } = require('../../services/researchops/run-eve
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { buildRunStepListPayload } = require('../../services/researchops/run-step-list-payload.service');
 const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
+const {
+  buildSchedulerLeasePayload,
+  buildSchedulerRecoveryPayload,
+  buildSchedulerStatusPayload,
+} = require('../../services/researchops/scheduler-payload.service');
 const { getDb } = require('../../db');
 const {
   buildResearchOpsSshArgs,
@@ -904,10 +909,15 @@ router.get('/scheduler/queue', async (req, res) => {
 
 router.post('/scheduler/lease-next', async (req, res) => {
   try {
+    const serverId = String(req.body?.serverId || '').trim();
     const leased = await researchOpsStore.leaseNextRun(getUserId(req), {
-      serverId: String(req.body?.serverId || '').trim(),
+      serverId,
     });
-    return res.json(leased);
+    return res.json(buildSchedulerLeasePayload({
+      mode: 'lease-next',
+      serverId,
+      result: leased,
+    }));
   } catch (error) {
     console.error('[ResearchOps] leaseNext failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to lease run') });
@@ -916,11 +926,16 @@ router.post('/scheduler/lease-next', async (req, res) => {
 
 router.post('/scheduler/lease-and-execute', async (req, res) => {
   try {
+    const serverId = String(req.body?.serverId || '').trim() || 'local-default';
     const result = await researchOpsRunner.leaseAndExecuteNext(
       getUserId(req),
-      String(req.body?.serverId || '').trim() || 'local-default'
+      serverId
     );
-    return res.json(result);
+    return res.json(buildSchedulerLeasePayload({
+      mode: 'lease-and-execute',
+      serverId,
+      result,
+    }));
   } catch (error) {
     console.error('[ResearchOps] leaseAndExecute failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to lease and execute') });
@@ -929,12 +944,20 @@ router.post('/scheduler/lease-and-execute', async (req, res) => {
 
 router.post('/scheduler/recover-stale', async (req, res) => {
   try {
+    const minutesStale = req.body?.minutesStale;
+    const serverId = String(req.body?.serverId || '').trim();
+    const dryRun = req.body?.dryRun === true;
     const result = await researchOpsRunner.recoverStaleRuns(getUserId(req), {
-      minutesStale: req.body?.minutesStale,
-      serverId: String(req.body?.serverId || '').trim(),
-      dryRun: req.body?.dryRun === true,
+      minutesStale,
+      serverId,
+      dryRun,
     });
-    return res.json(result);
+    return res.json(buildSchedulerRecoveryPayload({
+      minutesStale,
+      serverId,
+      dryRun,
+      result,
+    }));
   } catch (error) {
     console.error('[ResearchOps] recoverStale failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to recover stale runs') });
@@ -942,13 +965,13 @@ router.post('/scheduler/recover-stale', async (req, res) => {
 });
 
 router.get('/scheduler/dispatcher/status', (req, res) => {
-  res.json({
+  res.json(buildSchedulerStatusPayload({
     dispatcher: researchOpsRunner.getDispatcherState(),
     runner: {
       running: researchOpsRunner.getRunningState(),
     },
     refreshedAt: new Date().toISOString(),
-  });
+  }));
 });
 
 router.get('/runner/running', (req, res) => {
