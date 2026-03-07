@@ -16,6 +16,7 @@ const treePlanService = require('../../services/researchops/tree-plan.service');
 const treeStateService = require('../../services/researchops/tree-state.service');
 const contextRouterService = require('../../services/researchops/context-router.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
+const { buildRunListPayload } = require('../../services/researchops/run-list-payload.service');
 const { buildRunPayload } = require('../../services/researchops/run-payload.service');
 const { findRunReportHighlights } = require('../../services/researchops/run-report-view');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
@@ -226,24 +227,6 @@ async function sshCheckTmux(server, session) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: derive a 1-line result snippet for a run (used in list response)
-// ---------------------------------------------------------------------------
-
-function deriveResultSnippet(run) {
-  const snippet = cleanString(run?.metadata?.resultSnippet);
-  if (snippet) return snippet.slice(0, 120);
-  // lastMessage is set by updateRunStatus whenever a message is passed (e.g. on SUCCEEDED/FAILED)
-  if (run.lastMessage && typeof run.lastMessage === 'string') {
-    return run.lastMessage.slice(0, 120);
-  }
-  // Fallback based on terminal status
-  if (run.status === 'SUCCEEDED') return 'Completed successfully';
-  if (run.status === 'FAILED') return 'Run failed';
-  if (run.status === 'CANCELLED') return 'Cancelled';
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // Run lifecycle routes
 // ---------------------------------------------------------------------------
 
@@ -337,16 +320,7 @@ router.get('/runs', async (req, res) => {
       limit,
       cursor,
     });
-    res.json({
-      items: (page.items || []).map((run) => ({
-        ...run,
-        resultSnippet: deriveResultSnippet(run),
-      })),
-      limit,
-      cursor: cursor || null,
-      hasMore: Boolean(page.hasMore),
-      nextCursor: String(page.nextCursor || '') || null,
-    });
+    res.json(buildRunListPayload({ page, limit, cursor }));
   } catch (error) {
     console.error('[ResearchOps] listRuns failed:', error);
     res.status(500).json({ error: 'Failed to list runs' });
