@@ -1,8 +1,11 @@
 'use strict';
 
 const os = require('os');
+const fs = require('fs/promises');
+const path = require('path');
 const projectInsightsService = require('../project-insights.service');
 const {
+  ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   BUILT_IN_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
@@ -44,9 +47,42 @@ function appendQuery(path, query = null) {
 function buildAdvertisedTaskTypes(handlers = {}, { advertiseBridgeTasks = false } = {}) {
   return normalizeDaemonTaskTypes([
     ...BUILT_IN_DAEMON_TASK_TYPES,
-    ...(advertiseBridgeTasks ? OPTIONAL_BRIDGE_DAEMON_TASK_TYPES : []),
+    ...(advertiseBridgeTasks ? ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES : []),
     ...Object.keys(asObject(handlers)),
   ]);
+}
+
+async function captureWorkspaceSnapshotHint(task = {}) {
+  const workspacePath = cleanString(task?.payload?.workspacePath);
+  if (!workspacePath) throw new Error('workspacePath is required');
+  const resolvedPath = path.resolve(workspacePath);
+  let metadata = null;
+  try {
+    metadata = await fs.stat(resolvedPath);
+  } catch (_) {
+    metadata = null;
+  }
+  if (!metadata) throw new Error(`Workspace path does not exist: ${resolvedPath}`);
+  if (!metadata.isDirectory()) throw new Error(`Workspace path is not a directory: ${resolvedPath}`);
+  const entries = await fs.readdir(resolvedPath);
+  const sourceServerId = cleanString(task?.payload?.sourceServerId);
+  const kind = cleanString(task?.payload?.kind);
+  const note = cleanString(task?.payload?.note);
+  return {
+    workspaceSnapshot: {
+      path: resolvedPath,
+      ...(sourceServerId ? { sourceServerId } : {}),
+    },
+    ...(kind || note ? {
+      localSnapshot: {
+        ...(kind ? { kind } : {}),
+        ...(note ? { note } : {}),
+      },
+    } : {}),
+    exists: true,
+    isDirectory: true,
+    entryCount: entries.length,
+  };
 }
 
 function buildClientDaemonRuntimeView(daemon = {}) {
@@ -130,6 +166,9 @@ function createTaskExecutor(customHandlers = {}) {
     }
     if (taskType === 'project.ensureGit') {
       return projectInsightsService.ensureLocalGitRepository(projectPath);
+    }
+    if (taskType === 'bridge.captureWorkspaceSnapshot') {
+      return captureWorkspaceSnapshotHint(task);
     }
     if (taskType.startsWith('bridge.') && bridgeExecutor) {
       return bridgeExecutor(task);

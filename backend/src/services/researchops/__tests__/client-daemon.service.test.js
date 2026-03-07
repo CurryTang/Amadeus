@@ -451,6 +451,7 @@ test('startClientDaemon advertises built-in bridge task family when enabled', as
       'bridge.submitNodeRun',
       'bridge.fetchRunReport',
       'bridge.submitRunNote',
+      'bridge.captureWorkspaceSnapshot',
     ]);
   } finally {
     global.fetch = originalFetch;
@@ -642,8 +643,116 @@ test('startClientDaemon exposes runtime metadata for local observability', async
       'bridge.submitNodeRun',
       'bridge.fetchRunReport',
       'bridge.submitRunNote',
+      'bridge.captureWorkspaceSnapshot',
     ]);
     assert.equal(buildClientDaemonRuntimeView(daemon).supportsLocalBridgeWorkflow, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('startClientDaemon executes bridge.captureWorkspaceSnapshot as a built-in local task', async () => {
+  const requests = [];
+  let claimCount = 0;
+  const workspacePath = `${process.cwd()}/frontend`;
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    requests.push({
+      url: String(url),
+      method: options.method || 'GET',
+      body,
+    });
+
+    if (String(url).endsWith('/researchops/daemons/register')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ serverId: 'srv_client_snapshot' }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/heartbeat')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/claim')) {
+      claimCount += 1;
+      if (claimCount === 1) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            task: {
+              id: 'task_snapshot',
+              taskType: 'bridge.captureWorkspaceSnapshot',
+              payload: {
+                workspacePath,
+                sourceServerId: 'srv_client_snapshot',
+                kind: 'workspace_patch',
+                note: 'local edits',
+              },
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 204,
+        headers: { get: () => '' },
+        text: async () => '',
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/task_snapshot/complete')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const daemon = startClientDaemon({
+      apiBaseUrl: 'http://127.0.0.1:3000/api',
+      hostname: 'client-host',
+      heartbeatMs: 5000,
+      pollMs: 1,
+      advertiseBridgeTasks: true,
+      logger: { log() {}, error() {} },
+    });
+
+    while (!requests.some((request) => request.url.endsWith('/researchops/daemons/tasks/task_snapshot/complete'))) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    await daemon.stop();
+    await Promise.race([
+      daemon.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('daemon did not stop')), 800)),
+    ]);
+
+    const completion = requests.find((request) => request.url.endsWith('/researchops/daemons/tasks/task_snapshot/complete'));
+    assert.equal(completion.body.ok, true);
+    assert.equal(completion.body.result.workspaceSnapshot.path, workspacePath);
+    assert.equal(completion.body.result.workspaceSnapshot.sourceServerId, 'srv_client_snapshot');
+    assert.equal(completion.body.result.localSnapshot.kind, 'workspace_patch');
+    assert.equal(completion.body.result.localSnapshot.note, 'local edits');
+    assert.equal(completion.body.result.exists, true);
+    assert.equal(completion.body.result.isDirectory, true);
+    assert.equal(typeof completion.body.result.entryCount, 'number');
   } finally {
     global.fetch = originalFetch;
   }

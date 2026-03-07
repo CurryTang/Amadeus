@@ -1,8 +1,8 @@
 'use strict';
 
 const {
+  ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   BUILT_IN_DAEMON_TASK_TYPES,
-  OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
   listDaemonTaskDescriptors,
 } = require('./daemon-task-descriptor.service');
@@ -51,7 +51,7 @@ function deriveProjectCapabilities(project = {}) {
       supportsLocalBridgeWorkflow: true,
       daemonTaskCatalogVersion: DAEMON_TASK_CATALOG_VERSION,
       daemonTaskTypes: BUILT_IN_DAEMON_TASK_TYPES,
-      optionalDaemonTaskTypes: OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+      optionalDaemonTaskTypes: ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
       daemonTaskDescriptors: listDaemonTaskDescriptors(),
       bridgeTransportModes: ['http', 'daemon-task'],
       bridgeRouteTemplates: CLIENT_AGENT_BRIDGE_ROUTE_TEMPLATES,

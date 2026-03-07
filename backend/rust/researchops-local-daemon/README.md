@@ -20,6 +20,8 @@ Current scope:
   - `project.checkPath`
   - `project.ensurePath`
   - `project.ensureGit`
+- execute a thin local snapshot helper through the same task endpoint:
+  - `bridge.captureWorkspaceSnapshot`
 
 It does not yet implement:
 
@@ -110,4 +112,7 @@ curl -X POST "http://127.0.0.1:7788/tasks/execute" \
 curl -X POST "http://127.0.0.1:7788/tasks/execute" \
   -H 'Content-Type: application/json' \
   -d '{"taskType":"project.checkPath","payload":{"projectPath":"/tmp/my-project"}}'
+curl -X POST "http://127.0.0.1:7788/tasks/execute" \
+  -H 'Content-Type: application/json' \
+  -d '{"taskType":"bridge.captureWorkspaceSnapshot","payload":{"workspacePath":"./frontend","kind":"workspace_patch","note":"local edits"}}'
 ```

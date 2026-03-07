@@ -59,6 +59,7 @@ test('normalizeDaemon uppercases status and exposes a stable execution summary',
     'bridge.submitNodeRun',
     'bridge.fetchRunReport',
     'bridge.submitRunNote',
+    'bridge.captureWorkspaceSnapshot',
   ]);
   assert.equal(daemon.capabilities.taskCatalogVersion, 'v0');
   assert.equal(

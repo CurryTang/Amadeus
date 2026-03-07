@@ -34,5 +34,6 @@ test('buildBridgeRuntimeView normalizes supported task capabilities', () => {
     canSubmitNodeRun: true,
     canFetchRunReport: false,
     canSubmitRunNote: false,
+    canCaptureWorkspaceSnapshot: false,
   });
 });

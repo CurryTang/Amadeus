@@ -16,6 +16,15 @@ const OPTIONAL_BRIDGE_DAEMON_TASK_TYPES = [
   'bridge.submitRunNote',
 ];
 
+const AUXILIARY_BRIDGE_DAEMON_TASK_TYPES = [
+  'bridge.captureWorkspaceSnapshot',
+];
+
+const ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES = [
+  ...OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  ...AUXILIARY_BRIDGE_DAEMON_TASK_TYPES,
+];
+
 const TASK_DESCRIPTOR_MAP = {
   'project.checkPath': {
     taskType: 'project.checkPath',
@@ -159,6 +168,26 @@ const TASK_DESCRIPTOR_MAP = {
       artifact: 'object?',
     },
   },
+  'bridge.captureWorkspaceSnapshot': {
+    taskType: 'bridge.captureWorkspaceSnapshot',
+    family: 'bridge',
+    builtIn: true,
+    handlerMode: 'builtin',
+    summary: 'Capture a thin local workspace snapshot hint for bridge-submitted runs.',
+    payloadShape: {
+      workspacePath: 'string',
+      sourceServerId: 'string?',
+      kind: 'string?',
+      note: 'string?',
+    },
+    resultShape: {
+      workspaceSnapshot: 'object',
+      localSnapshot: 'object?',
+      exists: 'boolean',
+      isDirectory: 'boolean',
+      entryCount: 'number',
+    },
+  },
 };
 
 function cloneDescriptor(descriptor = null) {
@@ -224,11 +253,13 @@ function contextualizeDaemonTaskDescriptor(taskType = '', {
 function listDaemonTaskDescriptors() {
   return [
     ...BUILT_IN_DAEMON_TASK_TYPES,
-    ...OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+    ...ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   ].map((taskType) => buildDaemonTaskDescriptor(taskType)).filter(Boolean);
 }
 
 module.exports = {
+  ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  AUXILIARY_BRIDGE_DAEMON_TASK_TYPES,
   BUILT_IN_DAEMON_TASK_TYPES,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,

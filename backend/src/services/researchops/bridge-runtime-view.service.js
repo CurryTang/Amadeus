@@ -29,6 +29,7 @@ function buildBridgeRuntimeCapabilities(supportedTaskTypes = []) {
     canSubmitNodeRun: supported.includes('bridge.submitNodeRun'),
     canFetchRunReport: supported.includes('bridge.fetchRunReport'),
     canSubmitRunNote: supported.includes('bridge.submitRunNote'),
+    canCaptureWorkspaceSnapshot: supported.includes('bridge.captureWorkspaceSnapshot'),
   };
 }
 

@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   BUILT_IN_DAEMON_TASK_TYPES,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
@@ -65,8 +66,17 @@ test('listDaemonTaskDescriptors exposes built-in and optional bridge task types 
     'bridge.fetchRunReport',
     'bridge.submitRunNote',
   ]);
+  assert.deepEqual(ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES, [
+    'bridge.fetchNodeContext',
+    'bridge.fetchContextPack',
+    'bridge.submitNodeRun',
+    'bridge.fetchRunReport',
+    'bridge.submitRunNote',
+    'bridge.captureWorkspaceSnapshot',
+  ]);
   assert.ok(taskTypes.includes('project.checkPath'));
   assert.ok(taskTypes.includes('bridge.fetchRunReport'));
+  assert.ok(taskTypes.includes('bridge.captureWorkspaceSnapshot'));
 });
 
 test('daemonSupportsTaskTypes falls back to built-in project tasks and respects advertised support', () => {

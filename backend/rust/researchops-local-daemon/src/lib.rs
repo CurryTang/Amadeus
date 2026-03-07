@@ -24,6 +24,10 @@ pub const OPTIONAL_BRIDGE_TASK_TYPES: [&str; 5] = [
     "bridge.submitRunNote",
 ];
 
+pub const AUXILIARY_BRIDGE_TASK_TYPES: [&str; 1] = [
+    "bridge.captureWorkspaceSnapshot",
+];
+
 pub trait TreePlanStore: Send + Sync {
     fn read_plan(&self, project_id: &str) -> anyhow::Result<String>;
     fn write_plan(&self, project_id: &str, plan_yaml: &str) -> anyhow::Result<()>;
@@ -155,6 +159,12 @@ pub fn build_task_catalog() -> TaskCatalog {
                 handler_mode: "builtin-http-proxy",
                 summary: "Submit a markdown bridge note as a run artifact.",
             },
+            TaskDescriptor {
+                task_type: "bridge.captureWorkspaceSnapshot",
+                family: "bridge",
+                handler_mode: "builtin",
+                summary: "Capture a thin local workspace snapshot hint for bridge-submitted runs.",
+            },
         ],
     }
 }
@@ -234,6 +244,35 @@ fn execute_builtin_task(task_type: &str, payload: Option<&serde_json::Value>) ->
             "rootPath": normalized_path.display().to_string(),
             "isGitRepo": true,
             "initialized": initialized,
+        })));
+    }
+    if task_type == "bridge.captureWorkspaceSnapshot" {
+        let workspace_path = payload_string(payload, "workspacePath")
+            .context("workspacePath is required for bridge.captureWorkspaceSnapshot")?;
+        let normalized_path = normalize_local_path(workspace_path)?;
+        let metadata = std::fs::metadata(&normalized_path)
+            .with_context(|| format!("workspace path does not exist: {}", normalized_path.display()))?;
+        if !metadata.is_dir() {
+            anyhow::bail!("workspace path is not a directory: {}", normalized_path.display());
+        }
+        let entry_count = std::fs::read_dir(&normalized_path)
+            .context("read workspace directory entries")?
+            .count();
+        let source_server_id = payload_string(payload, "sourceServerId");
+        let kind = payload_string(payload, "kind");
+        let note = payload_string(payload, "note");
+        return Ok(Some(serde_json::json!({
+            "workspaceSnapshot": {
+                "path": normalized_path.display().to_string(),
+                "sourceServerId": source_server_id,
+            },
+            "localSnapshot": {
+                "kind": kind,
+                "note": note,
+            },
+            "exists": true,
+            "isDirectory": true,
+            "entryCount": entry_count,
         })));
     }
     Ok(None)
@@ -587,6 +626,7 @@ pub fn build_runtime_task_types(enable_bridge: bool) -> Vec<&'static str> {
     let mut task_types = BUILT_IN_TASK_TYPES.iter().copied().collect::<Vec<_>>();
     if enable_bridge {
         task_types.extend(OPTIONAL_BRIDGE_TASK_TYPES.iter().copied());
+        task_types.extend(AUXILIARY_BRIDGE_TASK_TYPES.iter().copied());
     }
     task_types
 }

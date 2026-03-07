@@ -66,6 +66,7 @@ test('derives client agent capabilities as daemon-backed execution flow', () => 
     'bridge.submitNodeRun',
     'bridge.fetchRunReport',
     'bridge.submitRunNote',
+    'bridge.captureWorkspaceSnapshot',
   ]);
   assert.equal(caps.daemonTaskCatalogVersion, 'v0');
   assert.deepEqual(caps.bridgeTransportModes, ['http', 'daemon-task']);

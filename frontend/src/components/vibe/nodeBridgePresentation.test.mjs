@@ -12,6 +12,9 @@ test('buildNodeBridgeSummary summarizes bridge runtime, transports, and task rea
       preferredTransport: 'daemon-task',
       availableTransports: ['http', 'daemon-task', 'rust-daemon'],
       missingBridgeTaskTypes: [],
+      capabilities: {
+        canCaptureWorkspaceSnapshot: true,
+      },
     },
     capabilities: {
       canUseLocalBridgeWorkflow: true,
@@ -40,6 +43,7 @@ test('buildNodeBridgeSummary summarizes bridge runtime, transports, and task rea
     { label: 'Bridge Report', value: 'Available' },
     { label: 'Bridge Context', value: 'Context pack available' },
     { label: 'Snapshots', value: 'workspace, local, env' },
+    { label: 'Snapshot Capture', value: 'Available' },
     { label: 'Contract', value: 'Failures detected' },
     { label: 'Fetch Task', value: 'bridge.fetchNodeContext' },
     { label: 'Run Task', value: 'bridge.submitNodeRun' },

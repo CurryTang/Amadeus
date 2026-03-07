@@ -53,4 +53,8 @@ fn task_catalog_exposes_built_in_and_bridge_task_descriptors() {
         .tasks
         .iter()
         .any(|task| task.task_type == "bridge.submitNodeRun" && task.handler_mode == "builtin-http-proxy"));
+    assert!(catalog
+        .tasks
+        .iter()
+        .any(|task| task.task_type == "bridge.captureWorkspaceSnapshot" && task.handler_mode == "builtin"));
 }

@@ -1,6 +1,9 @@
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
+use std::fs;
+use std::path::PathBuf;
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use researchops_local_daemon::{
     serve_http_requests,
@@ -8,6 +11,14 @@ use researchops_local_daemon::{
     serve_one_http_request_with_config,
     DaemonConfig,
 };
+
+fn unique_temp_dir(prefix: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time")
+        .as_nanos();
+    std::env::temp_dir().join(format!("{prefix}-{nanos}"))
+}
 
 #[test]
 fn serve_one_http_request_returns_runtime_summary_json() {
@@ -52,6 +63,7 @@ fn serve_one_http_request_returns_task_catalog_json() {
 
     assert!(response.starts_with("HTTP/1.1 200 OK"));
     assert!(response.contains("\"task_type\":\"bridge.submitNodeRun\""));
+    assert!(response.contains("\"task_type\":\"bridge.captureWorkspaceSnapshot\""));
     assert!(response.contains("\"handler_mode\":\"builtin-http-proxy\""));
 }
 
@@ -88,6 +100,45 @@ fn serve_http_requests_handles_multiple_requests_before_stopping() {
     assert!(first_response.contains("\"status\":\"ok\""));
     assert!(second_response.starts_with("HTTP/1.1 200 OK"));
     assert!(second_response.contains("\"task_catalog_version\":\"v0\""));
+}
+
+#[test]
+fn serve_one_http_request_executes_capture_workspace_snapshot_task() {
+    let workspace_dir = unique_temp_dir("researchops-snapshot");
+    fs::create_dir_all(&workspace_dir).expect("create workspace dir");
+    fs::write(workspace_dir.join("README.md"), "hello").expect("seed workspace file");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+    let addr = listener.local_addr().expect("listener addr");
+
+    let handle = thread::spawn(move || {
+        serve_one_http_request(listener, true).expect("serve one request");
+    });
+
+    let request_body = format!(
+        "{{\"taskType\":\"bridge.captureWorkspaceSnapshot\",\"payload\":{{\"workspacePath\":\"{}\",\"sourceServerId\":\"srv_local\",\"kind\":\"workspace_patch\",\"note\":\"local edits\"}}}}",
+        workspace_dir.display()
+    );
+    let request = format!(
+        "POST /tasks/execute HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        request_body.len(),
+        request_body
+    );
+
+    let mut stream = TcpStream::connect(addr).expect("connect test listener");
+    stream.write_all(request.as_bytes()).expect("write request");
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read response");
+    handle.join().expect("server thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"workspaceSnapshot\""));
+    assert!(response.contains("\"sourceServerId\":\"srv_local\""));
+    assert!(response.contains("\"kind\":\"workspace_patch\""));
+    assert!(response.contains("\"note\":\"local edits\""));
+
+    fs::remove_dir_all(&workspace_dir).expect("cleanup workspace dir");
 }
 
 #[test]

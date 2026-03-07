@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   BUILT_IN_DAEMON_TASK_TYPES,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
@@ -69,7 +70,7 @@ function buildDaemonCapabilities(daemon = null) {
     canClaimTasks: true,
     taskCatalogVersion: cleanString(source.taskCatalogVersion) || DAEMON_TASK_CATALOG_VERSION,
     builtInTaskTypes: BUILT_IN_DAEMON_TASK_TYPES,
-    optionalTaskTypes: OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+    optionalTaskTypes: ALL_OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
     supportedTaskTypes: effectiveSupportedTaskTypes,
     supportsProjectBootstrap: missingProjectTaskTypes.length === 0,
     missingProjectTaskTypes,

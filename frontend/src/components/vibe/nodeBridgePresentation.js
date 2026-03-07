@@ -57,6 +57,9 @@ function buildNodeBridgeSummary(payload = {}) {
   if (capabilities.hasBridgeReport) rows.push({ label: 'Bridge Report', value: 'Available' });
   if (capabilities.hasContextPack) rows.push({ label: 'Bridge Context', value: 'Context pack available' });
   if (snapshotKinds.length > 0) rows.push({ label: 'Snapshots', value: snapshotKinds.join(', ') });
+  if (bridgeRuntime?.capabilities?.canCaptureWorkspaceSnapshot === true) {
+    rows.push({ label: 'Snapshot Capture', value: 'Available' });
+  }
   if (capabilities.hasContractFailures === true) rows.push({ label: 'Contract', value: 'Failures detected' });
 
   const fetchTaskType = cleanString(taskActions?.fetchNodeContext?.taskType);
