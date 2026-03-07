@@ -16,6 +16,10 @@ test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime opt
       status: 'ok',
       transport: 'http',
       endpoint: 'http://127.0.0.1:7788',
+      hostReady: true,
+      containerReady: false,
+      healthState: 'degraded',
+      lastFailureReason: 'docker unavailable',
       runtime: {
         task_catalog_version: 'v0',
       },
@@ -41,6 +45,10 @@ test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime opt
   assert.equal(payload.runtime.task_catalog_version, 'v0');
   assert.equal(payload.taskCatalog.version, 'v0');
   assert.equal(payload.catalogParity.status, 'aligned');
+  assert.equal(payload.hostReady, true);
+  assert.equal(payload.containerReady, false);
+  assert.equal(payload.healthState, 'degraded');
+  assert.equal(payload.lastFailureReason, 'docker unavailable');
   assert.equal(payload.supervisor.mode, 'unmanaged');
   assert.equal(payload.supervisor.running, false);
   assert.equal(payload.supervisor.desiredState, 'stopped');
