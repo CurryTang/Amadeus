@@ -181,6 +181,7 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
     ? bridgeRuntime.availableTransports.map((item) => cleanString(item)).filter(Boolean)
     : [];
   const preferredTransport = cleanString(bridgeRuntime.preferredTransport);
+  const resolvedTransport = cleanString(runReport?.resolvedTransport);
   if (!runtimeTarget && !serverId && missingBridgeTaskTypes.length === 0 && !taskActions.fetchRunReport && !taskActions.submitRunNote) {
     return rows;
   }
@@ -192,6 +193,9 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
   }
   if (preferredTransport) {
     rows.push({ label: 'Preferred Transport', value: preferredTransport });
+  }
+  if (resolvedTransport) {
+    rows.push({ label: 'Resolved Transport', value: resolvedTransport });
   }
   if (availableTransports.length > 0) {
     rows.push({ label: 'Available Transports', value: availableTransports.join(', ') });

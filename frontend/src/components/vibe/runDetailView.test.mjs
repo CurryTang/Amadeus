@@ -167,6 +167,7 @@ test('buildRunSnapshotSummary exposes workspace and environment snapshot rows wh
 
 test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task status', () => {
   const summary = buildRunBridgeSummary(BASE_RUN, {
+    resolvedTransport: 'daemon-task',
     bridgeRuntime: {
       executionTarget: 'client-daemon',
       serverId: 'srv_client_1',
@@ -198,6 +199,7 @@ test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task s
     { label: 'Bridge Runtime', value: 'client-daemon' },
     { label: 'Bridge Server', value: 'srv_client_1' },
     { label: 'Preferred Transport', value: 'rust-daemon' },
+    { label: 'Resolved Transport', value: 'daemon-task' },
     { label: 'Available Transports', value: 'http, rust-daemon' },
     { label: 'Bridge Transport', value: 'daemon-task available' },
     { label: 'Missing Bridge Tasks', value: 'bridge.submitRunNote' },
