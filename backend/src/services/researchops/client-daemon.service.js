@@ -17,6 +17,27 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function asObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function buildDaemonApiPaths(registerResponse = {}) {
+  const actions = asObject(asObject(registerResponse.daemon).actions);
+  const heartbeatPath = cleanString(actions.heartbeat?.path) || '/researchops/daemons/heartbeat';
+  const claimTaskPath = cleanString(actions.claimTask?.path) || '/researchops/daemons/tasks/claim';
+  const completeTaskTemplate = cleanString(actions.completeTask?.pathTemplate)
+    || '/researchops/daemons/tasks/{taskId}/complete';
+  return {
+    heartbeatPath,
+    claimTaskPath,
+    completeTaskTemplate,
+  };
+}
+
 async function defaultApiRequest(apiBaseUrl, adminToken, path, { method = 'GET', body, allowNoContent = false } = {}) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method,
@@ -95,6 +116,7 @@ function startClientDaemon({
     });
     const serverId = String(registerResponse?.serverId || '').trim();
     if (!serverId) throw new Error('Failed to obtain daemon serverId from backend');
+    const daemonApiPaths = buildDaemonApiPaths(registerResponse);
 
     if (typeof onRegistered === 'function') {
       await Promise.resolve(onRegistered({
@@ -108,7 +130,7 @@ function startClientDaemon({
     logger.log(`[ResearchOpsDaemon] registered ${hostname} as ${serverId}`);
 
     const sendHeartbeat = async () => {
-      await apiRequest('/researchops/daemons/heartbeat', {
+      await apiRequest(daemonApiPaths.heartbeatPath, {
         method: 'POST',
         body: {
           serverId,
@@ -125,7 +147,7 @@ function startClientDaemon({
     }, Math.max(Number(heartbeatMs) || 30000, 5000));
 
     while (!stopped) {
-      const response = await apiRequest('/researchops/daemons/tasks/claim', {
+      const response = await apiRequest(daemonApiPaths.claimTaskPath, {
         method: 'POST',
         body: { serverId },
         allowNoContent: true,
@@ -138,15 +160,21 @@ function startClientDaemon({
 
       try {
         const result = await executeTask(task);
-        await apiRequest(`/researchops/daemons/tasks/${encodeURIComponent(task.id)}/complete`, {
+        await apiRequest(
+          daemonApiPaths.completeTaskTemplate.replace('{taskId}', encodeURIComponent(task.id)),
+          {
           method: 'POST',
           body: { ok: true, result },
-        });
+          }
+        );
       } catch (error) {
-        await apiRequest(`/researchops/daemons/tasks/${encodeURIComponent(task.id)}/complete`, {
+        await apiRequest(
+          daemonApiPaths.completeTaskTemplate.replace('{taskId}', encodeURIComponent(task.id)),
+          {
           method: 'POST',
           body: { ok: false, error: error?.message || 'Daemon task failed' },
-        }).catch((reportError) => {
+          }
+        ).catch((reportError) => {
           logger.error('[ResearchOpsDaemon] failed to report task error:', reportError.message);
         });
       }

@@ -185,3 +185,109 @@ test('startClientDaemon includes bootstrap credentials during registration', asy
     global.fetch = originalFetch;
   }
 });
+
+test('startClientDaemon prefers discovered daemon action paths after registration', async () => {
+  const requests = [];
+  let claimCount = 0;
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    requests.push({
+      url: String(url),
+      method: options.method || 'GET',
+      body,
+    });
+
+    if (String(url).endsWith('/researchops/daemons/register')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({
+          serverId: 'srv_client_9',
+          daemon: {
+            actions: {
+              heartbeat: { method: 'POST', path: '/researchops/daemons/heartbeat-v2' },
+              claimTask: { method: 'POST', path: '/researchops/daemons/tasks/claim-v2' },
+              completeTask: { method: 'POST', pathTemplate: '/researchops/daemons/tasks/{taskId}/complete-v2' },
+            },
+          },
+        }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/heartbeat-v2')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/claim-v2')) {
+      claimCount += 1;
+      if (claimCount === 1) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            task: {
+              id: 'task_v2',
+              taskType: 'project.ensurePath',
+              payload: { projectPath: '/Users/alice/project' },
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 204,
+        headers: { get: () => '' },
+        text: async () => '',
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/task_v2/complete-v2')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const daemon = startClientDaemon({
+      apiBaseUrl: 'http://127.0.0.1:3000/api',
+      hostname: 'client-host',
+      heartbeatMs: 5000,
+      pollMs: 1,
+      handlers: {
+        'project.ensurePath': async () => ({ created: true }),
+      },
+      logger: { log() {}, error() {} },
+    });
+
+    while (!requests.some((request) => request.url.endsWith('/researchops/daemons/tasks/task_v2/complete-v2'))) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    await daemon.stop();
+    await Promise.race([
+      daemon.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('daemon did not stop')), 800)),
+    ]);
+
+    assert.ok(requests.some((request) => request.url.endsWith('/researchops/daemons/heartbeat-v2')));
+    assert.ok(requests.some((request) => request.url.endsWith('/researchops/daemons/tasks/claim-v2')));
+    assert.ok(requests.some((request) => request.url.endsWith('/researchops/daemons/tasks/task_v2/complete-v2')));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
