@@ -496,6 +496,12 @@ function calculateImpact(planBeforeInput, planAfterInput, state = {}) {
         break;
       }
     }
+    const hasManualApprove = Array.isArray(node.checks)
+      && node.checks.some((check) => cleanString(check?.type).toLowerCase() === 'manual_approve');
+    const nodeState = state?.nodes && typeof state.nodes === 'object' ? state.nodes[id] : null;
+    if (hasManualApprove && !nodeState?.manualApproved) {
+      blocked.push({ nodeId: id, blockedBy: 'manual_approve', blockedStatus: 'PENDING' });
+    }
   });
 
   return {
