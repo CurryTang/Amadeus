@@ -20,6 +20,10 @@ const autopilotService = require('../../services/researchops/autopilot.service')
 const knowledgeGroupsService = require('../../services/knowledge-groups.service');
 const contextPackService = require('../../services/researchops/context-pack.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
+const {
+  buildQueuedTreeRunAllItem,
+  buildTreeRunAllPayload,
+} = require('../../services/researchops/tree-run-all-payload.service');
 const { buildTreeRunStepPayload } = require('../../services/researchops/tree-run-step-payload.service');
 const projectInsightsProxy = require('../../services/project-insights-proxy.service');
 const projectInsightsService = require('../../services/project-insights.service');
@@ -6687,20 +6691,19 @@ router.post('/projects/:projectId/tree/run-all', async (req, res) => {
         runSource: 'run-all',
         searchTrialCount,
       });
-      queued.push({
+      queued.push(buildQueuedTreeRunAllItem({
         nodeId: id,
-        mode: result.mode,
-        runId: result?.run?.id || null,
-      });
+        result,
+      }));
       // eslint-disable-next-line no-await-in-loop
       const next = await treeStateService.readProjectState({ project, server });
       currentState = treeStateService.normalizeState(next.state);
     }
 
-    return res.status(202).json({
+    return res.status(202).json(buildTreeRunAllPayload({
       projectId: project.id,
       scope,
-      fromNodeId: fromNodeId || null,
+      fromNodeId,
       queued,
       blocked,
       summary: {
@@ -6708,7 +6711,7 @@ router.post('/projects/:projectId/tree/run-all', async (req, res) => {
         queued: queued.length,
         blocked: blocked.length,
       },
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to run all tree steps'));
   }
