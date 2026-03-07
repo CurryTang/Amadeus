@@ -22,6 +22,7 @@ const { buildRunPayload } = require('../../services/researchops/run-payload.serv
 const { findRunReportHighlights } = require('../../services/researchops/run-report-view');
 const { buildBridgeRunReportPayload } = require('../../services/researchops/bridge-run-report-payload.service');
 const { buildBridgeNoteArtifactInput } = require('../../services/researchops/bridge-note-payload.service');
+const { buildRunComparePayload } = require('../../services/researchops/run-compare-payload.service');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { getDb } = require('../../db');
 const {
@@ -604,16 +605,26 @@ router.post('/runs/:runId/checkpoints/:checkpointId/decision', async (req, res) 
 // Report
 // ---------------------------------------------------------------------------
 
+async function loadRunReportResources(userId, runId) {
+  const [run, steps, artifacts, checkpoints] = await Promise.all([
+    researchOpsStore.getRun(userId, runId),
+    researchOpsStore.listRunSteps(userId, runId),
+    researchOpsStore.listRunArtifacts(userId, runId, { limit: 1000 }),
+    researchOpsStore.listRunCheckpoints(userId, runId, { limit: 500 }),
+  ]);
+  return {
+    run,
+    steps,
+    artifacts,
+    checkpoints,
+  };
+}
+
 router.get('/runs/:runId/report', async (req, res) => {
   try {
     const userId = getUserId(req);
     const runId = String(req.params.runId || '').trim();
-    const [run, steps, artifacts, checkpoints] = await Promise.all([
-      researchOpsStore.getRun(userId, runId),
-      researchOpsStore.listRunSteps(userId, runId),
-      researchOpsStore.listRunArtifacts(userId, runId, { limit: 1000 }),
-      researchOpsStore.listRunCheckpoints(userId, runId, { limit: 500 }),
-    ]);
+    const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
 
     const includeInline = req.query.inline === 'true';
@@ -669,12 +680,7 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
   try {
     const userId = getUserId(req);
     const runId = String(req.params.runId || '').trim();
-    const [run, steps, artifacts, checkpoints] = await Promise.all([
-      researchOpsStore.getRun(userId, runId),
-      researchOpsStore.listRunSteps(userId, runId),
-      researchOpsStore.listRunArtifacts(userId, runId, { limit: 1000 }),
-      researchOpsStore.listRunCheckpoints(userId, runId, { limit: 500 }),
-    ]);
+    const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
 
     const report = buildRunReportPayload({
@@ -691,6 +697,47 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
     console.error('[ResearchOps] getBridgeRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
     return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch bridge run report') });
+  }
+});
+
+router.get('/runs/:runId/compare', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const runId = String(req.params.runId || '').trim();
+    const otherRunId = String(req.query.otherRunId || '').trim();
+    if (!runId || !otherRunId) {
+      return res.status(400).json({ error: 'runId and otherRunId are required' });
+    }
+    const [baseResources, otherResources] = await Promise.all([
+      loadRunReportResources(userId, runId),
+      loadRunReportResources(userId, otherRunId),
+    ]);
+    if (!baseResources.run || !otherResources.run) {
+      return res.status(404).json({ error: 'Run not found' });
+    }
+    const baseReport = buildRunReportPayload({
+      ...baseResources,
+      summaryText: null,
+      manifest: null,
+      mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
+    });
+    const otherReport = buildRunReportPayload({
+      ...otherResources,
+      summaryText: null,
+      manifest: null,
+      mapArtifact: (item) => withArtifactDownloadUrl(item, otherRunId),
+    });
+    return res.json(buildRunComparePayload({
+      run: baseResources.run,
+      otherRun: otherResources.run,
+      report: baseReport,
+      otherReport,
+      requestedOtherRunId: otherRunId,
+    }));
+  } catch (error) {
+    console.error('[ResearchOps] getRunCompare failed:', error);
+    if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to compare runs') });
   }
 });
 
