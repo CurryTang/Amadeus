@@ -232,6 +232,7 @@ function buildDaemonBootstrapPayload({
   const normalizedApiBaseUrl = String(apiBaseUrl || '').trim().replace(/\/+$/, '');
   const hostname = String(requestedHostname || bootstrap?.requestedHostname || '').trim();
   const scriptPath = path.join(process.cwd(), 'backend', 'scripts', 'researchops-bootstrap-client.sh');
+  const rustScriptPath = path.join(process.cwd(), 'backend', 'scripts', 'researchops-bootstrap-rust-daemon.sh');
   const installCommand = [
     `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
     `RESEARCHOPS_BOOTSTRAP_ID=${shellQuote(bootstrap?.bootstrapId || bootstrap?.id || '')}`,
@@ -243,8 +244,16 @@ function buildDaemonBootstrapPayload({
     runtime: 'rust',
     status: 'prototype',
     commands: {
-      http: 'cd /Users/czk/auto-researcher/backend && npm run researchops:rust-daemon-serve',
-      unix: 'cd /Users/czk/auto-researcher/backend && npm run researchops:rust-daemon-serve-unix',
+      http: [
+        `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
+        `RESEARCHOPS_RUST_DAEMON_TRANSPORT='http'`,
+        `sh ${shellQuote(rustScriptPath)}`,
+      ].join(' \\\n'),
+      unix: [
+        `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
+        `RESEARCHOPS_RUST_DAEMON_TRANSPORT='unix'`,
+        `sh ${shellQuote(rustScriptPath)}`,
+      ].join(' \\\n'),
     },
     env: {
       RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,

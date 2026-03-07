@@ -25,8 +25,10 @@ test('bootstrap create route returns token metadata and install payload', async 
   assert.match(response.installCommand, /RESEARCHOPS_BOOTSTRAP_SECRET='secret-value'/);
   assert.equal(response.bootstrapFile.bootstrapId, 'dbt_123');
   assert.equal(response.runtimeOptions?.rustDaemonPrototype?.runtime, 'rust');
-  assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.http || '', /researchops:rust-daemon-serve/);
-  assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.unix || '', /researchops:rust-daemon-serve-unix/);
+  assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.http || '', /researchops-bootstrap-rust-daemon\.sh/);
+  assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.http || '', /RESEARCHOPS_RUST_DAEMON_TRANSPORT='http'/);
+  assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.unix || '', /researchops-bootstrap-rust-daemon\.sh/);
+  assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.unix || '', /RESEARCHOPS_RUST_DAEMON_TRANSPORT='unix'/);
   assert.equal(response.runtimeOptions?.rustDaemonPrototype?.env?.RESEARCHOPS_API_BASE_URL, 'https://example.com/api');
   assert.deepEqual(response.actions.bootstrapStatus, {
     method: 'GET',

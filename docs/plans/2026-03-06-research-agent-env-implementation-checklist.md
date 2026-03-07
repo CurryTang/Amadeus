@@ -160,5 +160,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - The project creation workbench now surfaces that Rust-daemon health summary next to the client-device selector, so local-execution readiness is visible in the current UI without a separate runtime dashboard
   - Daemon bootstrap payloads now also expose Rust prototype runtime options (`researchops:rust-daemon-serve` and `researchops:rust-daemon-serve-unix`) without leaking bootstrap secrets into that path
   - The client connect panel now surfaces those Rust prototype runtime commands as copyable alternatives next to the existing Node daemon install flow
+  - Rust prototype bootstrap now also has its own shell entrypoint (`backend/scripts/researchops-bootstrap-rust-daemon.sh`), so the admin bootstrap surface no longer points users at raw npm commands only
   - Run detail now surfaces a compact observability summary (`steps`, `artifacts`, `checkpoints`, `summary`, `final output`, `deliverables`) directly from the normalized `RunReport`, so current evidence triage no longer requires mentally stitching together multiple sections
   - A Node-side verifier now checks that the Rust prototype task catalog stays aligned with the JS daemon catalog, so the new Rust bridge/runtime prototype cannot silently drift away from the current `v0` task contract
