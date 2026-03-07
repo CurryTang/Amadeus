@@ -8,8 +8,32 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function buildBridgeReportActions(runId = '') {
+  const safeRunId = cleanString(runId);
+  if (!safeRunId) return {};
+  return {
+    contextPack: {
+      method: 'GET',
+      path: `/researchops/runs/${safeRunId}/context-pack`,
+    },
+    report: {
+      method: 'GET',
+      path: `/researchops/runs/${safeRunId}/report`,
+    },
+    artifacts: {
+      method: 'GET',
+      path: `/researchops/runs/${safeRunId}/artifacts`,
+    },
+    bridgeNote: {
+      method: 'POST',
+      path: `/researchops/runs/${safeRunId}/bridge-note`,
+    },
+  };
+}
+
 function buildBridgeRunReportPayload({ report = null } = {}) {
   const source = asObject(report);
+  const runId = cleanString(source?.run?.id);
   const checkpoints = Array.isArray(source.checkpoints) ? source.checkpoints : [];
   const highlights = asObject(source.highlights);
   const deliverableArtifactIds = Array.isArray(highlights.deliverableArtifactIds)
@@ -20,7 +44,7 @@ function buildBridgeRunReportPayload({ report = null } = {}) {
   ).length;
   return {
     bridgeVersion: 'v0',
-    runId: cleanString(source?.run?.id) || null,
+    runId: runId || null,
     status: cleanString(source?.run?.status) || null,
     attempt: source.attempt || null,
     execution: source.execution || null,
@@ -43,6 +67,7 @@ function buildBridgeRunReportPayload({ report = null } = {}) {
       hasFinalOutput: Boolean(highlights.finalOutputArtifactId),
       hasContractFailures: source?.contract?.ok === false,
     },
+    actions: buildBridgeReportActions(runId),
     report: source,
   };
 }

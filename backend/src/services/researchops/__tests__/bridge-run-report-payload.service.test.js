@@ -89,4 +89,20 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   assert.equal(payload.flags.hasFinalOutput, false);
   assert.equal(payload.flags.hasContractFailures, true);
   assert.equal(payload.followUp.relatedRunIds.length, 2);
+  assert.deepEqual(payload.actions.contextPack, {
+    method: 'GET',
+    path: '/researchops/runs/run_123/context-pack',
+  });
+  assert.deepEqual(payload.actions.report, {
+    method: 'GET',
+    path: '/researchops/runs/run_123/report',
+  });
+  assert.deepEqual(payload.actions.artifacts, {
+    method: 'GET',
+    path: '/researchops/runs/run_123/artifacts',
+  });
+  assert.deepEqual(payload.actions.bridgeNote, {
+    method: 'POST',
+    path: '/researchops/runs/run_123/bridge-note',
+  });
 });

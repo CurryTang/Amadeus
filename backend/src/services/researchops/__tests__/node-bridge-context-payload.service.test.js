@@ -84,4 +84,62 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
   assert.equal(payload.capabilities.hasLocalSnapshot, true);
   assert.equal(payload.capabilities.hasEnvSnapshot, true);
   assert.equal(payload.capabilities.hasContractFailures, true);
+  assert.deepEqual(payload.actions.bridgeRun, {
+    method: 'POST',
+    path: '/researchops/projects/proj_1/tree/nodes/node_eval/bridge-run',
+  });
+  assert.deepEqual(payload.actions.bridgeContext, {
+    method: 'GET',
+    path: '/researchops/projects/proj_1/tree/nodes/node_eval/bridge-context',
+  });
+  assert.deepEqual(payload.actions.contextPack, {
+    method: 'GET',
+    path: '/researchops/runs/run_eval/context-pack',
+  });
+  assert.deepEqual(payload.actions.report, {
+    method: 'GET',
+    path: '/researchops/runs/run_eval/report',
+  });
+  assert.deepEqual(payload.actions.artifacts, {
+    method: 'GET',
+    path: '/researchops/runs/run_eval/artifacts',
+  });
+  assert.deepEqual(payload.actions.bridgeReport, {
+    method: 'GET',
+    path: '/researchops/runs/run_eval/bridge-report',
+  });
+  assert.deepEqual(payload.actions.bridgeNote, {
+    method: 'POST',
+    path: '/researchops/runs/run_eval/bridge-note',
+  });
+  assert.deepEqual(payload.submitHints.bridgeContext, {
+    query: {
+      includeContextPack: 'boolean',
+      includeReport: 'boolean',
+    },
+  });
+  assert.deepEqual(payload.submitHints.bridgeRun, {
+    body: {
+      force: 'boolean',
+      preflightOnly: 'boolean',
+      searchTrialCount: 'integer(1..64)',
+      clarifyMessages: 'array',
+      workspaceSnapshot: {
+        path: 'string|null',
+        sourceServerId: 'string|null',
+        runSpecArtifactId: 'string|null',
+      },
+      localSnapshot: {
+        kind: 'string',
+        note: 'string',
+      },
+    },
+  });
+  assert.deepEqual(payload.submitHints.bridgeNote, {
+    body: {
+      title: 'string',
+      content: 'string',
+      noteType: 'string',
+    },
+  });
 });
