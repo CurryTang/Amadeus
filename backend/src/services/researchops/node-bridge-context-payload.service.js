@@ -1,5 +1,6 @@
 'use strict';
 
+const { buildBridgeDaemonTaskActions } = require('./bridge-daemon-task-action.service');
 const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 const { buildRunPayload } = require('./run-payload.service');
 
@@ -110,6 +111,12 @@ function buildNodeBridgeContextPayload({
   const resolvedProjectId = cleanString(projectId) || cleanString(lastRun?.run?.projectId);
   const resolvedNodeId = cleanString(normalizedNode.id);
   const resolvedRunId = cleanString(lastRun?.run?.id || normalizedBridgeReport?.runId);
+  const taskActions = buildBridgeDaemonTaskActions({
+    serverId: normalizedBridgeRuntime?.serverId,
+    projectId: resolvedProjectId,
+    nodeId: resolvedNodeId,
+    runId: resolvedRunId,
+  });
   return {
     bridgeVersion: 'v0',
     projectId: resolvedProjectId || null,
@@ -129,6 +136,7 @@ function buildNodeBridgeContextPayload({
       nodeId: resolvedNodeId,
       runId: resolvedRunId,
     }),
+    taskActions,
     submitHints: buildBridgeSubmitHints(),
     capabilities: {
       hasLastRun: Boolean(lastRun?.run?.id),

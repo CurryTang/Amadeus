@@ -104,6 +104,48 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
     method: 'POST',
     path: '/researchops/projects/proj_1/tree/nodes/node_eval/bridge-run',
   });
+  assert.deepEqual(payload.taskActions.fetchNodeContext, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchNodeContext',
+    payload: {
+      projectId: 'proj_1',
+      nodeId: 'node_eval',
+    },
+  });
+  assert.deepEqual(payload.taskActions.submitNodeRun, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.submitNodeRun',
+    payload: {
+      projectId: 'proj_1',
+      nodeId: 'node_eval',
+    },
+  });
+  assert.deepEqual(payload.taskActions.fetchContextPack, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchContextPack',
+    payload: {
+      runId: 'run_eval',
+    },
+  });
+  assert.deepEqual(payload.taskActions.fetchRunReport, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchRunReport',
+    payload: {
+      runId: 'run_eval',
+    },
+  });
+  assert.deepEqual(payload.taskActions.submitRunNote, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.submitRunNote',
+    payload: {
+      runId: 'run_eval',
+    },
+  });
   assert.deepEqual(payload.actions.bridgeContext, {
     method: 'GET',
     path: '/researchops/projects/proj_1/tree/nodes/node_eval/bridge-context',
