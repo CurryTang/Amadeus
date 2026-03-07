@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import EmptyState from '../ui/EmptyState';
 import ClarificationChat from './ClarificationChat';
+import { buildContextPackSummary } from './contextPackPresentation.js';
+import { buildNodeReviewSummary } from './reviewPresentation.js';
 
 const TABS = ['summary', 'commands', 'diff', 'outputs', 'deliverables', 'notes'];
 
@@ -39,6 +41,8 @@ function VibeNodeWorkbench({
   mode,
   runReport,
   runReportLoading,
+  runContextView,
+  runContextLoading = false,
   onSaveCommands,
   onLoadSearch,
   onRefreshObservedSession,
@@ -176,6 +180,14 @@ function VibeNodeWorkbench({
   const commands = useMemo(() => parseCommands(node), [node]);
 
   const artifacts = Array.isArray(runReport?.artifacts) ? runReport.artifacts : [];
+  const contextSummaryRows = useMemo(
+    () => buildContextPackSummary(runContextView || {}),
+    [runContextView]
+  );
+  const reviewSummaryRows = useMemo(
+    () => buildNodeReviewSummary(node, nodeState, runReport),
+    [node, nodeState, runReport]
+  );
   const deliverables = useMemo(() => {
     const manifest = runReport?.manifest && typeof runReport.manifest === 'object' ? runReport.manifest : {};
     const items = [];
@@ -291,6 +303,46 @@ function VibeNodeWorkbench({
                     <code>{cleanString(observedSession?.materialization || '') || '-'}</code>
                   </div>
                 </div>
+              </article>
+            )}
+            {!isObservedNode && (
+              <article>
+                <h4>Run Context</h4>
+                {runContextLoading ? (
+                  <p className="vibe-empty">Loading context…</p>
+                ) : contextSummaryRows.length === 0 ? (
+                  <p className="vibe-empty">No routed context loaded for the active run.</p>
+                ) : (
+                  <div className="vibe-list">
+                    {contextSummaryRows.map((row) => (
+                      <div key={row.label} className="vibe-list-item">
+                        <div className="vibe-list-main">
+                          <strong>{row.label}</strong>
+                          <span>{row.value}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </article>
+            )}
+            {!isObservedNode && (
+              <article>
+                <h4>Review / Evidence</h4>
+                {reviewSummaryRows.length === 0 ? (
+                  <p className="vibe-empty">No review state available yet.</p>
+                ) : (
+                  <div className="vibe-list">
+                    {reviewSummaryRows.map((row) => (
+                      <div key={row.label} className="vibe-list-item">
+                        <div className="vibe-list-main">
+                          <strong>{row.label}</strong>
+                          <span>{row.value}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </article>
             )}
           </div>

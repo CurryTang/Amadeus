@@ -516,6 +516,8 @@ function VibeResearcherPanel({
   const [selectedRunId, setSelectedRunId] = useState('');
   const [runReport, setRunReport] = useState(null);
   const [runReportLoading, setRunReportLoading] = useState(false);
+  const [runContextPack, setRunContextPack] = useState(null);
+  const [runContextPackLoading, setRunContextPackLoading] = useState(false);
   const [showRunDetailModal, setShowRunDetailModal] = useState(false);
   const [observedSessionsLoading, setObservedSessionsLoading] = useState(false);
   const [observedSessionRefreshingId, setObservedSessionRefreshingId] = useState('');
@@ -1132,6 +1134,29 @@ function VibeResearcherPanel({
       setError(err?.response?.data?.error || 'Failed to load run report');
     } finally {
       if (!silent) setRunReportLoading(false);
+    }
+  }, [apiUrl, headers]);
+
+  const loadRunContextPack = useCallback(async (runId, { silent = false } = {}) => {
+    const targetRunId = String(runId || '').trim();
+    if (!targetRunId) {
+      setRunContextPack(null);
+      setRunContextPackLoading(false);
+      return;
+    }
+    if (!silent) setRunContextPackLoading(true);
+    try {
+      const response = await axios.get(`${apiUrl}/researchops/runs/${targetRunId}/context-pack`, {
+        headers,
+      });
+      setRunContextPack(response.data || null);
+      setError('');
+    } catch (err) {
+      console.error('Failed to load run context pack:', err);
+      setRunContextPack(null);
+      setError(err?.response?.data?.error || 'Failed to load run context pack');
+    } finally {
+      if (!silent) setRunContextPackLoading(false);
     }
   }, [apiUrl, headers]);
 
@@ -2630,6 +2655,7 @@ function VibeResearcherPanel({
     if (cleanString(selectedRunId) === cleanString(runId)) {
       setSelectedRunId('');
       setRunReport(null);
+      setRunContextPack(null);
       setShowRunDetailModal(false);
     }
     try {
@@ -2665,6 +2691,7 @@ function VibeResearcherPanel({
     if (!status || cleanString(selectedRun?.status).toUpperCase() === cleanString(status).toUpperCase()) {
       setSelectedRunId('');
       setRunReport(null);
+      setRunContextPack(null);
       setShowRunDetailModal(false);
     }
     try {
@@ -3035,6 +3062,13 @@ function VibeResearcherPanel({
   const activeRunReport = useMemo(() => (
     runReport?.run?.id === selectedRunId ? runReport : null
   ), [runReport, selectedRunId]);
+  const activeRunContextView = useMemo(() => (
+    runContextPack?.pack?.runId === selectedRunId
+    && runContextPack?.view
+    && typeof runContextPack.view === 'object'
+      ? runContextPack.view
+      : null
+  ), [runContextPack, selectedRunId]);
   const effectiveTreeState = useMemo(() => {
     const base = treeState && typeof treeState === 'object' ? treeState : createEmptyTreeState();
     const baseNodes = base?.nodes && typeof base.nodes === 'object' ? base.nodes : {};
@@ -3572,12 +3606,14 @@ function VibeResearcherPanel({
     if (!selectedProjectId) {
       setSelectedRunId('');
       setRunReport(null);
+      setRunContextPack(null);
       setShowRunDetailModal(false);
       return;
     }
     if (visibleRuns.length === 0) {
       setSelectedRunId('');
       setRunReport(null);
+      setRunContextPack(null);
       setShowRunDetailModal(false);
       return;
     }
@@ -3598,9 +3634,14 @@ function VibeResearcherPanel({
   }, [selectedProject, shouldShowJumpstartGate, treeLoading, vibeUiMode.showTreePlanning]);
 
   useEffect(() => {
-    if (!selectedRunId) return;
+    if (!selectedRunId) {
+      setRunContextPack(null);
+      setRunContextPackLoading(false);
+      return;
+    }
     loadRunReport(selectedRunId);
-  }, [selectedRunId, loadRunReport]);
+    loadRunContextPack(selectedRunId);
+  }, [loadRunContextPack, loadRunReport, selectedRunId]);
 
   useEffect(() => {
     if (!selectedTreeNode || selectedTreeNode.kind !== 'search') {
@@ -3621,6 +3662,7 @@ function VibeResearcherPanel({
     setShowRunDetailModal(false);
     setSelectedRunId('');
     setRunReport(null);
+    setRunContextPack(null);
     setLauncherContinuationChips([]);
     setProjectFileTree(null);
     setProjectFileContent(null);
@@ -4013,7 +4055,6 @@ function VibeResearcherPanel({
             onOpenRun={handleOpenRunDetail}
             scopeLabel={recentRunsScopeLabel}
             refreshingSessionId={observedSessionRefreshingId}
-            onOpenRun={handleOpenRunDetail}
             onOpenSession={handleOpenObservedSession}
             onRefreshSession={handleRefreshObservedSession}
           />
@@ -4202,6 +4243,8 @@ function VibeResearcherPanel({
                       mode={planMode}
                       runReport={runReport}
                       runReportLoading={runReportLoading}
+                      runContextView={activeRunContextView}
+                      runContextLoading={runContextPackLoading}
                       searchData={searchData}
                       searchLoading={searchLoading}
                       onSaveCommands={handleSaveNodeCommands}
