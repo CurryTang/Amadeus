@@ -6,6 +6,9 @@ const assert = require('node:assert/strict');
 const { buildNodeBridgeContextPayload } = require('../node-bridge-context-payload.service');
 
 test('buildNodeBridgeContextPayload exposes current node, blocking, last run, and context pack views', () => {
+  const previousRustUrl = process.env.RESEARCHOPS_RUST_DAEMON_URL;
+  process.env.RESEARCHOPS_RUST_DAEMON_URL = 'http://127.0.0.1:7788';
+  try {
   const payload = buildNodeBridgeContextPayload({
     projectId: 'proj_1',
     node: {
@@ -95,6 +98,8 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
   assert.deepEqual(payload.capabilities.missingBridgeTaskTypes, ['bridge.submitNodeRun']);
   assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
   assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
+  assert.deepEqual(payload.bridgeRuntime.availableTransports, ['http', 'rust-daemon']);
+  assert.equal(payload.bridgeRuntime.preferredTransport, 'rust-daemon');
   assert.equal(payload.bridgeRuntime.capabilities.canFetchNodeContext, false);
   assert.equal(payload.bridgeRuntime.capabilities.canFetchContextPack, false);
   assert.equal(payload.bridgeRuntime.capabilities.canSubmitNodeRun, false);
@@ -174,12 +179,12 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
     query: {
       includeContextPack: 'boolean',
       includeReport: 'boolean',
-      transport: '"http"|"daemon-task"',
+      transport: '"http"|"rust-daemon"',
     },
   });
   assert.deepEqual(payload.submitHints.bridgeRun, {
     body: {
-      transport: '"http"|"daemon-task"',
+      transport: '"http"|"rust-daemon"',
       force: 'boolean',
       preflightOnly: 'boolean',
       searchTrialCount: 'integer(1..64)',
@@ -202,4 +207,8 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
       noteType: 'string',
     },
   });
+  } finally {
+    if (previousRustUrl === undefined) delete process.env.RESEARCHOPS_RUST_DAEMON_URL;
+    else process.env.RESEARCHOPS_RUST_DAEMON_URL = previousRustUrl;
+  }
 });

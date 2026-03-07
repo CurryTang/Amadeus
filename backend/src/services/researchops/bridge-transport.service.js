@@ -13,6 +13,31 @@ function readBridgeTransportMode(value = '') {
   return 'http';
 }
 
+function listBridgeTransportModes({ bridgeRuntime = null, env = process.env } = {}) {
+  const modes = ['http'];
+  const serverId = cleanString(bridgeRuntime?.serverId);
+  if (serverId && bridgeRuntime?.supportsLocalBridgeWorkflow === true) {
+    modes.push('daemon-task');
+  }
+  if (readRustDaemonConfig(env).enabled) {
+    modes.push('rust-daemon');
+  }
+  return modes;
+}
+
+function buildBridgeTransportEnum(options = {}) {
+  return listBridgeTransportModes(options)
+    .map((mode) => `"${mode}"`)
+    .join('|');
+}
+
+function selectPreferredBridgeTransport(options = {}) {
+  const modes = listBridgeTransportModes(options);
+  if (modes.includes('daemon-task')) return 'daemon-task';
+  if (modes.includes('rust-daemon')) return 'rust-daemon';
+  return 'http';
+}
+
 function assertBridgeDaemonTransportReady(bridgeRuntime = null) {
   const serverId = cleanString(bridgeRuntime?.serverId);
   if (!serverId) {
@@ -45,6 +70,9 @@ function assertRustDaemonTransportReady(env = process.env) {
 
 module.exports = {
   assertRustDaemonTransportReady,
+  buildBridgeTransportEnum,
+  listBridgeTransportModes,
   readBridgeTransportMode,
+  selectPreferredBridgeTransport,
   assertBridgeDaemonTransportReady,
 };

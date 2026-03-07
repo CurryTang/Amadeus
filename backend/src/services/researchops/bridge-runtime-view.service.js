@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  listBridgeTransportModes,
+  selectPreferredBridgeTransport,
+} = require('./bridge-transport.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -27,16 +32,19 @@ function buildBridgeRuntimeCapabilities(supportedTaskTypes = []) {
   };
 }
 
-function buildBridgeRuntimeView(bridgeRuntime = null) {
+function buildBridgeRuntimeView(bridgeRuntime = null, { env = process.env } = {}) {
   if (!bridgeRuntime || typeof bridgeRuntime !== 'object') return null;
   const supportedTaskTypes = normalizeTaskTypes(bridgeRuntime.supportedTaskTypes);
   const missingBridgeTaskTypes = normalizeTaskTypes(bridgeRuntime.missingBridgeTaskTypes);
+  const availableTransports = listBridgeTransportModes({ bridgeRuntime, env });
   return {
     executionTarget: cleanString(bridgeRuntime.executionTarget) || null,
     serverId: cleanString(bridgeRuntime.serverId) || null,
     supportsLocalBridgeWorkflow: bridgeRuntime.supportsLocalBridgeWorkflow === true,
     missingBridgeTaskTypes,
     supportedTaskTypes,
+    availableTransports,
+    preferredTransport: selectPreferredBridgeTransport({ bridgeRuntime, env }),
     capabilities: buildBridgeRuntimeCapabilities(supportedTaskTypes),
   };
 }

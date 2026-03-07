@@ -6,6 +6,9 @@ const assert = require('node:assert/strict');
 const { buildBridgeTreeRunPayload } = require('../bridge-tree-run-payload.service');
 
 test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree runs', () => {
+  const previousRustUrl = process.env.RESEARCHOPS_RUST_DAEMON_URL;
+  process.env.RESEARCHOPS_RUST_DAEMON_URL = 'http://127.0.0.1:7788';
+  try {
   const payload = buildBridgeTreeRunPayload({
     projectId: 'proj_1',
     nodeId: 'node_eval',
@@ -61,6 +64,8 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
   assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
   assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
   assert.equal(payload.bridgeRuntime.supportsLocalBridgeWorkflow, true);
+  assert.deepEqual(payload.bridgeRuntime.availableTransports, ['http', 'daemon-task', 'rust-daemon']);
+  assert.equal(payload.bridgeRuntime.preferredTransport, 'daemon-task');
   assert.equal(payload.bridgeRuntime.capabilities.canFetchNodeContext, true);
   assert.equal(payload.bridgeRuntime.capabilities.canFetchContextPack, true);
   assert.equal(payload.bridgeRuntime.capabilities.canSubmitNodeRun, true);
@@ -103,6 +108,10 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
   assert.deepEqual(payload.contextPack, {
     generatedAt: '2026-03-06T12:00:00.000Z',
   });
+  } finally {
+    if (previousRustUrl === undefined) delete process.env.RESEARCHOPS_RUST_DAEMON_URL;
+    else process.env.RESEARCHOPS_RUST_DAEMON_URL = previousRustUrl;
+  }
 });
 
 test('buildBridgeTreeRunPayload preserves preflight preview without fabricating run data', () => {

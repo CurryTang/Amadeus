@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildBridgeDaemonTaskActions } = require('./bridge-daemon-task-action.service');
+const { buildBridgeTransportEnum } = require('./bridge-transport.service');
 const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 const { buildRunPayload } = require('./run-payload.service');
 
@@ -52,18 +53,19 @@ function buildBridgeActions({ projectId = '', nodeId = '', runId = '' } = {}) {
   };
 }
 
-function buildBridgeSubmitHints() {
+function buildBridgeSubmitHints(bridgeRuntime = null) {
+  const transportEnum = buildBridgeTransportEnum({ bridgeRuntime });
   return {
     bridgeContext: {
       query: {
         includeContextPack: 'boolean',
         includeReport: 'boolean',
-        transport: '"http"|"daemon-task"',
+        transport: transportEnum,
       },
     },
     bridgeRun: {
       body: {
-        transport: '"http"|"daemon-task"',
+        transport: transportEnum,
         force: 'boolean',
         preflightOnly: 'boolean',
         searchTrialCount: 'integer(1..64)',
@@ -139,7 +141,7 @@ function buildNodeBridgeContextPayload({
       runId: resolvedRunId,
     }),
     taskActions,
-    submitHints: buildBridgeSubmitHints(),
+    submitHints: buildBridgeSubmitHints(bridgeRuntime),
     capabilities: {
       hasLastRun: Boolean(lastRun?.run?.id),
       hasContextPack: Boolean(normalizedContextPack?.view || normalizedContextPack?.pack || normalizedContextPack?.mode),

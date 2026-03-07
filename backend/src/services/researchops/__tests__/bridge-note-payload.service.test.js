@@ -32,8 +32,15 @@ test('buildBridgeNoteArtifactInput creates a markdown artifact payload for bridg
 });
 
 test('buildBridgeNotePayload preserves artifact root while exposing follow-up actions', () => {
+  const previousRustUrl = process.env.RESEARCHOPS_RUST_DAEMON_URL;
+  process.env.RESEARCHOPS_RUST_DAEMON_URL = 'http://127.0.0.1:7788';
+  try {
   const payload = buildBridgeNotePayload({
     runId: 'run_1',
+    bridgeRuntime: {
+      serverId: 'srv_client_1',
+      supportsLocalBridgeWorkflow: true,
+    },
     artifact: {
       id: 'art_1',
       title: 'Bridge Note',
@@ -54,10 +61,14 @@ test('buildBridgeNotePayload preserves artifact root while exposing follow-up ac
   });
   assert.deepEqual(payload.submitHints.bridgeNote, {
     body: {
-      transport: '"http"|"daemon-task"',
+      transport: '"http"|"daemon-task"|"rust-daemon"',
       title: 'string',
       content: 'string',
       noteType: 'string',
     },
   });
+  } finally {
+    if (previousRustUrl === undefined) delete process.env.RESEARCHOPS_RUST_DAEMON_URL;
+    else process.env.RESEARCHOPS_RUST_DAEMON_URL = previousRustUrl;
+  }
 });

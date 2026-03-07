@@ -6,6 +6,9 @@ const assert = require('node:assert/strict');
 const { buildBridgeRunReportPayload } = require('../bridge-run-report-payload.service');
 
 test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fields', () => {
+  const previousRustUrl = process.env.RESEARCHOPS_RUST_DAEMON_URL;
+  process.env.RESEARCHOPS_RUST_DAEMON_URL = 'http://127.0.0.1:7788';
+  try {
   const payload = buildBridgeRunReportPayload({
     bridgeRuntime: {
       executionTarget: 'client-daemon',
@@ -108,6 +111,8 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   assert.equal(payload.followUp.relatedRunIds.length, 2);
   assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
   assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
+  assert.deepEqual(payload.bridgeRuntime.availableTransports, ['http', 'daemon-task', 'rust-daemon']);
+  assert.equal(payload.bridgeRuntime.preferredTransport, 'daemon-task');
   assert.deepEqual(payload.taskActions.fetchNodeContext, {
     transport: 'daemon-task',
     serverId: 'srv_client_1',
@@ -159,7 +164,11 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   });
   assert.deepEqual(payload.submitHints.bridgeReport, {
     query: {
-      transport: '"http"|"daemon-task"',
+      transport: '"http"|"daemon-task"|"rust-daemon"',
     },
   });
+  } finally {
+    if (previousRustUrl === undefined) delete process.env.RESEARCHOPS_RUST_DAEMON_URL;
+    else process.env.RESEARCHOPS_RUST_DAEMON_URL = previousRustUrl;
+  }
 });

@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildBridgeDaemonTaskActions } = require('./bridge-daemon-task-action.service');
+const { buildBridgeTransportEnum } = require('./bridge-transport.service');
 const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 
 function cleanString(value) {
@@ -34,11 +35,11 @@ function buildBridgeReportActions(runId = '') {
   };
 }
 
-function buildBridgeReportSubmitHints() {
+function buildBridgeReportSubmitHints(bridgeRuntime = null) {
   return {
     bridgeReport: {
       query: {
-        transport: '"http"|"daemon-task"',
+        transport: buildBridgeTransportEnum({ bridgeRuntime }),
       },
     },
   };
@@ -86,7 +87,7 @@ function buildBridgeRunReportPayload({ report = null, bridgeRuntime = null } = {
     },
     bridgeRuntime: normalizedBridgeRuntime && Object.keys(normalizedBridgeRuntime).length > 0 ? normalizedBridgeRuntime : null,
     actions: buildBridgeReportActions(runId),
-    submitHints: buildBridgeReportSubmitHints(),
+    submitHints: buildBridgeReportSubmitHints(bridgeRuntime),
     taskActions: buildBridgeDaemonTaskActions({
       serverId: normalizedBridgeRuntime?.serverId,
       projectId,

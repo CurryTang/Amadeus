@@ -878,6 +878,7 @@ router.post('/runs/:runId/bridge-note', async (req, res) => {
         );
         return buildBridgeNotePayload({
           runId,
+          bridgeRuntime,
           artifact: withArtifactDownloadUrl(artifact, runId),
         });
       },

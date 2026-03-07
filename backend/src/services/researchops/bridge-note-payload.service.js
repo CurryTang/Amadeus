@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildBridgeTransportEnum } = require('./bridge-transport.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -29,6 +31,7 @@ function buildBridgeNoteArtifactInput({
 function buildBridgeNotePayload({
   runId = '',
   artifact = null,
+  bridgeRuntime = null,
 } = {}) {
   const safeRunId = cleanString(runId);
   return {
@@ -48,7 +51,7 @@ function buildBridgeNotePayload({
     submitHints: {
       bridgeNote: {
         body: {
-          transport: '"http"|"daemon-task"',
+          transport: buildBridgeTransportEnum({ bridgeRuntime }),
           title: 'string',
           content: 'string',
           noteType: 'string',

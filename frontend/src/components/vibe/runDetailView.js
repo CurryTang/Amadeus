@@ -177,6 +177,10 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
   const missingBridgeTaskTypes = Array.isArray(bridgeRuntime.missingBridgeTaskTypes)
     ? bridgeRuntime.missingBridgeTaskTypes.map((item) => cleanString(item)).filter(Boolean)
     : [];
+  const availableTransports = Array.isArray(bridgeRuntime.availableTransports)
+    ? bridgeRuntime.availableTransports.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const preferredTransport = cleanString(bridgeRuntime.preferredTransport);
   if (!runtimeTarget && !serverId && missingBridgeTaskTypes.length === 0 && !taskActions.fetchRunReport && !taskActions.submitRunNote) {
     return rows;
   }
@@ -185,6 +189,12 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
   }
   if (serverId) {
     rows.push({ label: 'Bridge Server', value: serverId });
+  }
+  if (preferredTransport) {
+    rows.push({ label: 'Preferred Transport', value: preferredTransport });
+  }
+  if (availableTransports.length > 0) {
+    rows.push({ label: 'Available Transports', value: availableTransports.join(', ') });
   }
   rows.push({
     label: 'Bridge Transport',

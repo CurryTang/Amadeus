@@ -172,6 +172,8 @@ test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task s
       serverId: 'srv_client_1',
       supportsLocalBridgeWorkflow: false,
       missingBridgeTaskTypes: ['bridge.submitRunNote'],
+      availableTransports: ['http', 'rust-daemon'],
+      preferredTransport: 'rust-daemon',
     },
     taskActions: {
       fetchRunReport: {
@@ -190,6 +192,8 @@ test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task s
   assert.deepEqual(summary, [
     { label: 'Bridge Runtime', value: 'client-daemon' },
     { label: 'Bridge Server', value: 'srv_client_1' },
+    { label: 'Preferred Transport', value: 'rust-daemon' },
+    { label: 'Available Transports', value: 'http, rust-daemon' },
     { label: 'Bridge Transport', value: 'daemon-task available' },
     { label: 'Missing Bridge Tasks', value: 'bridge.submitRunNote' },
     { label: 'Bridge Report Task', value: 'bridge.fetchRunReport' },
