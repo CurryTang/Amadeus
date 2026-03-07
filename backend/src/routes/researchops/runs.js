@@ -16,6 +16,7 @@ const treePlanService = require('../../services/researchops/tree-plan.service');
 const treeStateService = require('../../services/researchops/tree-state.service');
 const contextRouterService = require('../../services/researchops/context-router.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
+const { buildRunPayload } = require('../../services/researchops/run-payload.service');
 const { findRunReportHighlights } = require('../../services/researchops/run-report-view');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { getDb } = require('../../db');
@@ -356,7 +357,7 @@ router.get('/runs/:runId', async (req, res) => {
   try {
     const run = await researchOpsStore.getRun(getUserId(req), req.params.runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] getRun failed:', error);
     res.status(500).json({ error: 'Failed to fetch run' });
@@ -373,7 +374,7 @@ router.post('/runs/:runId/status', async (req, res) => {
       req.body?.payload
     );
     if (!run) return res.status(404).json({ error: 'Run not found' });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] updateRunStatus failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update run status') });
@@ -384,7 +385,7 @@ router.post('/runs/:runId/cancel', async (req, res) => {
   try {
     const run = await researchOpsRunner.cancelRun(getUserId(req), req.params.runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] cancelRun failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to cancel run') });
@@ -396,7 +397,7 @@ router.post('/runs/:runId/retry', async (req, res) => {
     const run = await researchOpsStore.retryRun(getUserId(req), req.params.runId, {
       reason: req.body?.reason,
     });
-    return res.status(201).json({ run });
+    return res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] retryRun failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
