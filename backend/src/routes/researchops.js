@@ -51,6 +51,7 @@ const { buildRunPayload } = require('../services/researchops/run-payload.service
 const { buildQueuedRunActionPayload } = require('../services/researchops/queued-run-action-payload.service');
 const { buildBridgeRunReportPayload } = require('../services/researchops/bridge-run-report-payload.service');
 const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge-note-payload.service');
+const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const { buildRunReportPayload } = require('../services/researchops/run-report-payload.service');
 const { buildRunTreePayload } = require('../services/researchops/run-tree-payload.service');
 const {
@@ -7168,6 +7169,57 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     }
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     return res.status(400).json(toErrorPayload(error, 'Failed to run node step'));
+  }
+});
+
+router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+    const force = parseBoolean(req.body?.force, false);
+    const preflightOnly = parseBoolean(req.body?.preflightOnly, false);
+    const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
+    const clarifyMessages = Array.isArray(req.body?.clarifyMessages) ? req.body.clarifyMessages : [];
+    const workspaceSnapshot = req.body?.workspaceSnapshot && typeof req.body.workspaceSnapshot === 'object'
+      ? req.body.workspaceSnapshot
+      : null;
+    const localSnapshot = req.body?.localSnapshot && typeof req.body.localSnapshot === 'object'
+      ? req.body.localSnapshot
+      : null;
+
+    const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
+    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+
+    const result = await executeTreeNodeRun({
+      userId,
+      project,
+      server,
+      node,
+      treeState: state,
+      force,
+      preflightOnly,
+      runSource: 'bridge-run',
+      searchTrialCount,
+      clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
+    });
+    return res.status(preflightOnly ? 200 : 202).json(buildBridgeTreeRunPayload({
+      projectId: project.id,
+      nodeId,
+      result,
+    }));
+  } catch (error) {
+    if (error.code === 'NODE_BLOCKED') {
+      return res.status(409).json({
+        ...toErrorPayload(error, 'Node is blocked'),
+        blockedBy: Array.isArray(error.blockedBy) ? error.blockedBy : [],
+      });
+    }
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to submit bridge run'));
   }
 });
 

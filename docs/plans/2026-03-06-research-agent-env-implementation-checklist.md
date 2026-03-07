@@ -57,5 +57,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Bridge clients can now submit markdown run notes through existing artifact storage via `bridge-note`
   - Tree `run-step` now accepts bridge snapshot hints too, so snapshot-backed runs can stay on the normal tree execution path
   - `bridge-context` can now optionally inline the latest `bridge-report`, reducing extra fetches for local bridge clients
+  - Bridge clients now also have a dedicated `bridge-run` tree submission route with stable attempt/execution/follow-up payloads
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility
