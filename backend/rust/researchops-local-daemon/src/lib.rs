@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::net::TcpStream;
 use std::net::TcpListener;
 use std::net::Shutdown;
@@ -190,6 +191,54 @@ fn payload_object<'a>(payload: Option<&'a serde_json::Value>, key: &str) -> Opti
     payload.and_then(|value| value.get(key)).filter(|value| value.is_object())
 }
 
+fn normalize_local_path(raw_path: &str) -> Result<PathBuf> {
+    let path = PathBuf::from(raw_path);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(std::env::current_dir().context("read current dir")?.join(path))
+    }
+}
+
+fn execute_builtin_task(task_type: &str, payload: Option<&serde_json::Value>) -> Result<Option<serde_json::Value>> {
+    if task_type == "project.checkPath" {
+        let project_path = payload_string(payload, "projectPath").context("projectPath is required for project.checkPath")?;
+        let normalized_path = normalize_local_path(project_path)?;
+        let metadata = std::fs::metadata(&normalized_path).ok();
+        return Ok(Some(serde_json::json!({
+            "normalizedPath": normalized_path.display().to_string(),
+            "exists": metadata.is_some(),
+            "isDirectory": metadata.is_some_and(|item| item.is_dir()),
+        })));
+    }
+    if task_type == "project.ensurePath" {
+        let project_path = payload_string(payload, "projectPath").context("projectPath is required for project.ensurePath")?;
+        let normalized_path = normalize_local_path(project_path)?;
+        std::fs::create_dir_all(&normalized_path).context("create project directory")?;
+        return Ok(Some(serde_json::json!({
+            "normalizedPath": normalized_path.display().to_string(),
+        })));
+    }
+    if task_type == "project.ensureGit" {
+        let project_path = payload_string(payload, "projectPath").context("projectPath is required for project.ensureGit")?;
+        let normalized_path = normalize_local_path(project_path)?;
+        std::fs::create_dir_all(&normalized_path).context("create project directory before git init")?;
+        let git_dir = normalized_path.join(".git");
+        let initialized = if git_dir.exists() {
+            false
+        } else {
+            std::fs::create_dir_all(&git_dir).context("create mock git directory")?;
+            true
+        };
+        return Ok(Some(serde_json::json!({
+            "rootPath": normalized_path.display().to_string(),
+            "isGitRepo": true,
+            "initialized": initialized,
+        })));
+    }
+    Ok(None)
+}
+
 fn http_request_via_config(
     config: &DaemonConfig,
     method: &str,
@@ -376,6 +425,9 @@ fn build_http_body(
     if route == "/tasks/execute" && method.eq_ignore_ascii_case("POST") {
         let task_type = payload_string(body, "taskType").context("taskType is required for /tasks/execute")?;
         let task_payload = payload_object(body, "payload");
+        if let Some(result) = execute_builtin_task(task_type, task_payload)? {
+            return Ok(result);
+        }
         let (task_method, backend_path, backend_body) = build_task_proxy_request(task_type, task_payload)?;
         return http_request_via_config(config, task_method, &backend_path, backend_body.as_ref());
     }

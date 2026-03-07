@@ -431,3 +431,129 @@ fn serve_one_http_request_executes_bridge_submit_run_note_task() {
     assert!(response.starts_with("HTTP/1.1 200 OK"));
     assert!(response.contains("\"artifactId\":\"art_task\""));
 }
+
+#[test]
+fn serve_one_http_request_executes_project_check_path_task() {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "researchops-local-daemon-check-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let addr = listener.local_addr().expect("daemon addr");
+    let handle = thread::spawn(move || {
+        serve_one_http_request_with_config(listener, true, DaemonConfig::default())
+            .expect("serve daemon execute-task request");
+    });
+
+    let mut client = TcpStream::connect(addr).expect("connect daemon");
+    let body = format!(
+        "{{\"taskType\":\"project.checkPath\",\"payload\":{{\"projectPath\":\"{}\"}}}}",
+        temp_dir.display()
+    );
+    let request = format!(
+        "POST /tasks/execute HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    client
+        .write_all(request.as_bytes())
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    handle.join().expect("daemon thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"exists\":true"));
+    assert!(response.contains("\"isDirectory\":true"));
+}
+
+#[test]
+fn serve_one_http_request_executes_project_ensure_path_task() {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "researchops-local-daemon-ensure-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let addr = listener.local_addr().expect("daemon addr");
+    let handle = thread::spawn(move || {
+        serve_one_http_request_with_config(listener, true, DaemonConfig::default())
+            .expect("serve daemon execute-task request");
+    });
+
+    let mut client = TcpStream::connect(addr).expect("connect daemon");
+    let body = format!(
+        "{{\"taskType\":\"project.ensurePath\",\"payload\":{{\"projectPath\":\"{}\"}}}}",
+        temp_dir.display()
+    );
+    let request = format!(
+        "POST /tasks/execute HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    client
+        .write_all(request.as_bytes())
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    handle.join().expect("daemon thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"normalizedPath\""));
+    assert!(temp_dir.exists());
+}
+
+#[test]
+fn serve_one_http_request_executes_project_ensure_git_task() {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "researchops-local-daemon-git-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let addr = listener.local_addr().expect("daemon addr");
+    let handle = thread::spawn(move || {
+        serve_one_http_request_with_config(listener, true, DaemonConfig::default())
+            .expect("serve daemon execute-task request");
+    });
+
+    let mut client = TcpStream::connect(addr).expect("connect daemon");
+    let body = format!(
+        "{{\"taskType\":\"project.ensureGit\",\"payload\":{{\"projectPath\":\"{}\"}}}}",
+        temp_dir.display()
+    );
+    let request = format!(
+        "POST /tasks/execute HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    client
+        .write_all(request.as_bytes())
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    handle.join().expect("daemon thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"isGitRepo\":true"));
+    assert!(response.contains("\"rootPath\""));
+    assert!(temp_dir.join(".git").exists());
+}

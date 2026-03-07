@@ -16,6 +16,10 @@ Current scope:
   - `POST /node-run?projectId=...&nodeId=...`
   - `POST /bridge-note?runId=...`
 - expose `POST /tasks/execute` for task-catalog-aligned bridge execution
+- execute the current built-in project task family through the same task endpoint:
+  - `project.checkPath`
+  - `project.ensurePath`
+  - `project.ensureGit`
 
 It does not yet implement:
 
@@ -103,4 +107,7 @@ curl -X POST "http://127.0.0.1:7788/bridge-note?runId=run_123" \
 curl -X POST "http://127.0.0.1:7788/tasks/execute" \
   -H 'Content-Type: application/json' \
   -d '{"taskType":"bridge.fetchRunReport","payload":{"runId":"run_123"}}'
+curl -X POST "http://127.0.0.1:7788/tasks/execute" \
+  -H 'Content-Type: application/json' \
+  -d '{"taskType":"project.checkPath","payload":{"projectPath":"/tmp/my-project"}}'
 ```
