@@ -19,6 +19,11 @@ const researchOpsRunner = require('../../services/researchops/runner');
 const autopilotService = require('../../services/researchops/autopilot.service');
 const knowledgeGroupsService = require('../../services/knowledge-groups.service');
 const contextPackService = require('../../services/researchops/context-pack.service');
+const {
+  buildAgentSessionDetailPayload,
+  buildAgentSessionListPayload,
+  buildAgentSessionPayload,
+} = require('../../services/researchops/agent-session-payload.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
 const { buildQueuedRunActionPayload } = require('../../services/researchops/queued-run-action-payload.service');
 const {
@@ -3850,7 +3855,7 @@ router.get('/projects/:projectId/agent-sessions', async (req, res) => {
     const userId = getUserId(req);
     const limit = parseLimit(req.query.limit, 80, 500);
     const sessions = await interactiveAgentService.listProjectSessions(userId, projectId, { limit });
-    return res.json({ sessions });
+    return res.json(buildAgentSessionListPayload({ sessions }));
   } catch (error) {
     console.error('[ResearchOps] listProjectSessions failed:', error);
     return res.status(500).json({ error: 'Failed to list sessions' });
@@ -3862,7 +3867,7 @@ router.post('/projects/:projectId/agent-sessions', async (req, res) => {
     const projectId = String(req.params.projectId || '').trim();
     const userId = getUserId(req);
     const session = await interactiveAgentService.createSession(userId, projectId, req.body || {});
-    return res.json({ session });
+    return res.json(buildAgentSessionPayload({ session }));
   } catch (error) {
     console.error('[ResearchOps] createSession failed:', error);
     return res.status(500).json({ error: error.message || 'Failed to create session' });
@@ -3875,7 +3880,7 @@ router.get('/agent-sessions/:sid', async (req, res) => {
     const userId = getUserId(req);
     const result = await interactiveAgentService.getSession(userId, sessionId);
     if (!result) return res.status(404).json({ error: 'Session not found' });
-    return res.json(result);
+    return res.json(buildAgentSessionDetailPayload(result));
   } catch (error) {
     console.error('[ResearchOps] getSession failed:', error);
     return res.status(500).json({ error: 'Failed to get session' });
@@ -3976,7 +3981,7 @@ router.post('/agent-sessions/:sid/stop', async (req, res) => {
     });
 
     const updated = await interactiveAgentService.getSession(userId, sessionId);
-    return res.json(updated || { session: null, activeRun: null });
+    return res.json(buildAgentSessionDetailPayload(updated || {}));
   } catch (error) {
     console.error('[ResearchOps] stopSession failed:', error);
     return res.status(500).json({ error: 'Failed to stop session' });

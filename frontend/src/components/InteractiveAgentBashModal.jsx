@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import {
+  getActiveAgentSessionAttemptLabel,
+  getAgentSessionDetailFromApiResponse,
+  getAgentSessionsFromApiResponse,
+} from './vibe/agentSessionApiResponse.js';
+import {
+  buildAgentSessionHeaderSummary,
+  buildAgentSessionListItem,
+} from './vibe/agentSessionPresentation.js';
 
 function cleanString(value) {
   return String(value || '').trim();
@@ -80,6 +89,18 @@ function InteractiveAgentBashModal({
     || null
   ), [sessions, selectedSessionId, sessionDetail]);
   const activeRun = sessionDetail?.activeRun || null;
+  const activeAttemptLabel = useMemo(
+    () => getActiveAgentSessionAttemptLabel(sessionDetail),
+    [sessionDetail],
+  );
+  const headerSummary = useMemo(
+    () => buildAgentSessionHeaderSummary({
+      session: selectedSession,
+      activeRun,
+      activeAttemptLabel,
+    }),
+    [activeAttemptLabel, activeRun, selectedSession],
+  );
   const running = isSessionRunning(selectedSession, activeRun);
   const hasComposerInput = cleanString(content) || composerImages.length > 0;
   const canSend = Boolean(open && selectedSessionId && hasComposerInput && !running && !sending);
@@ -115,7 +136,7 @@ function InteractiveAgentBashModal({
         headers: authHeaders(),
         params: { limit: 200 },
       });
-      const items = Array.isArray(resp.data?.sessions) ? resp.data.sessions : [];
+      const items = getAgentSessionsFromApiResponse(resp.data);
       setSessions(items);
       if (items.length === 0) {
         setSelectedSessionId('');
@@ -149,12 +170,13 @@ function InteractiveAgentBashModal({
           params: { limit: 500 },
         }),
       ]);
-      const sessionPayload = sessionResp.data?.session || null;
-      const activeRunPayload = sessionResp.data?.activeRun || null;
-      setSessionDetail({ session: sessionPayload, activeRun: activeRunPayload });
+      const detailPayload = getAgentSessionDetailFromApiResponse(sessionResp.data);
+      const sessionPayload = detailPayload.session;
+      const activeRunPayload = detailPayload.activeRun;
+      setSessionDetail(detailPayload);
       setMessages(Array.isArray(msgResp.data?.items) ? msgResp.data.items : []);
       if (sessionPayload) syncComposerFromSession(sessionPayload);
-      return { session: sessionPayload, activeRun: activeRunPayload };
+      return detailPayload;
     } catch (error) {
       reportError(error?.response?.data?.error || error?.message || 'Failed to load session details');
       return null;
@@ -411,8 +433,7 @@ function InteractiveAgentBashModal({
                 <p className="vibe-empty">No sessions yet. Create one to begin.</p>
               )}
               {sessions.map((session) => {
-                const sessionRunState = cleanString(session.status).toUpperCase();
-                const sessionIsRunning = sessionRunState === 'RUNNING';
+                const sessionView = buildAgentSessionListItem(session);
                 return (
                   <button
                     key={session.id}
@@ -420,9 +441,9 @@ function InteractiveAgentBashModal({
                     className={`vibe-agent-session-item${session.id === selectedSessionId ? ' is-active' : ''}`}
                     onClick={() => setSelectedSessionId(session.id)}
                   >
-                    <span className="vibe-agent-session-title">{session.title || session.id}</span>
-                    <span className={`vibe-agent-session-status vibe-agent-session-status--${sessionRunState.toLowerCase() || 'idle'}`}>
-                      {sessionIsRunning ? 'Running' : (sessionRunState || 'Idle')}
+                    <span className="vibe-agent-session-title">{sessionView.title}</span>
+                    <span className={`vibe-agent-session-status vibe-agent-session-status--${sessionView.statusTone}`}>
+                      {sessionView.statusLabel}
                     </span>
                     <span className="vibe-agent-session-meta">{formatTimestamp(session.updatedAt)}</span>
                     {session.lastMessage && (
@@ -437,14 +458,17 @@ function InteractiveAgentBashModal({
           <section className="vibe-agent-chat-pane">
             <div className="vibe-agent-chat-head">
               <div className="vibe-agent-chat-head-main">
-                <strong>{selectedSession?.title || 'No session selected'}</strong>
+                <strong>{headerSummary.title}</strong>
                 {selectedSession && (
-                  <span className={`vibe-agent-session-status vibe-agent-session-status--${cleanString(selectedSession.status).toLowerCase() || 'idle'}`}>
-                    {running ? `Running${activeRun?.status ? ` (${activeRun.status})` : ''}` : (selectedSession.status || 'IDLE')}
+                  <span className={`vibe-agent-session-status vibe-agent-session-status--${headerSummary.statusTone || 'idle'}`}>
+                    {headerSummary.statusLabel}
                   </span>
                 )}
-                {activeRun?.id && (
-                  <span className="vibe-card-note">run: {activeRun.id}</span>
+                {headerSummary.runLabel && (
+                  <span className="vibe-card-note">run: {headerSummary.runLabel}</span>
+                )}
+                {headerSummary.attemptLabel && (
+                  <span className="vibe-card-note">node: {headerSummary.attemptLabel}</span>
                 )}
               </div>
               <div className="vibe-agent-chat-controls">

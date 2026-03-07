@@ -34,6 +34,11 @@ const failureSignatureService = require('../services/researchops/failure-signatu
 const deliverableReportSkillService = require('../services/researchops/deliverable-report-skill.service');
 const codebaseAchievementService = require('../services/researchops/codebase-achievement.service');
 const todoGeneratorService = require('../services/researchops/todo-generator.service');
+const {
+  buildAgentSessionDetailPayload,
+  buildAgentSessionListPayload,
+  buildAgentSessionPayload,
+} = require('../services/researchops/agent-session-payload.service');
 const { buildContextPackPayload } = require('../services/researchops/context-pack-payload.service');
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
 const { buildRunPayload } = require('../services/researchops/run-payload.service');
@@ -3830,7 +3835,7 @@ router.get('/projects/:projectId/agent-sessions', async (req, res) => {
     const userId = getUserId(req);
     const limit = parseLimit(req.query.limit, 80, 500);
     const sessions = await interactiveAgentService.listProjectSessions(userId, projectId, { limit });
-    return res.json({ sessions });
+    return res.json(buildAgentSessionListPayload({ sessions }));
   } catch (error) {
     console.error('[ResearchOps] listProjectSessions failed:', error);
     return res.status(500).json({ error: 'Failed to list sessions' });
@@ -3842,7 +3847,7 @@ router.post('/projects/:projectId/agent-sessions', requireAuth, async (req, res)
     const projectId = String(req.params.projectId || '').trim();
     const userId = getUserId(req);
     const session = await interactiveAgentService.createSession(userId, projectId, req.body || {});
-    return res.json({ session });
+    return res.json(buildAgentSessionPayload({ session }));
   } catch (error) {
     console.error('[ResearchOps] createSession failed:', error);
     return res.status(500).json({ error: error.message || 'Failed to create session' });
@@ -3855,7 +3860,7 @@ router.get('/agent-sessions/:sid', async (req, res) => {
     const userId = getUserId(req);
     const result = await interactiveAgentService.getSession(userId, sessionId);
     if (!result) return res.status(404).json({ error: 'Session not found' });
-    return res.json(result);
+    return res.json(buildAgentSessionDetailPayload(result));
   } catch (error) {
     console.error('[ResearchOps] getSession failed:', error);
     return res.status(500).json({ error: 'Failed to get session' });
@@ -3957,7 +3962,7 @@ router.post('/agent-sessions/:sid/stop', requireAuth, async (req, res) => {
     });
 
     const updated = await interactiveAgentService.getSession(userId, sessionId);
-    return res.json(updated || { session: null, activeRun: null });
+    return res.json(buildAgentSessionDetailPayload(updated || {}));
   } catch (error) {
     console.error('[ResearchOps] stopSession failed:', error);
     return res.status(500).json({ error: 'Failed to stop session' });
