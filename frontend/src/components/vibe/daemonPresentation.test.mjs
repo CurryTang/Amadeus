@@ -168,14 +168,21 @@ test('buildBootstrapRuntimeCommands returns labeled rust prototype commands', ()
     runtimeOptions: {
       rustDaemonPrototype: {
         commands: {
+          launcher: 'npm run researchops:rust-daemon',
           http: 'npm run researchops:rust-daemon-serve',
           unix: 'npm run researchops:rust-daemon-serve-unix',
+          verify: 'npm run researchops:verify-rust-daemon-prototype',
         },
       },
     },
   });
 
   assert.deepEqual(items, [
+    {
+      key: 'rust-launcher',
+      label: 'Rust daemon (Launcher)',
+      command: 'npm run researchops:rust-daemon',
+    },
     {
       key: 'rust-http',
       label: 'Rust daemon (HTTP)',
@@ -185,6 +192,11 @@ test('buildBootstrapRuntimeCommands returns labeled rust prototype commands', ()
       key: 'rust-unix',
       label: 'Rust daemon (Unix socket)',
       command: 'npm run researchops:rust-daemon-serve-unix',
+    },
+    {
+      key: 'rust-verify',
+      label: 'Rust daemon (Verify)',
+      command: 'npm run researchops:verify-rust-daemon-prototype',
     },
   ]);
 });

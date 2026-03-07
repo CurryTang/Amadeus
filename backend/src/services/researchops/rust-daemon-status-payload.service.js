@@ -36,6 +36,7 @@ function buildRustDaemonPrototypeRuntimeOptions({
       runtime: 'rust',
       status: 'prototype',
       commands: {
+        launcher: 'npm --prefix backend run researchops:rust-daemon',
         http: [
           `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
           `RESEARCHOPS_RUST_DAEMON_TRANSPORT='http'`,
@@ -46,6 +47,7 @@ function buildRustDaemonPrototypeRuntimeOptions({
           `RESEARCHOPS_RUST_DAEMON_TRANSPORT='unix'`,
           `sh ${shellQuote(rustScriptPath)}`,
         ].join(' \\\n'),
+        verify: 'npm --prefix backend run researchops:verify-rust-daemon-prototype',
       },
       env: {
         RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,

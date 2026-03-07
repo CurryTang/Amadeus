@@ -103,8 +103,17 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
     : null;
   const commands = rustPrototype && typeof rustPrototype === 'object' ? rustPrototype.commands : null;
   const items = [];
+  const launcherCommand = cleanString(commands?.launcher);
   const httpCommand = cleanString(commands?.http);
   const unixCommand = cleanString(commands?.unix);
+  const verifyCommand = cleanString(commands?.verify);
+  if (launcherCommand) {
+    items.push({
+      key: 'rust-launcher',
+      label: 'Rust daemon (Launcher)',
+      command: launcherCommand,
+    });
+  }
   if (httpCommand) {
     items.push({
       key: 'rust-http',
@@ -117,6 +126,13 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
       key: 'rust-unix',
       label: 'Rust daemon (Unix socket)',
       command: unixCommand,
+    });
+  }
+  if (verifyCommand) {
+    items.push({
+      key: 'rust-verify',
+      label: 'Rust daemon (Verify)',
+      command: verifyCommand,
     });
   }
   return items;
