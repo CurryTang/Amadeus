@@ -38,6 +38,34 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       : 'No deliverable artifacts yet',
   });
 
+  const observability = runReport?.observability && typeof runReport.observability === 'object'
+    ? runReport.observability
+    : {};
+  const readiness = cleanString(observability?.statuses?.readiness).toLowerCase();
+  const warningCount = Math.max(Number(observability?.counts?.warnings) || 0, 0);
+  if (readiness === 'ready') {
+    rows.push({
+      label: 'Readiness',
+      value: 'Ready',
+    });
+  } else if (readiness === 'needs_attention') {
+    rows.push({
+      label: 'Readiness',
+      value: 'Needs attention',
+    });
+  } else if (readiness === 'pending_outputs') {
+    rows.push({
+      label: 'Readiness',
+      value: 'Pending outputs',
+    });
+  }
+  if (warningCount > 0) {
+    rows.push({
+      label: 'Warnings',
+      value: warningCount === 1 ? '1 warning' : `${warningCount} warnings`,
+    });
+  }
+
   const bridgeRuntime = runReport?.bridgeRuntime && typeof runReport.bridgeRuntime === 'object'
     ? runReport.bridgeRuntime
     : {};

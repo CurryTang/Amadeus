@@ -92,3 +92,29 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare Evidence', value: '1 deliverable artifact' },
   ]);
 });
+
+test('buildNodeReviewSummary surfaces observability readiness and warning counts when present', () => {
+  const rows = buildNodeReviewSummary(
+    {},
+    {},
+    {
+      highlights: {
+        deliverableArtifactIds: ['art_summary'],
+      },
+      observability: {
+        statuses: {
+          readiness: 'needs_attention',
+        },
+        counts: {
+          warnings: 2,
+        },
+      },
+    }
+  );
+
+  assert.deepEqual(rows, [
+    { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Readiness', value: 'Needs attention' },
+    { label: 'Warnings', value: '2 warnings' },
+  ]);
+});

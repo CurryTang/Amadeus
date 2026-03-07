@@ -39,6 +39,7 @@ const {
 } = require('../../services/researchops/run-checkpoint-payload.service');
 const { buildRunEventListPayload } = require('../../services/researchops/run-event-list-payload.service');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
+const { buildRunObservabilityPayload } = require('../../services/researchops/run-observability-payload.service');
 const { buildRunStepListPayload } = require('../../services/researchops/run-step-list-payload.service');
 const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const {
@@ -679,6 +680,42 @@ async function loadRunReportResources(userId, runId) {
   };
 }
 
+async function loadRunReportInlineData(artifacts = [], includeInline = false) {
+  let summaryText = null;
+  let manifest = null;
+  if (!includeInline) {
+    return { summaryText, manifest };
+  }
+  const summaryArtifact = artifacts.find((item) => item.kind === 'run_summary_md') || null;
+  const manifestArtifact = artifacts.find((item) => item.kind === 'result_manifest') || null;
+  if (summaryArtifact?.objectKey) {
+    const buffer = await s3Service.downloadBuffer(summaryArtifact.objectKey).catch(() => null);
+    summaryText = buffer ? buffer.toString('utf8') : null;
+  } else {
+    summaryText = summaryArtifact?.metadata?.inlinePreview || null;
+  }
+  if (manifestArtifact?.objectKey) {
+    const buffer = await s3Service.downloadBuffer(manifestArtifact.objectKey).catch(() => null);
+    if (buffer) {
+      try {
+        manifest = JSON.parse(buffer.toString('utf8'));
+      } catch (_) {
+        manifest = null;
+      }
+    }
+  } else {
+    const preview = manifestArtifact?.metadata?.inlinePreview;
+    if (preview) {
+      try {
+        manifest = JSON.parse(preview);
+      } catch (_) {
+        manifest = null;
+      }
+    }
+  }
+  return { summaryText, manifest };
+}
+
 router.get('/runs/:runId/report', async (req, res) => {
   try {
     const userId = getUserId(req);
@@ -691,38 +728,7 @@ router.get('/runs/:runId/report', async (req, res) => {
       store: researchOpsStore,
     });
 
-    const includeInline = req.query.inline === 'true';
-    let summaryText = null;
-    let manifest = null;
-    const summaryArtifact = artifacts.find((item) => item.kind === 'run_summary_md') || null;
-    const manifestArtifact = artifacts.find((item) => item.kind === 'result_manifest') || null;
-    if (includeInline) {
-      if (summaryArtifact?.objectKey) {
-        const buffer = await s3Service.downloadBuffer(summaryArtifact.objectKey).catch(() => null);
-        summaryText = buffer ? buffer.toString('utf8') : null;
-      } else {
-        summaryText = summaryArtifact?.metadata?.inlinePreview || null;
-      }
-      if (manifestArtifact?.objectKey) {
-        const buffer = await s3Service.downloadBuffer(manifestArtifact.objectKey).catch(() => null);
-        if (buffer) {
-          try {
-            manifest = JSON.parse(buffer.toString('utf8'));
-          } catch (_) {
-            manifest = null;
-          }
-        }
-      } else {
-        const preview = manifestArtifact?.metadata?.inlinePreview;
-        if (preview) {
-          try {
-            manifest = JSON.parse(preview);
-          } catch (_) {
-            manifest = null;
-          }
-        }
-      }
-    }
+    const { summaryText, manifest } = await loadRunReportInlineData(artifacts, req.query.inline === 'true');
 
     return res.json(buildRunReportPayload({
       run,
@@ -738,6 +744,36 @@ router.get('/runs/:runId/report', async (req, res) => {
     console.error('[ResearchOps] getRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
     return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch run report') });
+  }
+});
+
+router.get('/runs/:runId/observability', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const runId = String(req.params.runId || '').trim();
+    const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+    const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
+      userId,
+      run,
+      store: researchOpsStore,
+    });
+    const { summaryText, manifest } = await loadRunReportInlineData(artifacts, req.query.inline === 'true');
+    const report = buildRunReportPayload({
+      run,
+      steps,
+      artifacts,
+      checkpoints,
+      summaryText,
+      manifest,
+      bridgeRuntime,
+      mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
+    });
+    return res.json(buildRunObservabilityPayload({ report }));
+  } catch (error) {
+    console.error('[ResearchOps] getRunObservability failed:', error);
+    if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch run observability') });
   }
 });
 

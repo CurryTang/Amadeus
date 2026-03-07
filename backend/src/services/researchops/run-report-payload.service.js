@@ -6,6 +6,7 @@ const { deriveRunWorkspacePath, findRunReportHighlights } = require('./run-repor
 const { buildAttemptViewFromRun } = require('./attempt-view.service');
 const { buildRunExecutionView } = require('./execution-view.service');
 const { buildRunFollowUpView } = require('./follow-up-view.service');
+const { buildRunObservabilityView } = require('./run-observability-view.service');
 const { buildRunOutputContractView } = require('./output-contract-view.service');
 const { buildEnvSnapshotView, buildWorkspaceSnapshotView } = require('./snapshot-view.service');
 
@@ -29,6 +30,8 @@ function buildRunReportPayload({
   const list = Array.isArray(artifacts) ? artifacts : [];
   const attempt = buildAttemptViewFromRun(run);
   const normalizedBridgeRuntime = buildBridgeRuntimeView(bridgeRuntime);
+  const normalizedHighlights = findRunReportHighlights(list);
+  const contract = buildRunOutputContractView(run, manifest);
   return {
     run,
     attempt,
@@ -43,8 +46,17 @@ function buildRunReportPayload({
     workspaceSnapshot: buildWorkspaceSnapshotView(run, list, runWorkspacePath),
     envSnapshot: buildEnvSnapshotView(run),
     followUp: buildRunFollowUpView(run),
-    contract: buildRunOutputContractView(run, manifest),
-    highlights: findRunReportHighlights(list),
+    contract,
+    highlights: normalizedHighlights,
+    observability: buildRunObservabilityView({
+      steps,
+      artifacts: list,
+      checkpoints,
+      summaryText,
+      manifest,
+      highlights: normalizedHighlights,
+      contract,
+    }),
     bridgeRuntime: normalizedBridgeRuntime && Object.keys(normalizedBridgeRuntime).length > 0 ? normalizedBridgeRuntime : null,
     taskActions: buildBridgeDaemonTaskActions({
       serverId: normalizedBridgeRuntime?.serverId,

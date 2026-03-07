@@ -232,3 +232,54 @@ test('buildRunReportPayload derives a remote workspace path when metadata is mis
     path: '/tmp/researchops-runs/run_remote',
   });
 });
+
+test('buildRunReportPayload exposes a normalized observability view', () => {
+  const payload = buildRunReportPayload({
+    run: {
+      id: 'run_obsv',
+      projectId: 'proj_1',
+      provider: 'codex',
+      runType: 'EXPERIMENT',
+      status: 'SUCCEEDED',
+      outputContract: {
+        summaryRequired: true,
+      },
+    },
+    steps: [{ id: 'step_1' }],
+    artifacts: [
+      { id: 'art_summary', kind: 'run_summary_md' },
+      { id: 'art_final', kind: 'agent_final_json' },
+    ],
+    checkpoints: [{ id: 'cp_1', status: 'PENDING' }],
+    summaryText: 'Done.',
+    manifest: {
+      summary: {
+        tableCount: 1,
+        figureCount: 0,
+        metricArtifactCount: 2,
+      },
+      observability: {
+        sinks: {
+          wandb: { url: 'https://wandb.example/run_obsv' },
+        },
+        warnings: ['wandb adapter failed: retry budget exhausted'],
+      },
+      contractValidation: {
+        ok: false,
+        missingTables: ['metrics'],
+        missingFigures: [],
+      },
+    },
+  });
+
+  assert.equal(payload.observability.counts.steps, 1);
+  assert.equal(payload.observability.counts.deliverables, 2);
+  assert.equal(payload.observability.counts.warnings, 3);
+  assert.equal(payload.observability.statuses.readiness, 'needs_attention');
+  assert.deepEqual(payload.observability.sinkProviders, ['wandb']);
+  assert.deepEqual(payload.observability.warnings, [
+    '1 checkpoints pending review',
+    'Contract validation failed',
+    'wandb adapter failed: retry budget exhausted',
+  ]);
+});

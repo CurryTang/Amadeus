@@ -9,6 +9,21 @@ function cleanNumber(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function formatReadiness(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'needs_attention') return 'Needs attention';
+  if (normalized === 'pending_outputs') return 'Pending outputs';
+  if (normalized === 'ready') return 'Ready';
+  return '';
+}
+
+function formatContractStatus(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'validated') return 'Validated';
+  if (normalized === 'failing') return 'Validation failed';
+  return '';
+}
+
 function findArtifactById(artifacts = [], artifactId = '') {
   const targetId = cleanString(artifactId);
   if (!targetId) return null;
@@ -190,6 +205,66 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
 }
 
 function buildRunObservabilitySummary(run = {}, runReport = {}) {
+  const observability = runReport?.observability && typeof runReport.observability === 'object'
+    ? runReport.observability
+    : null;
+  if (observability) {
+    const counts = observability?.counts && typeof observability.counts === 'object'
+      ? observability.counts
+      : {};
+    const statuses = observability?.statuses && typeof observability.statuses === 'object'
+      ? observability.statuses
+      : {};
+    const sinkProviders = Array.isArray(observability.sinkProviders)
+      ? observability.sinkProviders.map((item) => cleanString(item)).filter(Boolean)
+      : [];
+    const warnings = Array.isArray(observability.warnings)
+      ? observability.warnings.map((item) => cleanString(item)).filter(Boolean)
+      : [];
+    const rows = [];
+    const readinessLabel = formatReadiness(statuses.readiness);
+    const contractLabel = formatContractStatus(statuses.contract);
+    if (readinessLabel) {
+      rows.push({ label: 'Readiness', value: readinessLabel });
+    }
+    if (cleanNumber(counts.steps) || counts.steps === 0) {
+      if (cleanNumber(counts.steps) || Number(counts.steps) === 0) {
+        rows.push({ label: 'Steps', value: `${Number(counts.steps) || 0} recorded` });
+      }
+    }
+    if (cleanNumber(counts.artifacts) || Number(counts.artifacts) === 0) {
+      rows.push({ label: 'Artifacts', value: `${Number(counts.artifacts) || 0} captured` });
+    }
+    if (cleanNumber(counts.checkpoints) || Number(counts.checkpoints) > 0) {
+      const pending = Math.max(Number(counts.pendingCheckpoints) || 0, 0);
+      const resolved = Math.max(Number(counts.resolvedCheckpoints) || 0, 0);
+      if ((Number(counts.checkpoints) || 0) > 0) {
+        rows.push({
+          label: 'Checkpoints',
+          value: pending > 0 ? `${pending} pending · ${resolved} resolved` : `${resolved} resolved`,
+        });
+      }
+    }
+    if (sinkProviders.length > 0) {
+      rows.push({ label: 'Sinks', value: sinkProviders.join(', ') });
+    }
+    if (contractLabel) {
+      rows.push({ label: 'Contract', value: contractLabel });
+    }
+    if ((Number(counts.deliverables) || 0) > 0) {
+      rows.push({ label: 'Deliverables', value: `${Number(counts.deliverables) || 0} captured` });
+    }
+    if (warnings.length > 0) {
+      const preview = warnings.slice(0, 2).join(' · ');
+      const extraCount = Math.max(warnings.length - 2, 0);
+      rows.push({
+        label: 'Warnings',
+        value: extraCount > 0 ? `${preview} +${extraCount} more` : preview,
+      });
+    }
+    return rows;
+  }
+
   const steps = Array.isArray(runReport?.steps) ? runReport.steps : [];
   const artifacts = Array.isArray(runReport?.artifacts) ? runReport.artifacts : [];
   const checkpoints = Array.isArray(runReport?.checkpoints) ? runReport.checkpoints : [];
@@ -252,6 +327,9 @@ function deriveRunCompareTargetId(run = {}, runReport = {}) {
 function buildRunCompareSummary(comparePayload = {}) {
   const other = comparePayload?.other && typeof comparePayload.other === 'object' ? comparePayload.other : {};
   const relation = comparePayload?.relation && typeof comparePayload.relation === 'object' ? comparePayload.relation : {};
+  const observability = other?.report?.observability && typeof other.report.observability === 'object'
+    ? other.report.observability
+    : {};
   const relatedRunIds = Array.isArray(relation.relatedRunIds)
     ? relation.relatedRunIds.map((item) => cleanString(item)).filter(Boolean)
     : [];
@@ -268,6 +346,10 @@ function buildRunCompareSummary(comparePayload = {}) {
     otherStatus: cleanString(other?.run?.status).toUpperCase() || 'UNKNOWN',
     otherNodeTitle: cleanString(other?.attempt?.treeNodeTitle),
     otherSummary: cleanString(other?.report?.summary),
+    otherReadiness: formatReadiness(observability?.statuses?.readiness),
+    otherWarnings: Math.max(Number(observability?.counts?.warnings) || 0, 0) > 0
+      ? `${Math.max(Number(observability?.counts?.warnings) || 0, 0)} warnings`
+      : '',
     sharedParentRunsLabel: sharedParentRunIds.join(', '),
     relatedRunsLabel: relatedRunIds.join(', '),
     deliverableCount: deliverableArtifactIds.length,

@@ -56,6 +56,14 @@ test('buildRunComparePayload exposes comparable run/report summaries', () => {
         finalOutputArtifactId: null,
         deliverableArtifactIds: ['artifact_summary_2'],
       },
+      observability: {
+        statuses: {
+          readiness: 'needs_attention',
+        },
+        counts: {
+          warnings: 2,
+        },
+      },
       workspaceSnapshot: { path: '/tmp/researchops-runs/run_other' },
       envSnapshot: { backend: 'container' },
       checkpoints: [{ id: 'cp_2', status: 'failed' }],
@@ -73,6 +81,7 @@ test('buildRunComparePayload exposes comparable run/report summaries', () => {
   assert.deepEqual(payload.relation.sharedParentRunIds, ['run_seed']);
   assert.deepEqual(payload.report.highlights.deliverableArtifactIds, ['artifact_summary_1', 'artifact_final_1']);
   assert.equal(payload.other.report.summary, 'ablation summary');
+  assert.equal(payload.other.report.observability.statuses.readiness, 'needs_attention');
   assert.deepEqual(payload.other.report.checkpointStatuses, ['failed']);
   assert.deepEqual(payload.actions.report, {
     method: 'GET',

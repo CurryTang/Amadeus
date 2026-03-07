@@ -16,6 +16,7 @@ function summarizeReport(report = {}) {
   return {
     summary: cleanString(normalized.summary) || null,
     highlights: asObject(normalized.highlights),
+    observability: normalized.observability || null,
     workspaceSnapshot: normalized.workspaceSnapshot || null,
     envSnapshot: normalized.envSnapshot || null,
     checkpointStatuses: checkpoints

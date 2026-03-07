@@ -222,6 +222,44 @@ test('buildRunObservabilitySummary exposes step, artifact, checkpoint, and outpu
   ]);
 });
 
+test('buildRunObservabilitySummary prefers normalized observability rows when available', () => {
+  const summary = buildRunObservabilitySummary(BASE_RUN, {
+    observability: {
+      counts: {
+        steps: 3,
+        artifacts: 4,
+        deliverables: 2,
+        checkpoints: 2,
+        pendingCheckpoints: 1,
+        resolvedCheckpoints: 1,
+        sinks: 2,
+        warnings: 3,
+      },
+      statuses: {
+        readiness: 'needs_attention',
+        contract: 'failing',
+      },
+      sinkProviders: ['tensorboard', 'wandb'],
+      warnings: [
+        'Contract validation failed',
+        '1 checkpoints pending review',
+        'wandb adapter failed: timeout',
+      ],
+    },
+  });
+
+  assert.deepEqual(summary, [
+    { label: 'Readiness', value: 'Needs attention' },
+    { label: 'Steps', value: '3 recorded' },
+    { label: 'Artifacts', value: '4 captured' },
+    { label: 'Checkpoints', value: '1 pending · 1 resolved' },
+    { label: 'Sinks', value: 'tensorboard, wandb' },
+    { label: 'Contract', value: 'Validation failed' },
+    { label: 'Deliverables', value: '2 captured' },
+    { label: 'Warnings', value: 'Contract validation failed · 1 checkpoints pending review +1 more' },
+  ]);
+});
+
 test('buildRunFollowUpSummary exposes continuation and related-run rows', () => {
   const summary = buildRunFollowUpSummary({
     metadata: {
@@ -277,6 +315,14 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
       },
       report: {
         summary: 'Ablation branch regressed on accuracy.',
+        observability: {
+          statuses: {
+            readiness: 'needs_attention',
+          },
+          counts: {
+            warnings: 2,
+          },
+        },
         highlights: {
           deliverableArtifactIds: ['art_summary'],
         },
@@ -294,6 +340,8 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherStatus: 'FAILED',
     otherNodeTitle: 'Evaluation branch',
     otherSummary: 'Ablation branch regressed on accuracy.',
+    otherReadiness: 'Needs attention',
+    otherWarnings: '2 warnings',
     sharedParentRunsLabel: 'run_seed',
     relatedRunsLabel: 'run_seed, run_other',
     deliverableCount: 1,

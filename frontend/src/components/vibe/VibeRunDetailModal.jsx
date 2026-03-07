@@ -237,6 +237,18 @@ function VibeRunDetailModal({
                         <dd>{compareSummary.otherNodeTitle}</dd>
                       </div>
                     )}
+                    {compareSummary.otherReadiness && (
+                      <div>
+                        <dt>Readiness</dt>
+                        <dd>{compareSummary.otherReadiness}</dd>
+                      </div>
+                    )}
+                    {compareSummary.otherWarnings && (
+                      <div>
+                        <dt>Warnings</dt>
+                        <dd>{compareSummary.otherWarnings}</dd>
+                      </div>
+                    )}
                     <div>
                       <dt>Same Node</dt>
                       <dd>{compareSummary.sameNode ? 'Yes' : 'No'}</dd>

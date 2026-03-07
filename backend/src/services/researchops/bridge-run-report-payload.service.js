@@ -72,6 +72,7 @@ function buildBridgeRunReportPayload({ report = null, bridgeRuntime = null } = {
     },
     summary: cleanString(source.summary) || null,
     highlights,
+    observability: source.observability || null,
     counts: {
       artifacts: Array.isArray(source.artifacts) ? source.artifacts.length : 0,
       deliverables: deliverableArtifactIds.length,
