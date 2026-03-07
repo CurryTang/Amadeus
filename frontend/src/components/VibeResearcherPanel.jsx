@@ -23,6 +23,7 @@ import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
 import { buildObservedSessionActionMessage } from './vibe/observedSessionActionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { getContextPackViewForRun } from './vibe/contextPackApiResponse';
+import { buildClientDeviceOption, filterOnlineClientDevices } from './vibe/daemonPresentation';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
@@ -1528,9 +1529,10 @@ function VibeResearcherPanel({
     }
   }, [apiUrl, headers, projectClientDeviceId]);
 
-  const onlineClientDevices = useMemo(() => clientDevices.filter(
-    (device) => String(device?.status || '').trim().toUpperCase() === 'ONLINE'
-  ), [clientDevices]);
+  const onlineClientDevices = useMemo(
+    () => filterOnlineClientDevices(clientDevices),
+    [clientDevices],
+  );
 
   const ensureClientBootstrapHostname = useCallback(() => {
     if (clientBootstrapRequestedHostname.trim()) return clientBootstrapRequestedHostname.trim();
@@ -5543,11 +5545,14 @@ function VibeResearcherPanel({
                         <option value="">
                           {loadingClientDevices ? 'Loading client devices…' : 'Select client device'}
                         </option>
-                        {clientDevices.map((device) => (
-                          <option key={device.id} value={String(device.id)}>
-                            {device.hostname} ({device.status || 'UNKNOWN'})
-                          </option>
-                        ))}
+                        {clientDevices.map((device) => {
+                          const option = buildClientDeviceOption(device);
+                          return (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          );
+                        })}
                       </select>
                       <div className="vibe-inline-actions">
                         <button
