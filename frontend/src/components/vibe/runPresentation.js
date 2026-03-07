@@ -60,6 +60,41 @@ function buildRecentRunCards(runs = []) {
     });
 }
 
+function buildRecentRunReviewSummary(runs = []) {
+  const items = Array.isArray(runs) ? runs : [];
+  let activeCount = 0;
+  let attentionCount = 0;
+  let completedCount = 0;
+  items.forEach((run) => {
+    const status = cleanString(run?.status).toUpperCase();
+    if (['RUNNING', 'QUEUED', 'PENDING'].includes(status)) {
+      activeCount += 1;
+    } else if (status === 'SUCCEEDED') {
+      completedCount += 1;
+    } else if (status === 'FAILED' || status === 'CANCELLED') {
+      attentionCount += 1;
+    }
+    if (run?.contract?.ok === false && !['FAILED', 'CANCELLED'].includes(status)) {
+      attentionCount += 1;
+    }
+  });
+  let status = 'idle';
+  if (attentionCount > 0) {
+    status = 'needs_attention';
+  } else if (activeCount > 0) {
+    status = 'active';
+  } else if (completedCount > 0) {
+    status = 'stable';
+  }
+  return {
+    totalCount: items.length,
+    activeCount,
+    attentionCount,
+    completedCount,
+    status,
+  };
+}
+
 function filterRunsForSelectedNode(runs = [], selectedNodeId = '') {
   if (!Array.isArray(runs)) return [];
   const targetNodeId = cleanString(selectedNodeId);
@@ -83,6 +118,7 @@ function buildContinuationChip(run = {}) {
 }
 
 export {
+  buildRecentRunReviewSummary,
   buildContinuationChip,
   buildRecentRunCards,
   filterRunsForSelectedNode,

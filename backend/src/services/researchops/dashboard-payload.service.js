@@ -3,6 +3,7 @@
 const { buildIdeaListPayload } = require('./idea-payload.service');
 const { buildProjectListPayload } = require('./project-location.service');
 const { buildQueueListPayload } = require('./queue-payload.service');
+const { buildRunReviewSummary } = require('./run-review-summary.service');
 const { buildRunListPayload } = require('./run-list-payload.service');
 const { buildSkillListPayload } = require('./skill-payload.service');
 
@@ -23,6 +24,12 @@ function buildDashboardPayload({
 } = {}) {
   const normalizedProjectLimit = normalizeLimit(projectLimit, 80);
   const normalizedItemLimit = normalizeLimit(itemLimit, 120);
+  const normalizedRuns = buildRunListPayload({
+    page: {
+      items: runs,
+    },
+    limit: normalizedItemLimit,
+  }).items;
   return {
     projects: buildProjectListPayload({
       items: projects,
@@ -36,12 +43,8 @@ function buildDashboardPayload({
       items: queue,
       limit: normalizedItemLimit,
     }).items,
-    runs: buildRunListPayload({
-      page: {
-        items: runs,
-      },
-      limit: normalizedItemLimit,
-    }).items,
+    runs: normalizedRuns,
+    reviewSummary: buildRunReviewSummary(normalizedRuns),
     skills: buildSkillListPayload({
       items: skills,
     }).items,

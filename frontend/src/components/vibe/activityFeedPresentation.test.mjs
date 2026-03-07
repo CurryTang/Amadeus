@@ -53,3 +53,25 @@ test('buildActivityFeed preserves raw card payload on merged items', () => {
   assert.equal(result.items[0].card, runCard);
   assert.equal(result.items[1].card, sessionCard);
 });
+
+test('buildActivityFeed preserves run review summary metadata when provided', () => {
+  const result = buildActivityFeed({
+    runCards: [{ id: 'run_1', title: 'Run 1' }],
+    observedSessionCards: [],
+    runReviewSummary: {
+      totalCount: 1,
+      activeCount: 0,
+      attentionCount: 1,
+      completedCount: 0,
+      status: 'needs_attention',
+    },
+  });
+
+  assert.deepEqual(result.runReviewSummary, {
+    totalCount: 1,
+    activeCount: 0,
+    attentionCount: 1,
+    completedCount: 0,
+    status: 'needs_attention',
+  });
+});

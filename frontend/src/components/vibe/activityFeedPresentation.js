@@ -1,6 +1,7 @@
 export function buildActivityFeed({
   runCards = [],
   observedSessionCards = [],
+  runReviewSummary = null,
 } = {}) {
   const runs = (Array.isArray(runCards) ? runCards : []).map((card) => ({
     id: card?.id || '',
@@ -17,5 +18,6 @@ export function buildActivityFeed({
     items: [...runs, ...sessions],
     runCount: runs.length,
     sessionCount: sessions.length,
+    runReviewSummary: runReviewSummary && typeof runReviewSummary === 'object' ? runReviewSummary : null,
   };
 }

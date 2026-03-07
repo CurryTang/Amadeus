@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildRecentRunReviewSummary,
   buildRecentRunCards,
   buildContinuationChip,
   filterRunsForSelectedNode,
@@ -98,4 +99,20 @@ test('filterRunsForSelectedNode narrows to the active node but falls back when e
   assert.deepEqual(filterRunsForSelectedNode(runs, 'node_a').map((item) => item.id), ['run_a']);
   assert.deepEqual(filterRunsForSelectedNode(runs, 'node_b').map((item) => item.id), ['run_b']);
   assert.deepEqual(filterRunsForSelectedNode(runs, 'node_missing').map((item) => item.id), ['run_a', 'run_b']);
+});
+
+test('buildRecentRunReviewSummary groups active and attention states for activity headers', () => {
+  const summary = buildRecentRunReviewSummary([
+    { id: 'run_a', status: 'RUNNING' },
+    { id: 'run_b', status: 'FAILED' },
+    { id: 'run_c', status: 'SUCCEEDED', contract: { ok: false } },
+  ]);
+
+  assert.deepEqual(summary, {
+    totalCount: 3,
+    activeCount: 1,
+    attentionCount: 2,
+    completedCount: 1,
+    status: 'needs_attention',
+  });
 });

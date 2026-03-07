@@ -4,6 +4,7 @@ function VibeActivityFeedStrip({
   items,
   runCount = 0,
   sessionCount = 0,
+  runReviewSummary = null,
   selectedRunId = '',
   loadingSessions = false,
   refreshingSessionId = '',
@@ -13,13 +14,26 @@ function VibeActivityFeedStrip({
   onRefreshSession,
 }) {
   const feedItems = Array.isArray(items) ? items : [];
+  const reviewSummary = runReviewSummary && typeof runReviewSummary === 'object' ? runReviewSummary : null;
+  const reviewBits = [];
+  if (reviewSummary && Number(reviewSummary.activeCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.activeCount)} active`);
+  }
+  if (reviewSummary && Number(reviewSummary.attentionCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.attentionCount)} attention`);
+  }
+  if (reviewSummary && Number(reviewSummary.completedCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.completedCount)} completed`);
+  }
 
   return (
     <section className="vibe-activity-feed vibe-card vibe-card--neo">
       <div className="vibe-card-head">
         <h3>Activity</h3>
         <div className="vibe-activity-feed-head-meta">
-          <span className="vibe-activity-feed-chip">Runs {runCount} · {scopeLabel}</span>
+          <span className="vibe-activity-feed-chip">
+            Runs {runCount} · {scopeLabel}{reviewBits.length > 0 ? ` · ${reviewBits.join(' · ')}` : ''}
+          </span>
           <span className="vibe-activity-feed-chip">
             {loadingSessions ? 'Sessions Loading…' : `Sessions ${sessionCount}`}
           </span>

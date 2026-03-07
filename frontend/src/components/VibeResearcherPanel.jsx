@@ -38,7 +38,7 @@ import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
-import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
+import { buildRecentRunCards, buildRecentRunReviewSummary, filterRunsForSelectedNode } from './vibe/runPresentation';
 import { buildRunCompareOptions, deriveRunCompareTargetId } from './vibe/runDetailView';
 import { getTreeExecutionErrorMessage } from './vibe/treeExecutionErrorPresentation';
 import { buildTreeNodeActionMessage } from './vibe/treeNodeActionPresentation';
@@ -441,6 +441,7 @@ function VibeResearcherPanel({
   const [ideas, setIdeas] = useState([]);
   const [queue, setQueue] = useState([]);
   const [runs, setRuns] = useState([]);
+  const [dashboardReviewSummary, setDashboardReviewSummary] = useState(null);
   const [observedSessions, setObservedSessions] = useState([]);
   const [skills, setSkills] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -687,6 +688,11 @@ function VibeResearcherPanel({
         nextQueue = dashboardRes.data?.queue || [];
         nextRuns = dashboardRes.data?.runs || [];
         nextSkills = dashboardRes.data?.skills || [];
+        setDashboardReviewSummary(
+          dashboardRes.data?.reviewSummary && typeof dashboardRes.data.reviewSummary === 'object'
+            ? dashboardRes.data.reviewSummary
+            : null
+        );
         if (nextRuns.length === 0) {
           const runsRes = await axios.get(`${apiUrl}/researchops/runs?limit=200`, { headers });
           nextRuns = runsRes.data?.items || [];
@@ -705,6 +711,7 @@ function VibeResearcherPanel({
         nextQueue = queueRes.data?.items || [];
         nextRuns = runsRes.data?.items || [];
         nextSkills = skillsRes.data?.items || [];
+        setDashboardReviewSummary(null);
       }
 
       const stickyProjectId = String(selectedProjectRef.current || '').trim();
@@ -3237,8 +3244,14 @@ function VibeResearcherPanel({
     [scopedVisibleRuns]
   );
   const activityFeed = useMemo(
-    () => buildActivityFeed({ runCards: recentRunCards, observedSessionCards }),
-    [observedSessionCards, recentRunCards]
+    () => buildActivityFeed({
+      runCards: recentRunCards,
+      observedSessionCards,
+      runReviewSummary: !selectedNodeId && dashboardReviewSummary
+        ? dashboardReviewSummary
+        : buildRecentRunReviewSummary(scopedVisibleRuns),
+    }),
+    [dashboardReviewSummary, observedSessionCards, recentRunCards, scopedVisibleRuns, selectedNodeId]
   );
   const recentRunsScopeLabel = useMemo(() => {
     if (!selectedNodeId) return 'Project scope';
@@ -4304,6 +4317,7 @@ function VibeResearcherPanel({
             items={activityFeed.items}
             runCount={activityFeed.runCount}
             sessionCount={activityFeed.sessionCount}
+            runReviewSummary={activityFeed.runReviewSummary}
             selectedRunId={selectedRunId}
             loadingSessions={observedSessionsLoading}
             onOpenRun={handleOpenRunDetail}
