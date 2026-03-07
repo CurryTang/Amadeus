@@ -421,6 +421,47 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
   });
 });
 
+test('buildRunCompareSummary falls back to thin compare run views when report details are absent', () => {
+  const summary = buildRunCompareSummary({
+    other: {
+      run: {
+        id: 'run_other_thin',
+        status: 'SUCCEEDED',
+      },
+      execution: {
+        location: 'remote',
+        backend: 'container',
+        runtimeClass: 'container-guarded',
+      },
+      workspaceSnapshot: {
+        localSnapshot: {
+          kind: 'git_diff',
+        },
+      },
+    },
+    relation: {
+      sameNode: false,
+      relatedRunIds: ['run_other_thin'],
+    },
+  });
+
+  assert.deepEqual(summary, {
+    otherRunId: 'run_other_thin',
+    otherStatus: 'SUCCEEDED',
+    otherNodeTitle: '',
+    otherSummary: '',
+    otherReadiness: '',
+    otherWarnings: '',
+    otherExecutionLocation: 'remote',
+    otherExecutionRuntime: 'container/container-guarded',
+    otherSnapshotBacked: true,
+    sharedParentRunsLabel: '',
+    relatedRunsLabel: 'run_other_thin',
+    deliverableCount: 0,
+    sameNode: false,
+  });
+});
+
 test('buildRunCompareOptions lists related runs with visible titles and stable ids', () => {
   const options = buildRunCompareOptions(
     {

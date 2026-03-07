@@ -353,7 +353,7 @@ function buildRunCompareSummary(comparePayload = {}) {
   const execution = other?.execution && typeof other.execution === 'object' ? other.execution : {};
   const workspaceSnapshot = other?.report?.workspaceSnapshot && typeof other.report.workspaceSnapshot === 'object'
     ? other.report.workspaceSnapshot
-    : {};
+    : (other?.workspaceSnapshot && typeof other.workspaceSnapshot === 'object' ? other.workspaceSnapshot : {});
   const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
     ? workspaceSnapshot.localSnapshot
     : {};

@@ -107,7 +107,9 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     const compareWorkspaceSnapshot = runCompare?.other?.report?.workspaceSnapshot
       && typeof runCompare.other.report.workspaceSnapshot === 'object'
       ? runCompare.other.report.workspaceSnapshot
-      : {};
+      : (runCompare?.other?.workspaceSnapshot && typeof runCompare.other.workspaceSnapshot === 'object'
+        ? runCompare.other.workspaceSnapshot
+        : {});
     const compareLocalSnapshot = compareWorkspaceSnapshot?.localSnapshot
       && typeof compareWorkspaceSnapshot.localSnapshot === 'object'
       ? compareWorkspaceSnapshot.localSnapshot

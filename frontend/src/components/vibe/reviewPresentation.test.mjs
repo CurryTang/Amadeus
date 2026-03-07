@@ -106,6 +106,46 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
   ]);
 });
 
+test('buildNodeReviewSummary falls back to thin compare snapshot views when compare report is absent', () => {
+  const rows = buildNodeReviewSummary(
+    {},
+    {},
+    {},
+    {
+      other: {
+        run: {
+          id: 'run_thin_compare',
+          status: 'SUCCEEDED',
+        },
+        execution: {
+          location: 'remote',
+          backend: 'container',
+          runtimeClass: 'container-guarded',
+        },
+        workspaceSnapshot: {
+          localSnapshot: {
+            kind: 'git_diff',
+          },
+        },
+      },
+      relation: {
+        sameNode: false,
+      },
+    },
+    null
+  );
+
+  assert.deepEqual(rows, [
+    { label: 'Evidence', value: 'No deliverable artifacts yet' },
+    { label: 'Compare', value: 'run_thin_compare' },
+    { label: 'Compare Status', value: 'SUCCEEDED' },
+    { label: 'Compare Execution', value: 'remote' },
+    { label: 'Compare Runtime', value: 'container/container-guarded' },
+    { label: 'Compare Snapshot', value: 'Snapshot-backed' },
+    { label: 'Compare Evidence', value: 'No deliverable artifacts yet' },
+  ]);
+});
+
 test('buildNodeReviewSummary surfaces observability readiness and warning counts when present', () => {
   const rows = buildNodeReviewSummary(
     {},
