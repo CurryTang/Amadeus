@@ -157,4 +157,9 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
     method: 'POST',
     path: '/researchops/runs/run_123/bridge-note',
   });
+  assert.deepEqual(payload.submitHints.bridgeReport, {
+    query: {
+      transport: '"http"|"daemon-task"',
+    },
+  });
 });

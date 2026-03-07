@@ -174,10 +174,12 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
     query: {
       includeContextPack: 'boolean',
       includeReport: 'boolean',
+      transport: '"http"|"daemon-task"',
     },
   });
   assert.deepEqual(payload.submitHints.bridgeRun, {
     body: {
+      transport: '"http"|"daemon-task"',
       force: 'boolean',
       preflightOnly: 'boolean',
       searchTrialCount: 'integer(1..64)',

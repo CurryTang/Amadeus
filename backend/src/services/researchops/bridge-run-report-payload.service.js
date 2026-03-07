@@ -34,6 +34,16 @@ function buildBridgeReportActions(runId = '') {
   };
 }
 
+function buildBridgeReportSubmitHints() {
+  return {
+    bridgeReport: {
+      query: {
+        transport: '"http"|"daemon-task"',
+      },
+    },
+  };
+}
+
 function buildBridgeRunReportPayload({ report = null, bridgeRuntime = null } = {}) {
   const source = asObject(report);
   const normalizedBridgeRuntime = buildBridgeRuntimeView(bridgeRuntime);
@@ -75,6 +85,7 @@ function buildBridgeRunReportPayload({ report = null, bridgeRuntime = null } = {
     },
     bridgeRuntime: normalizedBridgeRuntime && Object.keys(normalizedBridgeRuntime).length > 0 ? normalizedBridgeRuntime : null,
     actions: buildBridgeReportActions(runId),
+    submitHints: buildBridgeReportSubmitHints(),
     taskActions: buildBridgeDaemonTaskActions({
       serverId: normalizedBridgeRuntime?.serverId,
       projectId,

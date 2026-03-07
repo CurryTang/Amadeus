@@ -58,10 +58,12 @@ function buildBridgeSubmitHints() {
       query: {
         includeContextPack: 'boolean',
         includeReport: 'boolean',
+        transport: '"http"|"daemon-task"',
       },
     },
     bridgeRun: {
       body: {
+        transport: '"http"|"daemon-task"',
         force: 'boolean',
         preflightOnly: 'boolean',
         searchTrialCount: 'integer(1..64)',
