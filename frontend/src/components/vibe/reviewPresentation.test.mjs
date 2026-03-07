@@ -71,7 +71,15 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
           id: 'run_alt',
           status: 'FAILED',
         },
+        execution: {
+          location: 'remote',
+        },
         report: {
+          workspaceSnapshot: {
+            localSnapshot: {
+              kind: 'workspace_patch',
+            },
+          },
           highlights: {
             deliverableArtifactIds: ['art_alt'],
           },
@@ -89,6 +97,8 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare', value: 'run_alt' },
     { label: 'Compare Status', value: 'FAILED' },
     { label: 'Compare Node', value: 'Same node' },
+    { label: 'Compare Execution', value: 'remote' },
+    { label: 'Compare Snapshot', value: 'Snapshot-backed' },
     { label: 'Compare Evidence', value: '1 deliverable artifact' },
   ]);
 });

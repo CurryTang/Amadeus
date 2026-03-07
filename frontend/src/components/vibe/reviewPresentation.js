@@ -99,6 +99,15 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
 
   const otherRunId = cleanString(runCompare?.other?.run?.id);
   if (otherRunId) {
+    const otherExecutionLocation = cleanString(runCompare?.other?.execution?.location);
+    const compareWorkspaceSnapshot = runCompare?.other?.report?.workspaceSnapshot
+      && typeof runCompare.other.report.workspaceSnapshot === 'object'
+      ? runCompare.other.report.workspaceSnapshot
+      : {};
+    const compareLocalSnapshot = compareWorkspaceSnapshot?.localSnapshot
+      && typeof compareWorkspaceSnapshot.localSnapshot === 'object'
+      ? compareWorkspaceSnapshot.localSnapshot
+      : {};
     rows.push({
       label: 'Compare',
       value: otherRunId,
@@ -111,6 +120,18 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       rows.push({
         label: 'Compare Node',
         value: 'Same node',
+      });
+    }
+    if (otherExecutionLocation) {
+      rows.push({
+        label: 'Compare Execution',
+        value: otherExecutionLocation,
+      });
+    }
+    if (cleanString(compareLocalSnapshot.kind) || cleanString(compareLocalSnapshot.note)) {
+      rows.push({
+        label: 'Compare Snapshot',
+        value: 'Snapshot-backed',
       });
     }
     const otherDeliverableArtifactIds = Array.isArray(runCompare?.other?.report?.highlights?.deliverableArtifactIds)
