@@ -6,14 +6,19 @@ const { buildRunPayload } = require('./run-payload.service');
 function buildBridgeTreeRunPayload({
   projectId = '',
   nodeId = '',
+  bridgeRuntime = null,
   result = {},
 } = {}) {
   const source = result && typeof result === 'object' ? result : {};
+  const normalizedBridgeRuntime = bridgeRuntime && typeof bridgeRuntime === 'object'
+    ? bridgeRuntime
+    : null;
   const payload = {
     bridgeVersion: 'v0',
     projectId,
     nodeId,
     ...source,
+    ...(normalizedBridgeRuntime ? { bridgeRuntime: normalizedBridgeRuntime } : {}),
   };
   if (payload.run && typeof payload.run === 'object') {
     const runPayload = buildRunPayload({ run: payload.run });

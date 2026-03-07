@@ -1274,6 +1274,28 @@ function assertClientDaemonSupportsProjectBootstrap(device = null) {
   ]);
 }
 
+function buildProjectBridgeRuntime(project = {}, device = null) {
+  const locationType = cleanString(project?.locationType).toLowerCase();
+  const clientMode = cleanString(project?.clientMode).toLowerCase();
+  if (locationType !== 'client' || clientMode !== 'agent') {
+    return null;
+  }
+  const serverId = cleanString(project?.clientDeviceId)
+    || cleanString(device?.id)
+    || cleanString(device?.serverId);
+  const supportedTaskTypes = Array.isArray(device?.supportedTaskTypes) && device.supportedTaskTypes.length > 0
+    ? device.supportedTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+    : ['project.checkPath', 'project.ensurePath', 'project.ensureGit'];
+  const missingBridgeTaskTypes = missingDaemonTaskTypes(device, OPTIONAL_BRIDGE_DAEMON_TASK_TYPES);
+  return {
+    executionTarget: 'client-daemon',
+    serverId: serverId || null,
+    supportsLocalBridgeWorkflow: missingBridgeTaskTypes.length === 0,
+    missingBridgeTaskTypes,
+    supportedTaskTypes,
+  };
+}
+
 function buildClientDaemonBootstrapActions(device = null, serverId = '') {
   const safeServerId = cleanString(serverId) || cleanString(device?.id) || cleanString(device?.serverId);
   const actions = {};
@@ -6846,6 +6868,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
     if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+    const bridgeRuntime = project?.locationType === 'client' && project?.clientMode === 'agent'
+      ? buildProjectBridgeRuntime(project, await getClientDeviceById(userId, project?.clientDeviceId))
+      : null;
 
     const result = await executeTreeNodeRun({
       userId,
@@ -6913,6 +6938,7 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
     return res.status(preflightOnly ? 200 : 202).json(buildBridgeTreeRunPayload({
       projectId: project.id,
       nodeId,
+      bridgeRuntime,
       result,
     }));
   } catch (error) {
@@ -7162,6 +7188,9 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
     if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
 
     const { project, server } = await resolveProjectContext(userId, projectId);
+    const bridgeRuntime = project?.locationType === 'client' && project?.clientMode === 'agent'
+      ? buildProjectBridgeRuntime(project, await getClientDeviceById(userId, project?.clientDeviceId))
+      : null;
     const [{ plan }, stateRead] = await Promise.all([
       treePlanService.readProjectPlan({ project, server }),
       treeStateService.readProjectState({ project, server }),
@@ -7210,6 +7239,7 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
       blocking: evaluateNodeBlocking(node, state),
       run,
       contextPack,
+      bridgeRuntime,
       reportSteps,
       reportArtifacts,
       reportCheckpoints,
@@ -7647,5 +7677,6 @@ router.getObservedSessionForProject = getObservedSessionForProject;
 router.refreshObservedSessionForProject = refreshObservedSessionForProject;
 router.assertClientDaemonSupportsTasks = assertClientDaemonSupportsTasks;
 router.assertClientDaemonSupportsProjectBootstrap = assertClientDaemonSupportsProjectBootstrap;
+router.buildProjectBridgeRuntime = buildProjectBridgeRuntime;
 
 module.exports = router;

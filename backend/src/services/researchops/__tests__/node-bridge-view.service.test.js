@@ -39,6 +39,21 @@ test('buildNodeBridgeView can inline bridge report when run evidence is provided
         runId: 'run_eval',
       },
     },
+    bridgeRuntime: {
+      executionTarget: 'client-daemon',
+      supportsLocalBridgeWorkflow: true,
+      missingBridgeTaskTypes: [],
+      supportedTaskTypes: [
+        'project.checkPath',
+        'project.ensurePath',
+        'project.ensureGit',
+        'bridge.fetchNodeContext',
+        'bridge.fetchContextPack',
+        'bridge.submitNodeRun',
+        'bridge.fetchRunReport',
+        'bridge.submitRunNote',
+      ],
+    },
     reportArtifacts: [{ id: 'art_summary', kind: 'run_summary_md' }],
     reportCheckpoints: [{ id: 'chk_1', status: 'PENDING' }],
   });
@@ -51,4 +66,5 @@ test('buildNodeBridgeView can inline bridge report when run evidence is provided
   assert.equal(payload.capabilities.hasBridgeReport, true);
   assert.equal(payload.capabilities.hasWorkspaceSnapshot, true);
   assert.equal(payload.capabilities.hasLocalSnapshot, true);
+  assert.equal(payload.capabilities.canUseLocalBridgeWorkflow, true);
 });

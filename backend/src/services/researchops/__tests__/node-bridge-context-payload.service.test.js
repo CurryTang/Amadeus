@@ -68,6 +68,13 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
         pendingCheckpoints: 1,
       },
     },
+    bridgeRuntime: {
+      executionTarget: 'client-daemon',
+      serverId: 'srv_client_1',
+      supportsLocalBridgeWorkflow: false,
+      missingBridgeTaskTypes: ['bridge.submitNodeRun'],
+      supportedTaskTypes: ['project.checkPath', 'project.ensurePath', 'project.ensureGit'],
+    },
   });
 
   assert.equal(payload.projectId, 'proj_1');
@@ -84,6 +91,10 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
   assert.equal(payload.capabilities.hasLocalSnapshot, true);
   assert.equal(payload.capabilities.hasEnvSnapshot, true);
   assert.equal(payload.capabilities.hasContractFailures, true);
+  assert.equal(payload.capabilities.canUseLocalBridgeWorkflow, false);
+  assert.deepEqual(payload.capabilities.missingBridgeTaskTypes, ['bridge.submitNodeRun']);
+  assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
+  assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
   assert.deepEqual(payload.actions.bridgeRun, {
     method: 'POST',
     path: '/researchops/projects/proj_1/tree/nodes/node_eval/bridge-run',

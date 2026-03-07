@@ -11,6 +11,7 @@ function buildNodeBridgeView({
   blocking = null,
   run = null,
   contextPack = null,
+  bridgeRuntime = null,
   reportSteps = [],
   reportArtifacts = [],
   reportCheckpoints = [],
@@ -33,6 +34,7 @@ function buildNodeBridgeView({
     run,
     contextPack,
     bridgeReport,
+    bridgeRuntime,
   });
 }
 

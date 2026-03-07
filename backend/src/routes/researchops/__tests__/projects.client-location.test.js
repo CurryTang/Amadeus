@@ -93,6 +93,32 @@ test('rejects client agent project bootstrap when daemon misses required ensure 
   }), /does not support required tasks: project\.ensureGit/i);
 });
 
+test('buildProjectBridgeRuntime derives bridge readiness from a client daemon', () => {
+  const runtime = projectsRouter.buildProjectBridgeRuntime({
+    locationType: 'client',
+    clientMode: 'agent',
+    clientDeviceId: 'srv_client_1',
+  }, {
+    id: 'srv_client_1',
+    supportedTaskTypes: [
+      'project.checkPath',
+      'project.ensurePath',
+      'project.ensureGit',
+      'bridge.fetchNodeContext',
+      'bridge.fetchContextPack',
+      'bridge.submitNodeRun',
+    ],
+  });
+
+  assert.equal(runtime.executionTarget, 'client-daemon');
+  assert.equal(runtime.serverId, 'srv_client_1');
+  assert.equal(runtime.supportsLocalBridgeWorkflow, false);
+  assert.deepEqual(runtime.missingBridgeTaskTypes, [
+    'bridge.fetchRunReport',
+    'bridge.submitRunNote',
+  ]);
+});
+
 test('client agent path-check hides bootstrap actions when daemon cannot ensure path and git', async () => {
   const result = await projectsRouter.buildProjectPathCheckResponse({
     locationType: 'client',

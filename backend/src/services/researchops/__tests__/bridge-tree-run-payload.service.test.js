@@ -9,6 +9,22 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
   const payload = buildBridgeTreeRunPayload({
     projectId: 'proj_1',
     nodeId: 'node_eval',
+    bridgeRuntime: {
+      executionTarget: 'client-daemon',
+      serverId: 'srv_client_1',
+      supportsLocalBridgeWorkflow: true,
+      missingBridgeTaskTypes: [],
+      supportedTaskTypes: [
+        'project.checkPath',
+        'project.ensurePath',
+        'project.ensureGit',
+        'bridge.fetchNodeContext',
+        'bridge.fetchContextPack',
+        'bridge.submitNodeRun',
+        'bridge.fetchRunReport',
+        'bridge.submitRunNote',
+      ],
+    },
     result: {
       mode: 'run',
       run: {
@@ -42,6 +58,9 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
   assert.equal(payload.execution.serverId, 'srv_remote_1');
   assert.equal(payload.followUp.parentRunId, 'run_base');
   assert.deepEqual(payload.contract.requiredArtifacts, ['metrics', 'table']);
+  assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
+  assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
+  assert.equal(payload.bridgeRuntime.supportsLocalBridgeWorkflow, true);
   assert.deepEqual(payload.contextPack, {
     generatedAt: '2026-03-06T12:00:00.000Z',
   });
