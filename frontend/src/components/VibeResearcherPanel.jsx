@@ -24,6 +24,7 @@ import { buildObservedSessionActionMessage } from './vibe/observedSessionActionP
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
+import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
 import { getTreeExecutionErrorMessage } from './vibe/treeExecutionErrorPresentation';
@@ -2338,7 +2339,7 @@ function VibeResearcherPanel({
         },
         { headers }
       );
-      const runId = response.data?.run?.id;
+      const runId = getRunIdFromApiResponse(response.data);
       setAiEditInstruction('');
       setFileMentionOptions([]);
       if (runId) {
@@ -2763,7 +2764,7 @@ function VibeResearcherPanel({
         `${apiUrl}/researchops/runs/${encodeURIComponent(runId)}`,
         { headers }
       );
-      const originalRun = resp.data?.data?.run || resp.data?.run;
+      const originalRun = getRunFromApiResponse(resp.data);
       if (!originalRun) return;
       await axios.post(
         `${apiUrl}/researchops/runs/enqueue-v2`,

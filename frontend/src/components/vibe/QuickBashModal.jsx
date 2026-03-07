@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { getRunIdFromApiResponse } from './runApiResponse';
 
 function QuickBashModal({ apiUrl, headers, projectId, serverId, onClose }) {
   const [cmd, setCmd] = useState('');
@@ -55,7 +56,7 @@ function QuickBashModal({ apiUrl, headers, projectId, serverId, onClose }) {
         },
         { headers }
       );
-      const id = res.data?.data?.run?.id || res.data?.run?.id;
+      const id = getRunIdFromApiResponse(res.data);
       if (!id) throw new Error('No run ID returned');
       setRunId(id);
     } catch (err) {
