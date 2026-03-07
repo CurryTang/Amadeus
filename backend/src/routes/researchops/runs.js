@@ -678,7 +678,7 @@ router.post('/runs/:runId/context-pack/preview', async (req, res) => {
       contextRefs: run.contextRefs || run.metadata?.contextRefs || req.body?.contextRefs || {},
       explicitAssetIds: req.body?.assetIds,
     });
-    return res.json({ pack });
+    return res.json(buildContextPackPayload({ pack, mode: 'legacy' }));
   } catch (error) {
     console.error('[ResearchOps] preview context-pack failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to preview context pack') });

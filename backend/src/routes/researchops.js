@@ -34,6 +34,11 @@ const failureSignatureService = require('../services/researchops/failure-signatu
 const deliverableReportSkillService = require('../services/researchops/deliverable-report-skill.service');
 const codebaseAchievementService = require('../services/researchops/codebase-achievement.service');
 const todoGeneratorService = require('../services/researchops/todo-generator.service');
+const { buildContextPackPayload } = require('../services/researchops/context-pack-payload.service');
+const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
+const { buildRunPayload } = require('../services/researchops/run-payload.service');
+const { buildQueuedRunActionPayload } = require('../services/researchops/queued-run-action-payload.service');
+const { buildRunReportPayload } = require('../services/researchops/run-report-payload.service');
 const {
   buildResearchOpsSshArgs,
   classifySshError,
@@ -4521,11 +4526,11 @@ router.post('/projects/:projectId/files/augment', async (req, res) => {
         cwd: defaultProjectCwd || undefined,
       },
     });
-    return res.status(201).json({
+    return res.status(201).json(buildQueuedRunActionPayload({
       success: true,
       message: 'Augmentation run queued',
       run,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     console.error('[ResearchOps] files/augment failed:', error);
@@ -4848,7 +4853,7 @@ router.post('/runs/:runId/context-pack/preview', async (req, res) => {
       contextRefs: run.contextRefs || run.metadata?.contextRefs || req.body?.contextRefs || {},
       explicitAssetIds: req.body?.assetIds,
     });
-    return res.json({ pack });
+    return res.json(buildContextPackPayload({ pack, mode: 'legacy' }));
   } catch (error) {
     console.error('[ResearchOps] preview context-pack failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to preview context pack') });
@@ -5339,7 +5344,7 @@ router.post('/runs/enqueue-v2', async (req, res) => {
         ? runPayload.metadata
         : {},
     });
-    return res.status(201).json({ run });
+    return res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] enqueueRunV2 failed:', error);
     if (error.code === 'PROJECT_NOT_FOUND') {
@@ -5358,7 +5363,7 @@ router.post('/runs/enqueue', async (req, res) => {
       await enforceExperimentProjectPathPolicy(getUserId(req), projectId, runType);
     }
     const run = await researchOpsStore.enqueueRun(getUserId(req), req.body || {});
-    res.status(201).json({ run });
+    res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] enqueueRun failed:', error);
     if (error.code === 'PROJECT_NOT_FOUND') {
@@ -5378,13 +5383,7 @@ router.get('/runs', async (req, res) => {
       limit,
       cursor,
     });
-    res.json({
-      items: page.items || [],
-      limit,
-      cursor: cursor || null,
-      hasMore: Boolean(page.hasMore),
-      nextCursor: String(page.nextCursor || '') || null,
-    });
+    res.json(buildRunListPayload({ page, limit, cursor }));
   } catch (error) {
     console.error('[ResearchOps] listRuns failed:', error);
     res.status(500).json({ error: 'Failed to list runs' });
@@ -5395,7 +5394,7 @@ router.get('/runs/:runId', async (req, res) => {
   try {
     const run = await researchOpsStore.getRun(getUserId(req), req.params.runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] getRun failed:', error);
     res.status(500).json({ error: 'Failed to fetch run' });
@@ -5412,7 +5411,7 @@ router.post('/runs/:runId/status', async (req, res) => {
       req.body?.payload
     );
     if (!run) return res.status(404).json({ error: 'Run not found' });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] updateRunStatus failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update run status') });
@@ -5423,7 +5422,7 @@ router.post('/runs/:runId/cancel', async (req, res) => {
   try {
     const run = await researchOpsRunner.cancelRun(getUserId(req), req.params.runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] cancelRun failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to cancel run') });
@@ -5435,7 +5434,7 @@ router.post('/runs/:runId/retry', async (req, res) => {
     const run = await researchOpsStore.retryRun(getUserId(req), req.params.runId, {
       reason: req.body?.reason,
     });
-    return res.status(201).json({ run });
+    return res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] retryRun failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -5477,7 +5476,7 @@ router.post('/runs/:runId/workflow/insert', async (req, res) => {
       beforeStepId: req.body?.beforeStepId,
       index: req.body?.index,
     });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] insertRunWorkflowStep failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -5697,14 +5696,15 @@ router.get('/runs/:runId/report', async (req, res) => {
       }
     }
 
-    return res.json({
+    return res.json(buildRunReportPayload({
       run,
       steps,
-      artifacts: artifacts.map((item) => withArtifactDownloadUrl(item, runId)),
+      artifacts,
       checkpoints,
-      summary: summaryText,
+      summaryText,
       manifest,
-    });
+      mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
+    }));
   } catch (error) {
     console.error('[ResearchOps] getRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -7434,7 +7434,7 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
         runIntent,
         routedContext,
       });
-      return res.json({ pack });
+      return res.json(buildContextPackPayload({ pack }));
     } catch (innerError) {
       console.warn('[ResearchOps] routed context pack fallback to legacy builder:', innerError?.message || innerError);
       const pack = await contextPackService.buildContextPack(userId, {
@@ -7442,7 +7442,7 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
         projectId: project.id,
         contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
       });
-      return res.json({ pack, mode: 'legacy' });
+      return res.json(buildContextPackPayload({ pack, mode: 'legacy' }));
     }
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to build context pack'));
