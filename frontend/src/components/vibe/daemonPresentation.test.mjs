@@ -248,6 +248,7 @@ test('buildBootstrapRuntimeCommands also exposes debug probe commands from rust 
       health: 'curl http://127.0.0.1:7788/health',
       runtime: 'curl http://127.0.0.1:7788/runtime',
       taskCatalog: 'curl http://127.0.0.1:7788/task-catalog',
+      snapshotCapture: `curl -X POST http://127.0.0.1:7788/tasks/execute -H 'Content-Type: application/json' -d '{"taskType":"bridge.captureWorkspaceSnapshot","payload":{"workspacePath":"./frontend","kind":"workspace_patch","note":"local edits"}}'`,
     },
   });
 
@@ -266,6 +267,11 @@ test('buildBootstrapRuntimeCommands also exposes debug probe commands from rust 
       key: 'rust-debug-task-catalog',
       label: 'Rust debug (Task Catalog)',
       command: 'curl http://127.0.0.1:7788/task-catalog',
+    },
+    {
+      key: 'rust-debug-snapshot-capture',
+      label: 'Rust debug (Snapshot Capture)',
+      command: `curl -X POST http://127.0.0.1:7788/tasks/execute -H 'Content-Type: application/json' -d '{"taskType":"bridge.captureWorkspaceSnapshot","payload":{"workspacePath":"./frontend","kind":"workspace_patch","note":"local edits"}}'`,
     },
   ]);
 });

@@ -16,18 +16,22 @@ function buildRustDaemonDebugCommands({
 } = {}) {
   const normalizedEndpoint = cleanString(endpoint);
   const normalizedSocketPath = cleanString(socketPath);
+  const snapshotPayload = `'{\"taskType\":\"bridge.captureWorkspaceSnapshot\",\"payload\":{\"workspacePath\":\"./frontend\",\"kind\":\"workspace_patch\",\"note\":\"local edits\"}}'`;
   if (normalizedSocketPath) {
     return {
       health: `curl --unix-socket ${shellQuote(normalizedSocketPath)} http://localhost/health`,
       runtime: `curl --unix-socket ${shellQuote(normalizedSocketPath)} http://localhost/runtime`,
       taskCatalog: `curl --unix-socket ${shellQuote(normalizedSocketPath)} http://localhost/task-catalog`,
+      snapshotCapture: `curl --unix-socket ${shellQuote(normalizedSocketPath)} -X POST http://localhost/tasks/execute -H 'Content-Type: application/json' -d ${snapshotPayload}`,
     };
   }
   if (normalizedEndpoint) {
+    const baseUrl = normalizedEndpoint.replace(/\/+$/, '');
     return {
-      health: `curl ${normalizedEndpoint.replace(/\/+$/, '')}/health`,
-      runtime: `curl ${normalizedEndpoint.replace(/\/+$/, '')}/runtime`,
-      taskCatalog: `curl ${normalizedEndpoint.replace(/\/+$/, '')}/task-catalog`,
+      health: `curl ${baseUrl}/health`,
+      runtime: `curl ${baseUrl}/runtime`,
+      taskCatalog: `curl ${baseUrl}/task-catalog`,
+      snapshotCapture: `curl -X POST ${baseUrl}/tasks/execute -H 'Content-Type: application/json' -d ${snapshotPayload}`,
     };
   }
   return null;

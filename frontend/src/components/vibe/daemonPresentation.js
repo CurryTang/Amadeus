@@ -156,6 +156,7 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
   const debugHealth = cleanString(debugCommands?.health);
   const debugRuntime = cleanString(debugCommands?.runtime);
   const debugTaskCatalog = cleanString(debugCommands?.taskCatalog);
+  const debugSnapshotCapture = cleanString(debugCommands?.snapshotCapture);
   if (debugHealth) {
     items.push({
       key: 'rust-debug-health',
@@ -175,6 +176,13 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
       key: 'rust-debug-task-catalog',
       label: 'Rust debug (Task Catalog)',
       command: debugTaskCatalog,
+    });
+  }
+  if (debugSnapshotCapture) {
+    items.push({
+      key: 'rust-debug-snapshot-capture',
+      label: 'Rust debug (Snapshot Capture)',
+      command: debugSnapshotCapture,
     });
   }
   return items;
