@@ -15,6 +15,7 @@ test('buildRunDeletePayload exposes run deletion result and follow-up actions', 
     deleted: true,
   });
 
+  assert.equal(payload.ok, true);
   assert.equal(payload.runId, 'run_1');
   assert.equal(payload.deleted, true);
   assert.deepEqual(payload.actions.runDetail, {

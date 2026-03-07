@@ -3,7 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildBridgeNoteArtifactInput } = require('../bridge-note-payload.service');
+const {
+  buildBridgeNoteArtifactInput,
+  buildBridgeNotePayload,
+} = require('../bridge-note-payload.service');
 
 test('buildBridgeNoteArtifactInput creates a markdown artifact payload for bridge notes', () => {
   const payload = buildBridgeNoteArtifactInput({
@@ -25,5 +28,28 @@ test('buildBridgeNoteArtifactInput creates a markdown artifact payload for bridg
       inlinePreview: '# Summary\nRegression only appears on seed 4.',
       contentLength: 44,
     },
+  });
+});
+
+test('buildBridgeNotePayload preserves artifact root while exposing follow-up actions', () => {
+  const payload = buildBridgeNotePayload({
+    runId: 'run_1',
+    artifact: {
+      id: 'art_1',
+      title: 'Bridge Note',
+      objectUrl: '/download',
+    },
+  });
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.runId, 'run_1');
+  assert.equal(payload.artifact.id, 'art_1');
+  assert.deepEqual(payload.actions.bridgeNote, {
+    method: 'POST',
+    path: '/researchops/runs/run_1/bridge-note',
+  });
+  assert.deepEqual(payload.actions.runDetail, {
+    method: 'GET',
+    path: '/researchops/runs/run_1',
   });
 });

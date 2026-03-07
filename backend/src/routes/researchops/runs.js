@@ -21,7 +21,10 @@ const { buildRunListPayload, deriveResultSnippet } = require('../../services/res
 const { buildRunPayload } = require('../../services/researchops/run-payload.service');
 const { findRunReportHighlights } = require('../../services/researchops/run-report-view');
 const { buildBridgeRunReportPayload } = require('../../services/researchops/bridge-run-report-payload.service');
-const { buildBridgeNoteArtifactInput } = require('../../services/researchops/bridge-note-payload.service');
+const {
+  buildBridgeNoteArtifactInput,
+  buildBridgeNotePayload,
+} = require('../../services/researchops/bridge-note-payload.service');
 const { buildRunComparePayload } = require('../../services/researchops/run-compare-payload.service');
 const { buildRunArtifactListPayload } = require('../../services/researchops/run-artifact-list-payload.service');
 const {
@@ -408,13 +411,10 @@ router.delete('/runs/:runId', async (req, res) => {
       const status = result.reason === 'not_found' ? 404 : 409;
       return res.status(status).json({ error: result.reason === 'active_run' ? 'Cannot delete an active run' : 'Run not found' });
     }
-    return res.json({
-      ok: true,
-      ...buildRunDeletePayload({
-        runId: req.params.runId,
-        deleted: true,
-      }),
-    });
+    return res.json(buildRunDeletePayload({
+      runId: req.params.runId,
+      deleted: true,
+    }));
   } catch (error) {
     console.error('[ResearchOps] deleteRun failed:', error);
     res.status(500).json({ error: 'Failed to delete run' });
@@ -808,10 +808,10 @@ router.post('/runs/:runId/bridge-note', async (req, res) => {
         noteType: req.body?.noteType,
       })
     );
-    return res.json({
-      ok: true,
+    return res.json(buildBridgeNotePayload({
+      runId,
       artifact: withArtifactDownloadUrl(artifact, runId),
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] createBridgeNote failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });

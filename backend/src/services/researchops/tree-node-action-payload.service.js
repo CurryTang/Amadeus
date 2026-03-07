@@ -12,6 +12,7 @@ function buildTreeNodeApprovalPayload({
   const safeProjectId = cleanString(projectId);
   const safeNodeId = cleanString(nodeId);
   return {
+    ok: true,
     projectId: safeProjectId || null,
     nodeId: safeNodeId || null,
     manualApproved: manualApproved === true,

@@ -26,6 +26,29 @@ function buildBridgeNoteArtifactInput({
   };
 }
 
+function buildBridgeNotePayload({
+  runId = '',
+  artifact = null,
+} = {}) {
+  const safeRunId = cleanString(runId);
+  return {
+    ok: true,
+    runId: safeRunId || null,
+    artifact: artifact && typeof artifact === 'object' ? artifact : null,
+    actions: safeRunId ? {
+      bridgeNote: {
+        method: 'POST',
+        path: `/researchops/runs/${encodeURIComponent(safeRunId)}/bridge-note`,
+      },
+      runDetail: {
+        method: 'GET',
+        path: `/researchops/runs/${encodeURIComponent(safeRunId)}`,
+      },
+    } : {},
+  };
+}
+
 module.exports = {
   buildBridgeNoteArtifactInput,
+  buildBridgeNotePayload,
 };

@@ -580,13 +580,11 @@ router.put('/skills/:skillId/content', async (req, res) => {
   try {
     await fs.mkdir(path.dirname(mdPath), { recursive: true });
     await fs.writeFile(mdPath, content, 'utf8');
-    return res.json({
+    return res.json(buildSkillContentPayload({
+      skillId: req.params.skillId,
+      content,
       ok: true,
-      ...buildSkillContentPayload({
-        skillId: req.params.skillId,
-        content,
-      }),
-    });
+    }));
   } catch (err) {
     console.error('[ResearchOps] saveSkillContent failed:', err);
     return res.status(500).json({ error: 'Failed to save skill' });

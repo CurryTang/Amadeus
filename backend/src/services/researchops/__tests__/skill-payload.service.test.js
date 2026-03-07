@@ -56,6 +56,22 @@ test('buildSkillContentPayload preserves content root while exposing follow-up a
   });
 });
 
+test('buildSkillContentPayload can mark saved content without changing follow-up actions', () => {
+  const payload = buildSkillContentPayload({
+    skillId: 'skill_report',
+    content: '# Skill',
+    ok: true,
+  });
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.skillId, 'skill_report');
+  assert.equal(payload.content, '# Skill');
+  assert.deepEqual(payload.actions.updateContent, {
+    method: 'PUT',
+    path: '/researchops/skills/skill_report/content',
+  });
+});
+
 test('buildSkillSyncPayload exposes sync result and list follow-up action', () => {
   const payload = buildSkillSyncPayload({
     result: {

@@ -6869,14 +6869,11 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/approve', async (req, res) 
       server,
       mutate: (state) => treeStateService.setNodeState(state, nodeId, { manualApproved: true }),
     });
-    return res.json({
-      ok: true,
-      ...buildTreeNodeApprovalPayload({
-        projectId,
-        nodeId,
-        manualApproved: true,
-      }),
-    });
+    return res.json(buildTreeNodeApprovalPayload({
+      projectId,
+      nodeId,
+      manualApproved: true,
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     return res.status(400).json(toErrorPayload(error, 'Failed to approve node gate'));

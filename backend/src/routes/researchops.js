@@ -114,7 +114,10 @@ const { normalizeEnqueueRunPayload } = require('../services/researchops/enqueue-
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
 const { buildRunPayload } = require('../services/researchops/run-payload.service');
 const { buildQueuedRunActionPayload } = require('../services/researchops/queued-run-action-payload.service');
-const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge-note-payload.service');
+const {
+  buildBridgeNoteArtifactInput,
+  buildBridgeNotePayload,
+} = require('../services/researchops/bridge-note-payload.service');
 const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const { buildRunComparePayload } = require('../services/researchops/run-compare-payload.service');
 const { buildRunArtifactListPayload } = require('../services/researchops/run-artifact-list-payload.service');
@@ -6080,10 +6083,10 @@ router.post('/runs/:runId/bridge-note', async (req, res) => {
         noteType: req.body?.noteType,
       })
     );
-    return res.json({
-      ok: true,
+    return res.json(buildBridgeNotePayload({
+      runId,
       artifact: withArtifactDownloadUrl(artifact, runId),
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] createBridgeNote failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -7575,14 +7578,11 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/approve', requireAuth, asyn
       server,
       mutate: (state) => treeStateService.setNodeState(state, nodeId, { manualApproved: true }),
     });
-    return res.json({
-      ok: true,
-      ...buildTreeNodeApprovalPayload({
-        projectId,
-        nodeId,
-        manualApproved: true,
-      }),
-    });
+    return res.json(buildTreeNodeApprovalPayload({
+      projectId,
+      nodeId,
+      manualApproved: true,
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     return res.status(400).json(toErrorPayload(error, 'Failed to approve node gate'));

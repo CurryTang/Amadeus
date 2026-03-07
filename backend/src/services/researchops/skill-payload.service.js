@@ -49,9 +49,11 @@ function buildSkillListPayload({ items = [] } = {}) {
 function buildSkillContentPayload({
   skillId = '',
   content = '',
+  ok = false,
 } = {}) {
   const safeSkillId = cleanString(skillId);
   return {
+    ...(ok === true ? { ok: true } : {}),
     skillId: safeSkillId || null,
     content: typeof content === 'string' ? content : '',
     actions: buildSkillActions(safeSkillId),

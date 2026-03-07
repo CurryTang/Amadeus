@@ -15,6 +15,7 @@ test('buildTreeNodeApprovalPayload preserves approval roots while exposing node 
     manualApproved: true,
   });
 
+  assert.equal(payload.ok, true);
   assert.equal(payload.projectId, 'proj_1');
   assert.equal(payload.nodeId, 'node_1');
   assert.equal(payload.manualApproved, true);

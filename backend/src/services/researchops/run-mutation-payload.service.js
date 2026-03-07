@@ -12,6 +12,7 @@ function buildRunDeletePayload({
 } = {}) {
   const safeRunId = cleanString(runId);
   return {
+    ok: true,
     runId: safeRunId || null,
     deleted: deleted === true,
     actions: safeRunId ? {
