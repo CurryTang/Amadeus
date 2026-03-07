@@ -27,6 +27,7 @@ const {
 } = require('../../services/researchops/runner-status-payload.service');
 const { buildExperimentExecutePayload } = require('../../services/researchops/experiment-execute-payload.service');
 const { buildResourcePoolPayload } = require('../../services/researchops/resource-pool-payload.service');
+const { buildRuntimeOverviewPayload } = require('../../services/researchops/runtime-overview-payload.service');
 const { probeRustDaemonRuntime } = require('../../services/researchops/rust-daemon-runtime.service');
 const {
   buildRustDaemonEnvFileContent,
@@ -539,6 +540,32 @@ router.get('/runner/running', (req, res) => {
   res.json(buildRunnerRunningPayload({
     items: researchOpsRunner.getRunningState(),
   }));
+});
+
+router.get('/runtime/overview', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const limit = 100;
+    const [daemons, rustDaemon] = await Promise.all([
+      researchOpsStore.listDaemons(userId, { limit }),
+      probeRustDaemonRuntime(),
+    ]);
+    return res.json(buildRuntimeOverviewPayload({
+      daemons: buildDaemonListPayload({ items: daemons, limit }),
+      rustDaemon: buildRustDaemonStatusResponse({
+        rustDaemon,
+        apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+        refreshedAt: new Date().toISOString(),
+      }),
+      runner: buildRunnerRunningPayload({
+        items: researchOpsRunner.getRunningState(),
+      }),
+      refreshedAt: new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.error('[ResearchOps] runtime overview failed:', error);
+    return res.status(500).json({ error: sanitizeError(error, 'Failed to load runtime overview') });
+  }
 });
 
 // Daemons

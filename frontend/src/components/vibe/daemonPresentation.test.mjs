@@ -9,6 +9,8 @@ import {
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
+  getRuntimeOverviewClientDevices,
+  getRuntimeOverviewRustStatus,
 } from './daemonPresentation.js';
 
 test('buildClientDeviceOption includes hostname, status, location, and bridge readiness label', () => {
@@ -37,6 +39,21 @@ test('filterOnlineClientDevices keeps online devices only', () => {
   ]);
 
   assert.deepEqual(items.map((item) => item.id), ['srv_1']);
+});
+
+test('runtime overview helpers extract daemon items and rust status from aggregate payloads', () => {
+  const overview = {
+    daemons: {
+      items: [{ id: 'srv_1', status: 'ONLINE' }],
+    },
+    rustDaemon: {
+      enabled: true,
+      status: 'ok',
+    },
+  };
+
+  assert.deepEqual(getRuntimeOverviewClientDevices(overview), [{ id: 'srv_1', status: 'ONLINE' }]);
+  assert.deepEqual(getRuntimeOverviewRustStatus(overview), { enabled: true, status: 'ok' });
 });
 
 test('buildRustDaemonStatusNote summarizes an active rust daemon runtime', () => {

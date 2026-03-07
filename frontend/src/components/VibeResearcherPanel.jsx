@@ -31,6 +31,8 @@ import {
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
+  getRuntimeOverviewClientDevices,
+  getRuntimeOverviewRustStatus,
 } from './vibe/daemonPresentation';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
@@ -1567,20 +1569,11 @@ function VibeResearcherPanel({
   const loadClientDevices = useCallback(async () => {
     setLoadingClientDevices(true);
     try {
-      const [devicesResult, rustStatusResult] = await Promise.allSettled([
-        axios.get(`${apiUrl}/researchops/daemons`, { headers }),
-        loadRustDaemonStatus({ silent: true }),
-      ]);
-      if (devicesResult.status !== 'fulfilled') {
-        throw devicesResult.reason;
-      }
-      const devices = Array.isArray(devicesResult.value?.data?.items) ? devicesResult.value.data.items : [];
+      const res = await axios.get(`${apiUrl}/researchops/runtime/overview`, { headers });
+      const overview = res?.data && typeof res.data === 'object' ? res.data : {};
+      const devices = getRuntimeOverviewClientDevices(overview);
       setClientDevices(devices);
-      setRustDaemonStatus(
-        rustStatusResult.status === 'fulfilled' && rustStatusResult.value && typeof rustStatusResult.value === 'object'
-          ? rustStatusResult.value
-          : null
-      );
+      setRustDaemonStatus(getRuntimeOverviewRustStatus(overview));
       if (!projectClientDeviceId && devices.length > 0) {
         setProjectClientDeviceId(String(devices[0].id));
       }

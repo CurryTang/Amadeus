@@ -29,6 +29,17 @@ function getRustDaemonPayload(input = null) {
   return input;
 }
 
+function getRuntimeOverviewClientDevices(input = null) {
+  if (!input || typeof input !== 'object') return [];
+  const daemons = input.daemons && typeof input.daemons === 'object' ? input.daemons : null;
+  return Array.isArray(daemons?.items) ? daemons.items : [];
+}
+
+function getRuntimeOverviewRustStatus(input = null) {
+  if (!input || typeof input !== 'object') return null;
+  return input.rustDaemon && typeof input.rustDaemon === 'object' ? input.rustDaemon : null;
+}
+
 function buildRustDaemonStatusNote(health = null) {
   const rustDaemon = getRustDaemonPayload(health);
   if (!rustDaemon || typeof rustDaemon !== 'object') return '';
@@ -224,4 +235,6 @@ export {
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
   getRustDaemonPayload,
+  getRuntimeOverviewClientDevices,
+  getRuntimeOverviewRustStatus,
 };
