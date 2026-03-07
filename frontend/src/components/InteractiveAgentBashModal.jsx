@@ -5,6 +5,8 @@ import {
   getAgentSessionDetailFromApiResponse,
   getAgentSessionsFromApiResponse,
 } from './vibe/agentSessionApiResponse.js';
+import { getContextPackViewForRun } from './vibe/contextPackApiResponse.js';
+import { buildAgentSessionContextSummary } from './vibe/agentSessionContextPresentation.js';
 import {
   getAgentSessionMessageActionFromApiResponse,
   getAgentSessionMessagesFromApiResponse,
@@ -69,6 +71,8 @@ function InteractiveAgentBashModal({
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [sessionDetail, setSessionDetail] = useState(null);
+  const [activeRunContextView, setActiveRunContextView] = useState(null);
+  const [activeRunContextLoading, setActiveRunContextLoading] = useState(false);
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
@@ -104,6 +108,10 @@ function InteractiveAgentBashModal({
       activeAttemptLabel,
     }),
     [activeAttemptLabel, activeRun, selectedSession],
+  );
+  const contextSummaryRows = useMemo(
+    () => buildAgentSessionContextSummary(activeRunContextView || {}),
+    [activeRunContextView],
   );
   const running = isSessionRunning(selectedSession, activeRun);
   const hasComposerInput = cleanString(content) || composerImages.length > 0;
@@ -194,6 +202,29 @@ function InteractiveAgentBashModal({
       return [];
     });
   }, []);
+
+  const loadActiveRunContext = useCallback(async (runId, { silent = false } = {}) => {
+    const targetRunId = cleanString(runId);
+    if (!targetRunId || !open) {
+      setActiveRunContextView(null);
+      setActiveRunContextLoading(false);
+      return null;
+    }
+    if (!silent) setActiveRunContextLoading(true);
+    try {
+      const response = await axios.get(`${apiUrl}/researchops/runs/${targetRunId}/context-pack`, {
+        headers: authHeaders(),
+      });
+      const nextView = getContextPackViewForRun(response.data, targetRunId);
+      setActiveRunContextView(nextView);
+      return nextView;
+    } catch (error) {
+      setActiveRunContextView(null);
+      return null;
+    } finally {
+      if (!silent) setActiveRunContextLoading(false);
+    }
+  }, [apiUrl, authHeaders, open]);
 
   const handleCreateSession = useCallback(async () => {
     if (!projectId || creatingSession) return;
@@ -360,6 +391,23 @@ function InteractiveAgentBashModal({
   useEffect(() => {
     composerImagesRef.current = composerImages;
   }, [composerImages]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const activeRunId = cleanString(sessionDetail?.activeRun?.id);
+    if (!activeRunId) {
+      setActiveRunContextView(null);
+      setActiveRunContextLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      if (!cancelled) await loadActiveRunContext(activeRunId);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadActiveRunContext, open, sessionDetail?.activeRun?.id]);
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -560,6 +608,26 @@ function InteractiveAgentBashModal({
 
             {inlineError && (
               <div className="vibe-card-error">{inlineError}</div>
+            )}
+
+            {(activeRunContextLoading || contextSummaryRows.length > 0) && (
+              <article className="vibe-card" style={{ marginBottom: 12 }}>
+                <h4>Active Run Context</h4>
+                {activeRunContextLoading ? (
+                  <p className="vibe-empty">Loading context…</p>
+                ) : (
+                  <div className="vibe-list">
+                    {contextSummaryRows.map((row) => (
+                      <div key={row.label} className="vibe-list-item">
+                        <div className="vibe-list-main">
+                          <strong>{row.label}</strong>
+                          <span>{row.value}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </article>
             )}
 
             <div className="vibe-agent-messages">
