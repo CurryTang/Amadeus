@@ -29,6 +29,7 @@ const {
   buildAgentSessionMessagesPayload,
 } = require('../../services/researchops/agent-session-message-payload.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
+const { buildNodeBridgeContextPayload } = require('../../services/researchops/node-bridge-context-payload.service');
 const { buildQueuedRunActionPayload } = require('../../services/researchops/queued-run-action-payload.service');
 const { buildRunTreePayload } = require('../../services/researchops/run-tree-payload.service');
 const {
@@ -6857,6 +6858,59 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/search', async (req, res) =>
     });
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to load node search state'));
+  }
+});
+
+router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    const includeContextPack = parseBoolean(req.query.includeContextPack, false);
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+
+    const { project, server } = await resolveProjectContext(userId, projectId);
+    const [{ plan }, stateRead] = await Promise.all([
+      treePlanService.readProjectPlan({ project, server }),
+      treeStateService.readProjectState({ project, server }),
+    ]);
+    const state = await hydrateTreeStateRunStatuses(userId, stateRead?.state || {});
+    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+    const nodeState = state?.nodes?.[nodeId] || null;
+    const lastRunId = String(nodeState?.lastRunId || '').trim();
+    const run = lastRunId ? await researchOpsStore.getRun(userId, lastRunId).catch(() => null) : null;
+    let contextPack = null;
+    if (includeContextPack && run) {
+      try {
+        const context = await buildRunIntentAndPack({
+          userId,
+          project,
+          node,
+          run,
+          treeState: state,
+        });
+        contextPack = buildContextPackPayload({ pack: context.pack });
+      } catch (innerError) {
+        console.warn('[ResearchOps] bridge-context routed pack fallback to legacy builder:', innerError?.message || innerError);
+        const pack = await contextPackService.buildContextPack(userId, {
+          runId: run.id,
+          projectId: project.id,
+          contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
+        });
+        contextPack = buildContextPackPayload({ pack, mode: 'legacy' });
+      }
+    }
+    return res.json(buildNodeBridgeContextPayload({
+      projectId: project.id,
+      node,
+      nodeState,
+      blocking: evaluateNodeBlocking(node, state),
+      run,
+      contextPack,
+    }));
+  } catch (error) {
+    return res.status(400).json(toErrorPayload(error, 'Failed to build node bridge context'));
   }
 });
 
