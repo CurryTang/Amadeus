@@ -20,6 +20,7 @@ const autopilotService = require('../../services/researchops/autopilot.service')
 const knowledgeGroupsService = require('../../services/knowledge-groups.service');
 const contextPackService = require('../../services/researchops/context-pack.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
+const { buildTreeRunStepPayload } = require('../../services/researchops/tree-run-step-payload.service');
 const projectInsightsProxy = require('../../services/project-insights-proxy.service');
 const projectInsightsService = require('../../services/project-insights.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
@@ -6602,11 +6603,11 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
       searchTrialCount,
       clarifyMessages,
     });
-    return res.status(preflightOnly ? 200 : 202).json({
+    return res.status(preflightOnly ? 200 : 202).json(buildTreeRunStepPayload({
       projectId: project.id,
       nodeId,
-      ...result,
-    });
+      result,
+    }));
   } catch (error) {
     if (error.code === 'NODE_BLOCKED') {
       return res.status(409).json({
