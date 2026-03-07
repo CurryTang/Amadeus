@@ -55,6 +55,20 @@ pub struct RuntimeSummary {
     pub missing_bridge_task_types: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TaskCatalog {
+    pub version: &'static str,
+    pub tasks: Vec<TaskDescriptor>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TaskDescriptor {
+    pub task_type: &'static str,
+    pub family: &'static str,
+    pub handler_mode: &'static str,
+    pub summary: &'static str,
+}
+
 pub fn task_catalog_version() -> &'static str {
     TASK_CATALOG_VERSION
 }
@@ -72,6 +86,62 @@ pub fn build_runtime_summary(task_types: &[&str]) -> RuntimeSummary {
         supported_task_types,
         supports_local_bridge_workflow: missing_bridge_task_types.is_empty(),
         missing_bridge_task_types,
+    }
+}
+
+pub fn build_task_catalog() -> TaskCatalog {
+    TaskCatalog {
+        version: TASK_CATALOG_VERSION,
+        tasks: vec![
+            TaskDescriptor {
+                task_type: "project.checkPath",
+                family: "project",
+                handler_mode: "builtin",
+                summary: "Check whether a project path exists and is a directory.",
+            },
+            TaskDescriptor {
+                task_type: "project.ensurePath",
+                family: "project",
+                handler_mode: "builtin",
+                summary: "Ensure the project directory exists on the client daemon host.",
+            },
+            TaskDescriptor {
+                task_type: "project.ensureGit",
+                family: "project",
+                handler_mode: "builtin",
+                summary: "Ensure the project directory is a git repository.",
+            },
+            TaskDescriptor {
+                task_type: "bridge.fetchNodeContext",
+                family: "bridge",
+                handler_mode: "builtin-http-proxy",
+                summary: "Fetch node bridge context, optionally with context pack and bridge report.",
+            },
+            TaskDescriptor {
+                task_type: "bridge.fetchContextPack",
+                family: "bridge",
+                handler_mode: "builtin-http-proxy",
+                summary: "Fetch a run-scoped context pack for local bridge clients.",
+            },
+            TaskDescriptor {
+                task_type: "bridge.submitNodeRun",
+                family: "bridge",
+                handler_mode: "builtin-http-proxy",
+                summary: "Submit a snapshot-backed node run through the bridge workflow.",
+            },
+            TaskDescriptor {
+                task_type: "bridge.fetchRunReport",
+                family: "bridge",
+                handler_mode: "builtin-http-proxy",
+                summary: "Fetch a compact bridge-friendly run report summary.",
+            },
+            TaskDescriptor {
+                task_type: "bridge.submitRunNote",
+                family: "bridge",
+                handler_mode: "builtin-http-proxy",
+                summary: "Submit a markdown bridge note as a run artifact.",
+            },
+        ],
     }
 }
 

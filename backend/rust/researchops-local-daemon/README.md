@@ -6,6 +6,7 @@ Current scope:
 
 - mirror the v0 trait contracts from `docs/research_agent_env_spec/contracts/rust_traits.rs`
 - provide a typed runtime summary for the current daemon task catalog
+- provide a typed task catalog view for built-in and bridge task families
 - expose a tiny CLI that prints the runtime summary as JSON
 
 It does not yet implement:
@@ -27,6 +28,13 @@ Or directly:
 ```bash
 source "$HOME/.cargo/env"
 cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet
+```
+
+Print the task catalog instead:
+
+```bash
+source "$HOME/.cargo/env"
+cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet -- --task-catalog
 ```
 
 Set `RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=false` to print a project-only runtime summary.

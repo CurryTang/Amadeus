@@ -1,4 +1,5 @@
 use researchops_local_daemon::{
+    build_task_catalog,
     build_runtime_summary,
     task_catalog_version,
     OPTIONAL_BRIDGE_TASK_TYPES,
@@ -37,4 +38,19 @@ fn runtime_summary_reports_missing_bridge_tasks_when_only_project_tasks_exist() 
 #[test]
 fn task_catalog_version_matches_the_current_v0_contract() {
     assert_eq!(task_catalog_version(), "v0");
+}
+
+#[test]
+fn task_catalog_exposes_built_in_and_bridge_task_descriptors() {
+    let catalog = build_task_catalog();
+
+    assert_eq!(catalog.version, "v0");
+    assert!(catalog
+        .tasks
+        .iter()
+        .any(|task| task.task_type == "project.checkPath" && task.handler_mode == "builtin"));
+    assert!(catalog
+        .tasks
+        .iter()
+        .any(|task| task.task_type == "bridge.submitNodeRun" && task.handler_mode == "builtin-http-proxy"));
 }

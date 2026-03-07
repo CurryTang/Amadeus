@@ -1,11 +1,17 @@
 use anyhow::Result;
 use researchops_local_daemon::{
+    build_task_catalog,
     build_runtime_summary,
     BUILT_IN_TASK_TYPES,
     OPTIONAL_BRIDGE_TASK_TYPES,
 };
 
 fn main() -> Result<()> {
+    if std::env::args().skip(1).any(|arg| arg == "--task-catalog") {
+        println!("{}", serde_json::to_string_pretty(&build_task_catalog())?);
+        return Ok(());
+    }
+
     let mut task_types = BUILT_IN_TASK_TYPES
         .iter()
         .map(|item| *item)
