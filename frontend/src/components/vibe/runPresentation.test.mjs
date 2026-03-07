@@ -75,6 +75,8 @@ test('buildRecentRunCards surfaces execution and snapshot labels from normalized
       },
       execution: {
         location: 'remote',
+        backend: 'container',
+        runtimeClass: 'container-fast',
       },
       workspaceSnapshot: {
         localSnapshot: {
@@ -97,8 +99,10 @@ test('buildRecentRunCards surfaces execution and snapshot labels from normalized
   ]);
 
   assert.equal(cards[0].executionLabel, 'Remote');
+  assert.equal(cards[0].executionRuntimeLabel, 'container/container-fast');
   assert.equal(cards[0].snapshotLabel, 'Snapshot-backed');
   assert.equal(cards[1].executionLabel, '');
+  assert.equal(cards[1].executionRuntimeLabel, '');
   assert.equal(cards[1].snapshotLabel, '');
 });
 

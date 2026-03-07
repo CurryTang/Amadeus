@@ -39,6 +39,12 @@ function getExecutionLabel(run = {}) {
   return cleanString(execution.location) === 'remote' ? 'Remote' : '';
 }
 
+function getExecutionRuntimeLabel(run = {}) {
+  const execution = run?.execution && typeof run.execution === 'object' ? run.execution : {};
+  const parts = [cleanString(execution.backend), cleanString(execution.runtimeClass)].filter(Boolean);
+  return parts.join('/');
+}
+
 function getSnapshotLabel(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
   const workspaceSnapshot = run?.workspaceSnapshot && typeof run.workspaceSnapshot === 'object'
@@ -76,6 +82,7 @@ function buildRecentRunCards(runs = []) {
         linkedNodeTitle: cleanString(metadata.treeNodeTitle) || cleanString(attempt.treeNodeTitle),
         snippet: cleanString(run?.resultSnippet),
         executionLabel: getExecutionLabel(run),
+        executionRuntimeLabel: getExecutionRuntimeLabel(run),
         snapshotLabel: getSnapshotLabel(run),
         contractLabel: getContractLabel(run),
         timestamp: formatTimestamp(run?.createdAt),
