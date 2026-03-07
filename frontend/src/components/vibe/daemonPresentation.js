@@ -304,10 +304,48 @@ function buildBootstrapRuntimeEnvFiles(bootstrap = null) {
   return items;
 }
 
+function buildRustDaemonActionItems(statusPayload = null, { busyAction = '', refreshing = false } = {}) {
+  const rustDaemon = getRustDaemonPayload(statusPayload);
+  const actions = rustDaemon && typeof rustDaemon.actions === 'object' ? rustDaemon.actions : {};
+  const items = [];
+  const startPath = cleanString(actions?.start?.path);
+  const stopPath = cleanString(actions?.stop?.path);
+  const restartPath = cleanString(actions?.restart?.path);
+  if (startPath) {
+    items.push({
+      key: 'start',
+      label: busyAction === 'start' ? 'Starting Rust…' : 'Start Rust Daemon',
+      path: startPath,
+      method: cleanString(actions?.start?.method) || 'POST',
+      disabled: refreshing || Boolean(busyAction && busyAction !== 'start'),
+    });
+  }
+  if (stopPath) {
+    items.push({
+      key: 'stop',
+      label: busyAction === 'stop' ? 'Stopping Rust…' : 'Stop Rust Daemon',
+      path: stopPath,
+      method: cleanString(actions?.stop?.method) || 'POST',
+      disabled: refreshing || Boolean(busyAction && busyAction !== 'stop'),
+    });
+  }
+  if (restartPath) {
+    items.push({
+      key: 'restart',
+      label: busyAction === 'restart' ? 'Restarting Rust…' : 'Restart Rust Daemon',
+      path: restartPath,
+      method: cleanString(actions?.restart?.method) || 'POST',
+      disabled: refreshing || Boolean(busyAction && busyAction !== 'restart'),
+    });
+  }
+  return items;
+}
+
 export {
   buildBootstrapRuntimeCommandGroups,
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
+  buildRustDaemonActionItems,
   buildClientDeviceOption,
   buildRuntimeOverviewPanelRows,
   buildRuntimeOverviewSummaryRows,

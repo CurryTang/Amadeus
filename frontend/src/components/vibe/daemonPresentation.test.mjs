@@ -5,6 +5,7 @@ import {
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeCommandGroups,
   buildBootstrapRuntimeEnvFiles,
+  buildRustDaemonActionItems,
   buildClientDeviceOption,
   buildRuntimeOverviewPanelRows,
   buildRustDaemonStatusRows,
@@ -57,6 +58,41 @@ test('runtime overview helpers extract daemon items and rust status from aggrega
 
   assert.deepEqual(getRuntimeOverviewClientDevices(overview), [{ id: 'srv_1', status: 'ONLINE' }]);
   assert.deepEqual(getRuntimeOverviewRustStatus(overview), { enabled: true, status: 'ok' });
+});
+
+test('buildRustDaemonActionItems exposes lifecycle actions from rust status payload', () => {
+  const items = buildRustDaemonActionItems({
+    enabled: true,
+    actions: {
+      start: { method: 'POST', path: '/researchops/daemons/rust/start' },
+      stop: { method: 'POST', path: '/researchops/daemons/rust/stop' },
+      restart: { method: 'POST', path: '/researchops/daemons/rust/restart' },
+    },
+  });
+
+  assert.deepEqual(items, [
+    {
+      key: 'start',
+      label: 'Start Rust Daemon',
+      path: '/researchops/daemons/rust/start',
+      method: 'POST',
+      disabled: false,
+    },
+    {
+      key: 'stop',
+      label: 'Stop Rust Daemon',
+      path: '/researchops/daemons/rust/stop',
+      method: 'POST',
+      disabled: false,
+    },
+    {
+      key: 'restart',
+      label: 'Restart Rust Daemon',
+      path: '/researchops/daemons/rust/restart',
+      method: 'POST',
+      disabled: false,
+    },
+  ]);
 });
 
 

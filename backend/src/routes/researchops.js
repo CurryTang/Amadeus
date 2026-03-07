@@ -94,6 +94,11 @@ const { buildRuntimeOverviewPayload } = require('../services/researchops/runtime
 const { probeRustDaemonRuntime } = require('../services/researchops/rust-daemon-runtime.service');
 const { buildRustDaemonStatusPayload } = require('../services/researchops/rust-daemon-status-payload.service');
 const {
+  startRustDaemonSupervisor,
+  stopRustDaemonSupervisor,
+  restartRustDaemonSupervisor,
+} = require('../services/researchops/rust-daemon-manager.service');
+const {
   loadProjectBridgeRuntimeForProject,
   loadProjectBridgeRuntimeForRun,
 } = require('../services/researchops/project-bridge-runtime.service');
@@ -6366,6 +6371,93 @@ router.get('/daemons/rust/status', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] rust daemon status failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to load rust daemon status') });
+  }
+});
+
+router.post('/daemons/rust/start', async (req, res) => {
+  try {
+    const managerResult = startRustDaemonSupervisor({
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        RESEARCHOPS_API_BASE_URL: resolveResearchOpsApiBaseUrl(req),
+      },
+    });
+    const rustDaemon = await probeRustDaemonRuntime();
+    return res.status(managerResult.status === 'already_running' ? 200 : 202).json({
+      managementAction: managerResult.action,
+      managementStatus: managerResult.status,
+      ...buildRustDaemonStatusPayload({
+        rustDaemon: {
+          ...(rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {}),
+          supervisor: managerResult.supervisor,
+        },
+        apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+        cwd: process.cwd(),
+        refreshedAt: new Date().toISOString(),
+      }),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon start failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to start rust daemon') });
+  }
+});
+
+router.post('/daemons/rust/stop', async (req, res) => {
+  try {
+    const managerResult = stopRustDaemonSupervisor({
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        RESEARCHOPS_API_BASE_URL: resolveResearchOpsApiBaseUrl(req),
+      },
+    });
+    return res.json({
+      managementAction: managerResult.action,
+      managementStatus: managerResult.status,
+      ...buildRustDaemonStatusPayload({
+        rustDaemon: {
+          enabled: true,
+          status: 'disabled',
+          supervisor: managerResult.supervisor,
+        },
+        apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+        cwd: process.cwd(),
+        refreshedAt: new Date().toISOString(),
+      }),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon stop failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to stop rust daemon') });
+  }
+});
+
+router.post('/daemons/rust/restart', async (req, res) => {
+  try {
+    const managerResult = restartRustDaemonSupervisor({
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        RESEARCHOPS_API_BASE_URL: resolveResearchOpsApiBaseUrl(req),
+      },
+    });
+    const rustDaemon = await probeRustDaemonRuntime();
+    return res.status(202).json({
+      managementAction: managerResult.action,
+      managementStatus: managerResult.status,
+      ...buildRustDaemonStatusPayload({
+        rustDaemon: {
+          ...(rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {}),
+          supervisor: managerResult.supervisor,
+        },
+        apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+        cwd: process.cwd(),
+        refreshedAt: new Date().toISOString(),
+      }),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon restart failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to restart rust daemon') });
   }
 });
 

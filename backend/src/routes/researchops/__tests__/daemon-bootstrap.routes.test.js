@@ -119,6 +119,18 @@ test('rust daemon status response exposes runtime probe data and reusable runtim
     method: 'GET',
     path: '/researchops/daemons/rust/status',
   });
+  assert.deepEqual(response.actions.start, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/start',
+  });
+  assert.deepEqual(response.actions.stop, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/stop',
+  });
+  assert.deepEqual(response.actions.restart, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/restart',
+  });
   assert.deepEqual(response.actions.health, {
     method: 'GET',
     path: '/researchops/health',

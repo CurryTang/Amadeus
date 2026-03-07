@@ -27,6 +27,7 @@ import {
   buildBootstrapRuntimeCommandGroups,
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
+  buildRustDaemonActionItems,
   buildClientDeviceOption,
   buildRuntimeOverviewPanelRows,
   buildRustDaemonStatusNote,
@@ -513,6 +514,7 @@ function VibeResearcherPanel({
   const [runtimeOverviewSummary, setRuntimeOverviewSummary] = useState(null);
   const [loadingClientDevices, setLoadingClientDevices] = useState(false);
   const [refreshingRustDaemonStatus, setRefreshingRustDaemonStatus] = useState(false);
+  const [rustDaemonActionBusy, setRustDaemonActionBusy] = useState('');
   const [clientBootstrapOpen, setClientBootstrapOpen] = useState(false);
   const [clientBootstrapBusy, setClientBootstrapBusy] = useState(false);
   const [clientBootstrapData, setClientBootstrapData] = useState(null);
@@ -1659,6 +1661,13 @@ function VibeResearcherPanel({
     () => buildBootstrapRuntimeEnvFiles(rustDaemonRuntimeSource),
     [rustDaemonRuntimeSource],
   );
+  const rustDaemonActionItems = useMemo(
+    () => buildRustDaemonActionItems(rustDaemonStatus, {
+      busyAction: rustDaemonActionBusy,
+      refreshing: refreshingRustDaemonStatus,
+    }),
+    [refreshingRustDaemonStatus, rustDaemonActionBusy, rustDaemonStatus],
+  );
 
   const ensureClientBootstrapHostname = useCallback(() => {
     if (clientBootstrapRequestedHostname.trim()) return clientBootstrapRequestedHostname.trim();
@@ -1762,6 +1771,35 @@ function VibeResearcherPanel({
       setClientBootstrapMessage(err?.message || `Failed to copy ${label || 'runtime'} command`);
     }
   }, []);
+
+  const handleRustDaemonAction = useCallback(async (actionItem) => {
+    const actionPath = String(actionItem?.path || '').trim();
+    const method = String(actionItem?.method || 'POST').trim().toUpperCase();
+    const actionKey = String(actionItem?.key || '').trim();
+    if (!actionPath || !actionKey) return;
+    setRustDaemonActionBusy(actionKey);
+    try {
+      const res = await axios({
+        url: `${apiUrl}${actionPath}`,
+        method,
+        headers,
+      });
+      setRustDaemonStatus(res?.data && typeof res.data === 'object' ? res.data : null);
+      await loadClientDevices();
+      const managementStatus = String(res?.data?.managementStatus || '').trim().replace(/_/g, ' ');
+      setClientBootstrapMessage(
+        managementStatus
+          ? `Rust daemon ${managementStatus}.`
+          : `Rust daemon ${actionKey} completed.`,
+      );
+    } catch (err) {
+      const message = err?.response?.data?.error || err?.message || `Failed to ${actionKey} rust daemon`;
+      setClientBootstrapMessage(message);
+      setError(message);
+    } finally {
+      setRustDaemonActionBusy('');
+    }
+  }, [apiUrl, headers, loadClientDevices]);
 
   const handleDownloadClientBootstrapFile = useCallback(() => {
     if (!clientBootstrapData?.bootstrapFile) return;
@@ -5841,6 +5879,17 @@ function VibeResearcherPanel({
                         >
                           {refreshingRustDaemonStatus ? 'Refreshing Rust…' : 'Refresh Rust Status'}
                         </button>
+                        {rustDaemonActionItems.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="vibe-secondary-btn"
+                            onClick={() => handleRustDaemonAction(item)}
+                            disabled={item.disabled}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
                       </div>
                       {runtimeOverviewPanelRows.length > 0 && (
                         <div className="vibe-client-browser-box">

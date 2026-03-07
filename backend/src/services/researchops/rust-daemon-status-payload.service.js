@@ -61,13 +61,15 @@ function buildRustDaemonPrototypeRuntimeOptions({
 } = {}) {
   const normalizedApiBaseUrl = cleanString(apiBaseUrl).replace(/\/+$/, '');
   const rustScriptPath = path.join(cwd, 'backend', 'scripts', 'researchops-bootstrap-rust-daemon.sh');
-  const backgroundLaunch = buildRustDaemonBackgroundLaunchCommand({
-    cwd,
-    env: {
-      ...env,
-      RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
-    },
-  });
+  const backgroundLaunch = normalizedApiBaseUrl
+    ? buildRustDaemonBackgroundLaunchCommand({
+        cwd,
+        env: {
+          ...env,
+          RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
+        },
+      })
+    : null;
   const supervisorPaths = buildRustDaemonSupervisorPaths({ cwd, env });
   return {
     rustDaemonPrototype: {
@@ -75,7 +77,7 @@ function buildRustDaemonPrototypeRuntimeOptions({
       status: 'prototype',
       commands: {
         launcher: 'npm --prefix backend run researchops:rust-daemon',
-        background: backgroundLaunch.command,
+        ...(backgroundLaunch?.command ? { background: backgroundLaunch.command } : {}),
         http: [
           `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
           `RESEARCHOPS_RUST_DAEMON_TRANSPORT='http'`,
@@ -120,7 +122,9 @@ function buildRustDaemonStatusPayload({
   env = process.env,
   refreshedAt = '',
 } = {}) {
-  const runtimeOptions = buildRustDaemonPrototypeRuntimeOptions({ apiBaseUrl, cwd, env });
+  const runtimeOptions = cleanString(apiBaseUrl)
+    ? buildRustDaemonPrototypeRuntimeOptions({ apiBaseUrl, cwd, env })
+    : null;
   const source = rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {};
   const supervisor = buildRustDaemonSupervisorState({ cwd, env });
   return {
@@ -163,6 +167,18 @@ function buildRustDaemonStatusPayload({
       status: {
         method: 'GET',
         path: '/researchops/daemons/rust/status',
+      },
+      start: {
+        method: 'POST',
+        path: '/researchops/daemons/rust/start',
+      },
+      stop: {
+        method: 'POST',
+        path: '/researchops/daemons/rust/stop',
+      },
+      restart: {
+        method: 'POST',
+        path: '/researchops/daemons/rust/restart',
       },
       health: {
         method: 'GET',
