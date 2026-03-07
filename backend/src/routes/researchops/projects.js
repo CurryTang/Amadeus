@@ -87,6 +87,7 @@ const {
   buildProjectKnowledgeGroupsPayload,
 } = require('../../services/researchops/knowledge-group-payload.service');
 const { buildProjectFileSearchPayload } = require('../../services/researchops/project-file-search-payload.service');
+const { buildProjectRunClearPayload } = require('../../services/researchops/run-mutation-payload.service');
 const { requestDaemonRpc } = require('../../services/researchops/daemon-rpc.service');
 const {
   buildSshArgs: buildSharedSshArgs,
@@ -5025,10 +5026,15 @@ router.get('/projects/:projectId/autopilot/sessions', async (req, res) => {
 
 router.delete('/projects/:projectId/runs', async (req, res) => {
   try {
+    const status = req.query.status || '';
     const result = await researchOpsStore.clearProjectRuns(getUserId(req), req.params.projectId, {
-      status: req.query.status || '',
+      status,
     });
-    return res.json({ deletedCount: result.deletedCount });
+    return res.json(buildProjectRunClearPayload({
+      projectId: req.params.projectId,
+      status,
+      result,
+    }));
   } catch (error) {
     console.error('[ResearchOps] clearProjectRuns failed:', error);
     res.status(500).json({ error: 'Failed to clear run history' });

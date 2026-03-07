@@ -33,6 +33,11 @@ const { buildRunReportPayload } = require('../../services/researchops/run-report
 const { buildRunStepListPayload } = require('../../services/researchops/run-step-list-payload.service');
 const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const {
+  buildRunDeletePayload,
+  buildProjectRunClearPayload,
+  buildRunEventMutationPayload,
+} = require('../../services/researchops/run-mutation-payload.service');
+const {
   buildSchedulerLeasePayload,
   buildSchedulerRecoveryPayload,
   buildSchedulerStatusPayload,
@@ -402,7 +407,13 @@ router.delete('/runs/:runId', async (req, res) => {
       const status = result.reason === 'not_found' ? 404 : 409;
       return res.status(status).json({ error: result.reason === 'active_run' ? 'Cannot delete an active run' : 'Run not found' });
     }
-    return res.json({ ok: true });
+    return res.json({
+      ok: true,
+      ...buildRunDeletePayload({
+        runId: req.params.runId,
+        deleted: true,
+      }),
+    });
   } catch (error) {
     console.error('[ResearchOps] deleteRun failed:', error);
     res.status(500).json({ error: 'Failed to delete run' });
@@ -411,10 +422,15 @@ router.delete('/runs/:runId', async (req, res) => {
 
 router.delete('/projects/:projectId/runs', async (req, res) => {
   try {
+    const status = req.query.status || '';
     const result = await researchOpsStore.clearProjectRuns(getUserId(req), req.params.projectId, {
-      status: req.query.status || '',
+      status,
     });
-    return res.json({ deletedCount: result.deletedCount });
+    return res.json(buildProjectRunClearPayload({
+      projectId: req.params.projectId,
+      status,
+      result,
+    }));
   } catch (error) {
     console.error('[ResearchOps] clearProjectRuns failed:', error);
     res.status(500).json({ error: 'Failed to clear run history' });
@@ -446,7 +462,10 @@ router.post('/runs/:runId/events', async (req, res) => {
     const events = Array.isArray(req.body?.events) ? req.body.events : [];
     if (!events.length) return res.status(400).json({ error: 'events must be a non-empty array' });
     const items = await researchOpsStore.publishRunEvents(getUserId(req), req.params.runId, events);
-    return res.status(201).json({ count: items.length, items });
+    return res.status(201).json(buildRunEventMutationPayload({
+      runId: req.params.runId,
+      result: { items },
+    }));
   } catch (error) {
     console.error('[ResearchOps] publishRunEvents failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
