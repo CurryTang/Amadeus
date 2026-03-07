@@ -23,7 +23,12 @@ import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
 import { buildObservedSessionActionMessage } from './vibe/observedSessionActionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { getContextPackViewForRun } from './vibe/contextPackApiResponse';
-import { buildClientDeviceOption, buildRustDaemonStatusNote, filterOnlineClientDevices } from './vibe/daemonPresentation';
+import {
+  buildBootstrapRuntimeCommands,
+  buildClientDeviceOption,
+  buildRustDaemonStatusNote,
+  filterOnlineClientDevices,
+} from './vibe/daemonPresentation';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
@@ -1576,6 +1581,10 @@ function VibeResearcherPanel({
     () => buildRustDaemonStatusNote(researchOpsHealth),
     [researchOpsHealth],
   );
+  const clientBootstrapRuntimeCommands = useMemo(
+    () => buildBootstrapRuntimeCommands(clientBootstrapData),
+    [clientBootstrapData],
+  );
 
   const ensureClientBootstrapHostname = useCallback(() => {
     if (clientBootstrapRequestedHostname.trim()) return clientBootstrapRequestedHostname.trim();
@@ -1665,6 +1674,20 @@ function VibeResearcherPanel({
       setClientBootstrapMessage(err?.message || 'Failed to copy install command');
     }
   }, [clientBootstrapData]);
+
+  const handleCopyRuntimeCommand = useCallback(async (command, label) => {
+    const nextCommand = String(command || '').trim();
+    if (!nextCommand) return;
+    try {
+      if (typeof navigator === 'undefined' || typeof navigator.clipboard?.writeText !== 'function') {
+        throw new Error('Clipboard is unavailable in this browser');
+      }
+      await navigator.clipboard.writeText(nextCommand);
+      setClientBootstrapMessage(`${label || 'Runtime command'} copied to clipboard.`);
+    } catch (err) {
+      setClientBootstrapMessage(err?.message || `Failed to copy ${label || 'runtime'} command`);
+    }
+  }, []);
 
   const handleDownloadClientBootstrapFile = useCallback(() => {
     if (!clientBootstrapData?.bootstrapFile) return;
@@ -5748,6 +5771,25 @@ function VibeResearcherPanel({
                                   Refresh device status
                                 </button>
                               </div>
+                            </>
+                          )}
+                          {clientBootstrapRuntimeCommands.length > 0 && (
+                            <>
+                              <p className="vibe-empty">
+                                Optional: run the Rust prototype daemon directly for local bridge/runtime testing.
+                              </p>
+                              {clientBootstrapRuntimeCommands.map((item) => (
+                                <div key={item.key} className="vibe-inline-actions">
+                                  <code className="vibe-inline-code">{item.command}</code>
+                                  <button
+                                    type="button"
+                                    className="vibe-secondary-btn"
+                                    onClick={() => handleCopyRuntimeCommand(item.command, item.label)}
+                                  >
+                                    Copy {item.label}
+                                  </button>
+                                </div>
+                              ))}
                             </>
                           )}
                         </div>

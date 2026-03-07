@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildClientDeviceOption,
+  buildBootstrapRuntimeCommands,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
 } from './daemonPresentation.js';
@@ -62,4 +63,30 @@ test('buildRustDaemonStatusNote reports rust daemon probe failures', () => {
   });
 
   assert.equal(note, 'Rust daemon probe failed via http: connection refused.');
+});
+
+test('buildBootstrapRuntimeCommands returns labeled rust prototype commands', () => {
+  const items = buildBootstrapRuntimeCommands({
+    runtimeOptions: {
+      rustDaemonPrototype: {
+        commands: {
+          http: 'npm run researchops:rust-daemon-serve',
+          unix: 'npm run researchops:rust-daemon-serve-unix',
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(items, [
+    {
+      key: 'rust-http',
+      label: 'Rust daemon (HTTP)',
+      command: 'npm run researchops:rust-daemon-serve',
+    },
+    {
+      key: 'rust-unix',
+      label: 'Rust daemon (Unix socket)',
+      command: 'npm run researchops:rust-daemon-serve-unix',
+    },
+  ]);
 });

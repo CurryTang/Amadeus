@@ -43,7 +43,34 @@ function buildRustDaemonStatusNote(health = null) {
   return `Rust daemon status: ${cleanString(rustDaemon.status) || 'unknown'}.`;
 }
 
+function buildBootstrapRuntimeCommands(bootstrap = null) {
+  const runtimeOptions = bootstrap && typeof bootstrap === 'object' ? bootstrap.runtimeOptions : null;
+  const rustPrototype = runtimeOptions && typeof runtimeOptions === 'object'
+    ? runtimeOptions.rustDaemonPrototype
+    : null;
+  const commands = rustPrototype && typeof rustPrototype === 'object' ? rustPrototype.commands : null;
+  const items = [];
+  const httpCommand = cleanString(commands?.http);
+  const unixCommand = cleanString(commands?.unix);
+  if (httpCommand) {
+    items.push({
+      key: 'rust-http',
+      label: 'Rust daemon (HTTP)',
+      command: httpCommand,
+    });
+  }
+  if (unixCommand) {
+    items.push({
+      key: 'rust-unix',
+      label: 'Rust daemon (Unix socket)',
+      command: unixCommand,
+    });
+  }
+  return items;
+}
+
 export {
+  buildBootstrapRuntimeCommands,
   buildClientDeviceOption,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,

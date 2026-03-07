@@ -239,6 +239,18 @@ function buildDaemonBootstrapPayload({
     hostname ? `RESEARCHOPS_DAEMON_HOSTNAME=${shellQuote(hostname)}` : '',
     `sh ${shellQuote(scriptPath)}`,
   ].filter(Boolean).join(' \\\n');
+  const rustDaemonPrototype = {
+    runtime: 'rust',
+    status: 'prototype',
+    commands: {
+      http: 'cd /Users/czk/auto-researcher/backend && npm run researchops:rust-daemon-serve',
+      unix: 'cd /Users/czk/auto-researcher/backend && npm run researchops:rust-daemon-serve-unix',
+    },
+    env: {
+      RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
+      RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS: 'true',
+    },
+  };
 
   return {
     bootstrapId: String(bootstrap?.bootstrapId || bootstrap?.id || '').trim(),
@@ -257,6 +269,9 @@ function buildDaemonBootstrapPayload({
         bootstrapSecret: String(bootstrap?.secret || '').trim(),
         requestedHostname: hostname || null,
         expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
+      },
+      runtimeOptions: {
+        rustDaemonPrototype,
       },
     } : {}),
     actions: {
