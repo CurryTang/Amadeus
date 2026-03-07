@@ -142,6 +142,7 @@ test('buildRustDaemonStatusRows also accepts dedicated rust status payloads', ()
   const rows = buildRustDaemonStatusRows({
     enabled: true,
     status: 'ok',
+    refreshedAt: '2026-03-07T12:00:00.000Z',
     transport: 'http',
     endpoint: 'http://127.0.0.1:7788',
     taskCatalog: {
@@ -156,6 +157,7 @@ test('buildRustDaemonStatusRows also accepts dedicated rust status payloads', ()
   });
 
   assert.deepEqual(rows, [
+    { label: 'Rust Checked', value: '2026-03-07T12:00:00.000Z' },
     { label: 'Rust Transport', value: 'http' },
     { label: 'Rust Endpoint', value: 'http://127.0.0.1:7788' },
     { label: 'Rust Task Catalog', value: 'v0 (1 tasks)' },
