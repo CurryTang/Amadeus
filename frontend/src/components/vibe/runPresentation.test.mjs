@@ -174,6 +174,38 @@ test('buildRecentRunCards surfaces observability readiness and warnings from nor
   assert.equal(cards[1].warningsLabel, '');
 });
 
+test('buildRecentRunCards surfaces observability sink providers from normalized views', () => {
+  const cards = buildRecentRunCards([
+    {
+      id: 'run_obs_sinks',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T11:00:00.000Z',
+      metadata: {
+        prompt: 'Inspect sink providers',
+      },
+      observability: {
+        sinkProviders: ['wandb', 'tensorboard'],
+      },
+    },
+    {
+      id: 'run_obs_no_sinks',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T10:00:00.000Z',
+      metadata: {
+        prompt: 'No sinks',
+      },
+      observability: {
+        sinkProviders: [],
+      },
+    },
+  ]);
+
+  assert.equal(cards[0].sinkProvidersLabel, 'wandb, tensorboard');
+  assert.equal(cards[1].sinkProvidersLabel, '');
+});
+
 test('getRunSourceLabel falls back to linked entities when sourceType is absent', () => {
   assert.equal(getRunSourceLabel({ metadata: { treeNodeId: 'node_a' } }), 'Tree');
   assert.equal(getRunSourceLabel({ metadata: { todoId: 'todo_a' } }), 'TODO');

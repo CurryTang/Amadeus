@@ -77,6 +77,16 @@ function getWarningsLabel(run = {}) {
   return warnings === 1 ? '1 warning' : `${warnings} warnings`;
 }
 
+function getSinkProvidersLabel(run = {}) {
+  const observability = run?.observability && typeof run.observability === 'object' ? run.observability : {};
+  if (!Array.isArray(observability?.sinkProviders)) return '';
+  const providers = observability.sinkProviders
+    .map((value) => cleanString(value))
+    .filter(Boolean);
+  if (providers.length === 0) return '';
+  return providers.join(', ');
+}
+
 function buildRecentRunCards(runs = []) {
   if (!Array.isArray(runs)) return [];
   return [...runs]
@@ -103,6 +113,7 @@ function buildRecentRunCards(runs = []) {
         contractLabel: getContractLabel(run),
         readinessLabel: getReadinessLabel(run),
         warningsLabel: getWarningsLabel(run),
+        sinkProvidersLabel: getSinkProvidersLabel(run),
         timestamp: formatTimestamp(run?.createdAt),
         raw: run,
       };

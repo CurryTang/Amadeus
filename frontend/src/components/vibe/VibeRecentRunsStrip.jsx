@@ -48,7 +48,7 @@ function VibeRecentRunsStrip({
                   {card.snippet}
                 </span>
               )}
-              {(card.executionLabel || card.executionRuntimeLabel || card.snapshotLabel || card.contractLabel || card.readinessLabel || card.warningsLabel) && (
+              {(card.executionLabel || card.executionRuntimeLabel || card.snapshotLabel || card.contractLabel || card.readinessLabel || card.warningsLabel || card.sinkProvidersLabel) && (
                 <div className="vibe-recent-run-meta">
                   {card.executionLabel && <span>{card.executionLabel}</span>}
                   {card.executionRuntimeLabel && <span>{card.executionRuntimeLabel}</span>}
@@ -56,6 +56,7 @@ function VibeRecentRunsStrip({
                   {card.contractLabel && <span>{card.contractLabel}</span>}
                   {card.readinessLabel && <span>{card.readinessLabel}</span>}
                   {card.warningsLabel && <span>{card.warningsLabel}</span>}
+                  {card.sinkProvidersLabel && <span>{card.sinkProvidersLabel}</span>}
                 </div>
               )}
               <div className="vibe-recent-run-meta">
