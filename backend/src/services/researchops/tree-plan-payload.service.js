@@ -41,6 +41,7 @@ function buildTreePlanPayload({
   degraded = null,
   environmentDetected = null,
   refreshedAt = '',
+  updatedAt = '',
 } = {}) {
   return {
     projectId: cleanString(projectId) || null,
@@ -50,6 +51,7 @@ function buildTreePlanPayload({
     rootSummary,
     degraded,
     environmentDetected,
+    ...(cleanString(updatedAt) ? { updatedAt: cleanString(updatedAt) } : {}),
     refreshedAt: cleanString(refreshedAt) || new Date().toISOString(),
     actions: buildPlanActions(projectId),
   };

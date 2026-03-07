@@ -127,3 +127,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Project delete now uses a normalized payload with compatible `projectId/force/deleteStorage/summary` roots plus project-list follow-up actions across modular and monolith routes
   - Dashboard aggregate and runs-router `runner/running` now use normalized payload services, so those remaining aggregate/status reads no longer depend on route-local wrappers
   - Project TODO `next-actions` and `clear` now use normalized payloads with compatible roots plus follow-up actions across modular and monolith routes
+  - Tree `root-node`, tree plan save, and tree state now use normalized payload services with compatible roots plus follow-up actions across modular and monolith routes

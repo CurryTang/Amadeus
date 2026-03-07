@@ -46,6 +46,10 @@ const {
   buildTreePlanPayload,
   buildTreePlanValidationPayload,
 } = require('../../services/researchops/tree-plan-payload.service');
+const {
+  buildTreeRootNodePayload,
+  buildTreeStatePayload,
+} = require('../../services/researchops/tree-structure-payload.service');
 const { buildBridgeTreeRunPayload } = require('../../services/researchops/bridge-tree-run-payload.service');
 const {
   readBridgeContextOptions,
@@ -6020,7 +6024,7 @@ router.post('/projects/:projectId/tree/root-node', async (req, res) => {
       attachOrphans,
       persist: true,
     });
-    return res.json({
+    return res.json(buildTreeRootNodePayload({
       projectId: project.id,
       generated: rooted.generated,
       rootNode: rooted.rootNode,
@@ -6031,7 +6035,7 @@ router.post('/projects/:projectId/tree/root-node', async (req, res) => {
       validation: rooted.validation,
       degraded: rooted.degraded || null,
       refreshedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
@@ -6051,13 +6055,13 @@ router.put('/projects/:projectId/tree/plan', async (req, res) => {
     }
     const { project, server } = await resolveProjectContext(getUserId(req), projectId);
     const result = await treePlanService.writeProjectPlan({ project, server, plan: inputPlan });
-    return res.json({
+    return res.json(buildTreePlanPayload({
       projectId: project.id,
       plan: result.plan,
       validation: result.validation,
       paths: result.paths,
       updatedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     if (error.code === 'PLAN_SCHEMA_INVALID') {
       return res.status(400).json({
@@ -6750,13 +6754,13 @@ router.get('/projects/:projectId/tree/state', async (req, res) => {
     const hydrated = await hydrateTreeStateRunStatuses(getUserId(req), readState.state);
     const written = await treeStateService.writeProjectState({ project, server, state: hydrated });
     const degraded = readState.degraded || written.degraded || null;
-    return res.json({
+    return res.json(buildTreeStatePayload({
       projectId: project.id,
       state: written.state,
       paths: written.paths,
       degraded,
       refreshedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));

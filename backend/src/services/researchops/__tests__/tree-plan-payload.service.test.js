@@ -36,6 +36,26 @@ test('buildTreePlanPayload keeps the plan root while exposing plan actions', () 
   });
 });
 
+test('buildTreePlanPayload preserves save-time paths and updatedAt when provided', () => {
+  const payload = buildTreePlanPayload({
+    projectId: 'proj_1',
+    plan: { nodes: [] },
+    validation: { valid: true, errors: [], warnings: [] },
+    paths: {
+      planPath: '/repo/research/tree.plan.yaml',
+    },
+    updatedAt: '2026-03-06T12:00:00.000Z',
+  });
+
+  assert.equal(payload.projectId, 'proj_1');
+  assert.equal(payload.paths.planPath, '/repo/research/tree.plan.yaml');
+  assert.equal(payload.updatedAt, '2026-03-06T12:00:00.000Z');
+  assert.deepEqual(payload.actions.update, {
+    method: 'PUT',
+    path: '/researchops/projects/proj_1/tree/plan',
+  });
+});
+
 test('buildTreePlanValidationPayload preserves valid and validation summary', () => {
   const payload = buildTreePlanValidationPayload({
     projectId: 'proj_1',
