@@ -185,6 +185,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
         counts: {
           warnings: 2,
         },
+        sinkProviders: ['wandb', 'tensorboard'],
       },
     }
   );
@@ -193,6 +194,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     { label: 'Evidence', value: '1 deliverable artifact' },
     { label: 'Readiness', value: 'Needs attention' },
     { label: 'Warnings', value: '2 warnings' },
+    { label: 'Sinks', value: 'wandb, tensorboard' },
   ]);
 });
 
@@ -221,6 +223,7 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
           counts: {
             warnings: 0,
           },
+          sinkProviders: ['wandb'],
         },
       },
     }
@@ -230,6 +233,7 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     { label: 'Checkpoints', value: '1 pending · 1 resolved' },
     { label: 'Evidence', value: '1 deliverable artifact' },
     { label: 'Readiness', value: 'Ready' },
+    { label: 'Sinks', value: 'wandb' },
     { label: 'Bridge', value: 'Local bridge ready' },
   ]);
 });
