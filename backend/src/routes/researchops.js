@@ -90,6 +90,7 @@ const {
   buildRunnerRunningPayload,
 } = require('../services/researchops/runner-status-payload.service');
 const { buildResearchOpsHealthPayload } = require('../services/researchops/health-payload.service');
+const { probeRustDaemonRuntime } = require('../services/researchops/rust-daemon-runtime.service');
 const {
   loadProjectBridgeRuntimeForProject,
   loadProjectBridgeRuntimeForRun,
@@ -3267,9 +3268,11 @@ router.use(requireAuth);
 router.get('/health', async (req, res) => {
   try {
     await researchOpsStore.initStore();
+    const rustDaemon = await probeRustDaemonRuntime();
     res.json(buildResearchOpsHealthPayload({
       storeMode: researchOpsStore.getStoreMode(),
       running: researchOpsRunner.getRunningState().length,
+      rustDaemon,
     }));
   } catch (error) {
     res.status(500).json({

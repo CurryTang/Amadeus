@@ -7,6 +7,10 @@ const path = require('path');
 const yaml = require('js-yaml');
 const resHelpers = require('../../middleware/res-helpers');
 const { requireAuth } = require('../../middleware/auth');
+const researchOpsStore = require('../../services/researchops/store');
+const researchOpsRunner = require('../../services/researchops/runner');
+const { buildResearchOpsHealthPayload } = require('../../services/researchops/health-payload.service');
+const { probeRustDaemonRuntime } = require('../../services/researchops/rust-daemon-runtime.service');
 
 router.use(resHelpers);
 
@@ -26,7 +30,22 @@ router.get('/openapi', (req, res) => {
 });
 
 // Health check — no auth required
-router.get('/health', (req, res) => res.ok({ status: 'ok' }));
+router.get('/health', async (req, res) => {
+  try {
+    await researchOpsStore.initStore();
+    const rustDaemon = await probeRustDaemonRuntime();
+    return res.json(buildResearchOpsHealthPayload({
+      storeMode: researchOpsStore.getStoreMode(),
+      running: researchOpsRunner.getRunningState().length,
+      rustDaemon,
+    }));
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Failed to initialize ResearchOps store',
+      message: error?.message || 'Unknown error',
+    });
+  }
+});
 
 router.use(requireAuth);
 
