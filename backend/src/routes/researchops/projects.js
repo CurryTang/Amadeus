@@ -4040,7 +4040,10 @@ router.get('/agent-sessions', async (req, res) => {
       const items = Array.isArray(result?.items) ? result.items : [];
       // Persist to DB cache in background so it survives processing server restarts
       writeAgentSessionCache(items).catch(() => {});
-      return res.json({ items, cached: false });
+      return res.json(buildObservedSessionListPayload({
+        items,
+        cached: false,
+      }));
     } catch (proxyError) {
       console.warn('[ResearchOps] agent-sessions proxy offline, serving from cache:', proxyError.message);
     }
@@ -4048,10 +4051,16 @@ router.get('/agent-sessions', async (req, res) => {
   // Fallback: read from DB cache
   try {
     const items = await readAgentSessionCache(projectPath);
-    return res.json({ items, cached: true });
+    return res.json(buildObservedSessionListPayload({
+      items,
+      cached: true,
+    }));
   } catch (cacheError) {
     console.warn('[ResearchOps] agent-sessions cache read failed:', cacheError.message);
-    return res.json({ items: [], cached: true });
+    return res.json(buildObservedSessionListPayload({
+      items: [],
+      cached: true,
+    }));
   }
 });
 

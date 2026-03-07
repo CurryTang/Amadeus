@@ -26,13 +26,18 @@ function buildObservedSessionListPayload({
   items = [],
   wrotePlan = false,
   refreshedAt = '',
+  cached,
 } = {}) {
-  return {
+  const payload = {
     projectId,
     items: (Array.isArray(items) ? items : []).map((item) => normalizeObservedSessionItem(item)),
     wrotePlan: Boolean(wrotePlan),
     refreshedAt: cleanString(refreshedAt) || new Date().toISOString(),
   };
+  if (typeof cached === 'boolean') {
+    payload.cached = cached;
+  }
+  return payload;
 }
 
 function buildObservedSessionItemPayload({

@@ -62,3 +62,19 @@ test('buildObservedSessionListPayload normalizes each item and keeps refreshedAt
   assert.equal(payload.items[0].hasDetachedNode, false);
   assert.equal(payload.items[0].materialization, 'none');
 });
+
+test('buildObservedSessionListPayload keeps cached source metadata when provided', () => {
+  const payload = buildObservedSessionListPayload({
+    items: [
+      {
+        id: 'obs_cached_1',
+        status: 'idle',
+      },
+    ],
+    cached: true,
+  });
+
+  assert.equal(payload.cached, true);
+  assert.equal(payload.items.length, 1);
+  assert.equal(payload.items[0].status, 'IDLE');
+});
