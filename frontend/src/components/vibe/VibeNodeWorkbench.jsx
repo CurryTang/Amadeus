@@ -42,6 +42,7 @@ function VibeNodeWorkbench({
   observedSessionRefreshing = false,
   mode,
   runReport,
+  runCompare,
   runReportLoading,
   runContextView,
   runContextLoading = false,
@@ -188,8 +189,8 @@ function VibeNodeWorkbench({
     [runContextView]
   );
   const reviewSummaryRows = useMemo(
-    () => buildNodeReviewSummary(node, nodeState, runReport),
-    [node, nodeState, runReport]
+    () => buildNodeReviewSummary(node, nodeState, runReport, runCompare),
+    [node, nodeState, runCompare, runReport]
   );
   const searchTrialRows = useMemo(
     () => buildSearchTrialRows(searchData),

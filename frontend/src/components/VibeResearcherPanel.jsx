@@ -4387,6 +4387,7 @@ function VibeResearcherPanel({
                       observedSessionRefreshing={observedSessionRefreshingId === cleanString(selectedObservedSession?.id)}
                       mode={planMode}
                       runReport={runReport}
+                      runCompare={activeRunCompare}
                       runReportLoading={runReportLoading}
                       runContextView={activeRunContextView}
                       runContextLoading={runContextPackLoading}

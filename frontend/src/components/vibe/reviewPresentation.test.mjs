@@ -52,3 +52,39 @@ test('buildNodeReviewSummary handles approved gates and empty evidence gracefull
     { label: 'Evidence', value: 'No deliverable artifacts yet' },
   ]);
 });
+
+test('buildNodeReviewSummary includes thin compare rows when compare payload is present', () => {
+  const rows = buildNodeReviewSummary(
+    {},
+    {},
+    {
+      highlights: {
+        deliverableArtifactIds: ['art_summary'],
+      },
+    },
+    {
+      other: {
+        run: {
+          id: 'run_alt',
+          status: 'FAILED',
+        },
+        report: {
+          highlights: {
+            deliverableArtifactIds: ['art_alt'],
+          },
+        },
+      },
+      relation: {
+        sameNode: true,
+      },
+    }
+  );
+
+  assert.deepEqual(rows, [
+    { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Compare', value: 'run_alt' },
+    { label: 'Compare Status', value: 'FAILED' },
+    { label: 'Compare Node', value: 'Same node' },
+    { label: 'Compare Evidence', value: '1 deliverable artifact' },
+  ]);
+});
