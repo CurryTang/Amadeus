@@ -1,4 +1,5 @@
 import {
+  buildRunCompareSummary,
   buildRunDetailContext,
   buildRunExecutionSummary,
   buildRunDetailOutput,
@@ -11,7 +12,9 @@ function VibeRunDetailModal({
   open,
   run,
   runReport,
+  runCompare,
   loading = false,
+  compareLoading = false,
   onClose,
   onContinue,
   onRefresh,
@@ -22,6 +25,7 @@ function VibeRunDetailModal({
   const execution = buildRunExecutionSummary(run);
   const followUpSummary = buildRunFollowUpSummary(run, runReport || {});
   const snapshotSummary = buildRunSnapshotSummary(run, runReport || {});
+  const compareSummary = buildRunCompareSummary(runCompare || {});
   const prompt = buildRunDetailPrompt(run);
   const output = buildRunDetailOutput(run, runReport || {});
   const artifacts = Array.isArray(runReport?.artifacts) ? runReport.artifacts : [];
@@ -148,6 +152,60 @@ function VibeRunDetailModal({
                   </div>
                 ))}
               </dl>
+            </section>
+          )}
+
+          {(compareLoading || compareSummary) && (
+            <section className="vibe-run-detail-section">
+              <div className="vibe-card-head">
+                <h4>Compare</h4>
+                <span className="vibe-card-note">current run vs related run</span>
+              </div>
+              {compareLoading && !compareSummary ? (
+                <p className="vibe-empty">Loading compare summary…</p>
+              ) : (
+                <>
+                  <dl className="vibe-run-detail-grid">
+                    <div>
+                      <dt>Other Run</dt>
+                      <dd>{compareSummary.otherRunId}</dd>
+                    </div>
+                    <div>
+                      <dt>Status</dt>
+                      <dd>{compareSummary.otherStatus}</dd>
+                    </div>
+                    {compareSummary.otherNodeTitle && (
+                      <div>
+                        <dt>Other Node</dt>
+                        <dd>{compareSummary.otherNodeTitle}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt>Same Node</dt>
+                      <dd>{compareSummary.sameNode ? 'Yes' : 'No'}</dd>
+                    </div>
+                    {compareSummary.sharedParentRunsLabel && (
+                      <div className="vibe-run-detail-grid-span">
+                        <dt>Shared Parent Runs</dt>
+                        <dd>{compareSummary.sharedParentRunsLabel}</dd>
+                      </div>
+                    )}
+                    {compareSummary.relatedRunsLabel && (
+                      <div className="vibe-run-detail-grid-span">
+                        <dt>Related Runs</dt>
+                        <dd>{compareSummary.relatedRunsLabel}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt>Deliverables</dt>
+                      <dd>{compareSummary.deliverableCount}</dd>
+                    </div>
+                  </dl>
+                  {compareSummary.otherSummary && (
+                    <pre className="vibe-report-pre vibe-report-pre-small">{compareSummary.otherSummary}</pre>
+                  )}
+                </>
+              )}
             </section>
           )}
 

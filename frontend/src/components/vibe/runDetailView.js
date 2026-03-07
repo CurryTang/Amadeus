@@ -140,6 +140,49 @@ function buildRunFollowUpSummary(run = {}, runReport = {}) {
   return rows;
 }
 
+function deriveRunCompareTargetId(run = {}, runReport = {}) {
+  const runId = cleanString(run?.id);
+  const runFollowUp = run?.followUp && typeof run.followUp === 'object' ? run.followUp : {};
+  const reportFollowUp = runReport?.followUp && typeof runReport.followUp === 'object' ? runReport.followUp : {};
+  const relatedRunIds = [
+    ...(Array.isArray(runFollowUp.relatedRunIds) ? runFollowUp.relatedRunIds : []),
+    ...(Array.isArray(reportFollowUp.relatedRunIds) ? reportFollowUp.relatedRunIds : []),
+  ].map((item) => cleanString(item)).filter(Boolean);
+  const relatedCandidate = relatedRunIds.find((item) => item && item !== runId);
+  if (relatedCandidate) return relatedCandidate;
+  return cleanString(
+    runFollowUp.parentRunId
+    || reportFollowUp.parentRunId
+    || run?.metadata?.parentRunId
+  );
+}
+
+function buildRunCompareSummary(comparePayload = {}) {
+  const other = comparePayload?.other && typeof comparePayload.other === 'object' ? comparePayload.other : {};
+  const relation = comparePayload?.relation && typeof comparePayload.relation === 'object' ? comparePayload.relation : {};
+  const relatedRunIds = Array.isArray(relation.relatedRunIds)
+    ? relation.relatedRunIds.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const sharedParentRunIds = Array.isArray(relation.sharedParentRunIds)
+    ? relation.sharedParentRunIds.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const deliverableArtifactIds = Array.isArray(other?.report?.highlights?.deliverableArtifactIds)
+    ? other.report.highlights.deliverableArtifactIds.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const otherRunId = cleanString(other?.run?.id);
+  if (!otherRunId) return null;
+  return {
+    otherRunId,
+    otherStatus: cleanString(other?.run?.status).toUpperCase() || 'UNKNOWN',
+    otherNodeTitle: cleanString(other?.attempt?.treeNodeTitle),
+    otherSummary: cleanString(other?.report?.summary),
+    sharedParentRunsLabel: sharedParentRunIds.join(', '),
+    relatedRunsLabel: relatedRunIds.join(', '),
+    deliverableCount: deliverableArtifactIds.length,
+    sameNode: Boolean(relation.sameNode),
+  };
+}
+
 function buildRunDetailPrompt(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
   const promptText = cleanString(metadata.prompt);
@@ -183,10 +226,12 @@ function buildRunDetailOutput(run = {}, runReport = {}) {
 }
 
 export {
+  buildRunCompareSummary,
   buildRunDetailContext,
   buildRunExecutionSummary,
   buildRunFollowUpSummary,
   buildRunSnapshotSummary,
   buildRunDetailOutput,
   buildRunDetailPrompt,
+  deriveRunCompareTargetId,
 };

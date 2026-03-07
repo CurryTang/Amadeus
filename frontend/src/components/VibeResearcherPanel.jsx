@@ -29,6 +29,7 @@ import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
+import { deriveRunCompareTargetId } from './vibe/runDetailView';
 import { getTreeExecutionErrorMessage } from './vibe/treeExecutionErrorPresentation';
 import { buildTreeNodeActionMessage } from './vibe/treeNodeActionPresentation';
 import { buildTreeQueueActionMessage } from './vibe/treeQueueActionPresentation';
@@ -528,6 +529,8 @@ function VibeResearcherPanel({
   const [selectedRunId, setSelectedRunId] = useState('');
   const [runReport, setRunReport] = useState(null);
   const [runReportLoading, setRunReportLoading] = useState(false);
+  const [runCompare, setRunCompare] = useState(null);
+  const [runCompareLoading, setRunCompareLoading] = useState(false);
   const [runContextPack, setRunContextPack] = useState(null);
   const [runContextPackLoading, setRunContextPackLoading] = useState(false);
   const [showRunDetailModal, setShowRunDetailModal] = useState(false);
@@ -1171,6 +1174,29 @@ function VibeResearcherPanel({
       setError(err?.response?.data?.error || 'Failed to load run context pack');
     } finally {
       if (!silent) setRunContextPackLoading(false);
+    }
+  }, [apiUrl, headers]);
+
+  const loadRunCompare = useCallback(async (runId, otherRunId, { silent = false } = {}) => {
+    const targetRunId = String(runId || '').trim();
+    const targetOtherRunId = String(otherRunId || '').trim();
+    if (!targetRunId || !targetOtherRunId) {
+      setRunCompare(null);
+      setRunCompareLoading(false);
+      return;
+    }
+    if (!silent) setRunCompareLoading(true);
+    try {
+      const response = await axios.get(`${apiUrl}/researchops/runs/${targetRunId}/compare`, {
+        headers,
+        params: { otherRunId: targetOtherRunId },
+      });
+      setRunCompare(response.data || null);
+    } catch (err) {
+      console.warn('Failed to load run compare:', err?.message || err);
+      setRunCompare(null);
+    } finally {
+      if (!silent) setRunCompareLoading(false);
     }
   }, [apiUrl, headers]);
 
@@ -3135,6 +3161,9 @@ function VibeResearcherPanel({
   const activeRunReport = useMemo(() => (
     runReport?.run?.id === selectedRunId ? runReport : null
   ), [runReport, selectedRunId]);
+  const activeRunCompare = useMemo(() => (
+    runCompare?.run?.id === selectedRunId ? runCompare : null
+  ), [runCompare, selectedRunId]);
   const activeRunContextView = useMemo(
     () => getContextPackViewForRun(runContextPack, selectedRunId),
     [runContextPack, selectedRunId]
@@ -3712,6 +3741,8 @@ function VibeResearcherPanel({
 
   useEffect(() => {
     if (!selectedRunId) {
+      setRunCompare(null);
+      setRunCompareLoading(false);
       setRunContextPack(null);
       setRunContextPackLoading(false);
       return;
@@ -3719,6 +3750,41 @@ function VibeResearcherPanel({
     loadRunReport(selectedRunId);
     loadRunContextPack(selectedRunId);
   }, [loadRunContextPack, loadRunReport, selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setRunCompare(null);
+      setRunCompareLoading(false);
+      return;
+    }
+    const otherRunId = deriveRunCompareTargetId(selectedRun || {}, activeRunReport || {});
+    if (!otherRunId) {
+      setRunCompare(null);
+      setRunCompareLoading(false);
+      return;
+    }
+    loadRunCompare(selectedRunId, otherRunId, { silent: true });
+  }, [activeRunReport, loadRunCompare, selectedRun, selectedRunId]);
+
+  const handleRefreshRunDetail = useCallback(() => {
+    if (!selectedRunId) return;
+    loadRunReport(selectedRunId);
+    loadRunContextPack(selectedRunId);
+    const otherRunId = deriveRunCompareTargetId(selectedRun || {}, activeRunReport || {});
+    if (otherRunId) {
+      loadRunCompare(selectedRunId, otherRunId);
+    } else {
+      setRunCompare(null);
+      setRunCompareLoading(false);
+    }
+  }, [
+    activeRunReport,
+    loadRunCompare,
+    loadRunContextPack,
+    loadRunReport,
+    selectedRun,
+    selectedRunId,
+  ]);
 
   useEffect(() => {
     if (!selectedTreeNode || selectedTreeNode.kind !== 'search') {
@@ -5289,10 +5355,12 @@ function VibeResearcherPanel({
         open={showRunDetailModal && Boolean(selectedRun)}
         run={selectedRun}
         runReport={activeRunReport}
-        loading={runReportLoading}
+        runCompare={activeRunCompare}
+        loading={runReportLoading || runCompareLoading}
+        compareLoading={runCompareLoading}
         onClose={() => setShowRunDetailModal(false)}
         onContinue={handleContinueFromRun}
-        onRefresh={() => selectedRunId && loadRunReport(selectedRunId)}
+        onRefresh={handleRefreshRunDetail}
       />
 
       {vibeUiMode.showSkillMenu && showSkillsModal && selectedProject && (

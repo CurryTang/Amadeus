@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   buildRunDetailContext,
+  buildRunCompareSummary,
   buildRunExecutionSummary,
   buildRunFollowUpSummary,
   buildRunSnapshotSummary,
+  deriveRunCompareTargetId,
   buildRunDetailPrompt,
   buildRunDetailOutput,
 } from './runDetailView.js';
@@ -175,4 +177,59 @@ test('buildRunFollowUpSummary exposes continuation and related-run rows', () => 
     { label: 'Branch', value: 'ablation-b' },
     { label: 'Related Runs', value: 'run_base, run_alt' },
   ]);
+});
+
+test('deriveRunCompareTargetId prefers related runs and falls back to parent run ids', () => {
+  assert.equal(deriveRunCompareTargetId({
+    id: 'run_current',
+    followUp: {
+      relatedRunIds: ['run_current', 'run_alt', 'run_parent'],
+      parentRunId: 'run_parent',
+    },
+  }), 'run_alt');
+
+  assert.equal(deriveRunCompareTargetId({
+    id: 'run_current',
+    metadata: {
+      parentRunId: 'run_parent',
+    },
+  }), 'run_parent');
+
+  assert.equal(deriveRunCompareTargetId({ id: 'run_current' }, { followUp: { relatedRunIds: [] } }), '');
+});
+
+test('buildRunCompareSummary surfaces other-run status, relation info, and summary text', () => {
+  const summary = buildRunCompareSummary({
+    other: {
+      run: {
+        id: 'run_other',
+        status: 'FAILED',
+      },
+      attempt: {
+        treeNodeTitle: 'Evaluation branch',
+      },
+      report: {
+        summary: 'Ablation branch regressed on accuracy.',
+        highlights: {
+          deliverableArtifactIds: ['art_summary'],
+        },
+      },
+    },
+    relation: {
+      sameNode: true,
+      sharedParentRunIds: ['run_seed'],
+      relatedRunIds: ['run_seed', 'run_other'],
+    },
+  });
+
+  assert.deepEqual(summary, {
+    otherRunId: 'run_other',
+    otherStatus: 'FAILED',
+    otherNodeTitle: 'Evaluation branch',
+    otherSummary: 'Ablation branch regressed on accuracy.',
+    sharedParentRunsLabel: 'run_seed',
+    relatedRunsLabel: 'run_seed, run_other',
+    deliverableCount: 1,
+    sameNode: true,
+  });
 });
