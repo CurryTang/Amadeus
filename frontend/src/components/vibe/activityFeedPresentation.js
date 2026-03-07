@@ -26,6 +26,7 @@ export function buildRunCardMetaLabels(card = {}) {
   const values = [
     card?.executionLabel,
     card?.executionRuntimeLabel,
+    card?.executionIsolationLabel,
     card?.transportLabel,
     card?.snapshotLabel,
     card?.contractLabel,

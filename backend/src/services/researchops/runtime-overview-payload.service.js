@@ -1,6 +1,9 @@
 'use strict';
 
+const { buildExecutionRuntimeCatalog } = require('./runtime-catalog.service');
+
 function buildRuntimeOverviewSummary({ daemons = null, rustDaemon = null, runner = null } = {}) {
+  const runtimeCatalog = buildExecutionRuntimeCatalog();
   const daemonItems = Array.isArray(daemons?.items) ? daemons.items : [];
   const onlineClients = daemonItems.filter((item) => String(item?.status || '').trim().toUpperCase() === 'ONLINE').length;
   const bridgeReadyClients = daemonItems.filter((item) => item?.capabilities?.supportsLocalBridgeWorkflow === true).length;
@@ -14,6 +17,9 @@ function buildRuntimeOverviewSummary({ daemons = null, rustDaemon = null, runner
     rustSnapshotReady: rustDaemon?.runtime?.supports_workspace_snapshot_capture === true,
     rustManagedRunning: rustDaemon?.supervisor?.running === true,
     runningCount,
+    runtimeCatalogVersion: runtimeCatalog.version,
+    backendCount: runtimeCatalog.backends.length,
+    runtimeClassCount: runtimeCatalog.runtimeClasses.length,
   };
 }
 
@@ -23,6 +29,7 @@ function buildRuntimeOverviewPayload({
   runner = null,
   refreshedAt = '',
 } = {}) {
+  const runtimeCatalog = buildExecutionRuntimeCatalog();
   return {
     refreshedAt: String(refreshedAt || '').trim() || new Date().toISOString(),
     daemons: daemons && typeof daemons === 'object'
@@ -43,6 +50,7 @@ function buildRuntimeOverviewPayload({
       : {
           items: [],
         },
+    runtimeCatalog,
     summary: buildRuntimeOverviewSummary({ daemons, rustDaemon, runner }),
     actions: {
       overview: {
@@ -52,6 +60,10 @@ function buildRuntimeOverviewPayload({
       daemons: {
         method: 'GET',
         path: '/researchops/daemons',
+      },
+      runtimeCatalog: {
+        method: 'GET',
+        path: '/researchops/runtime/catalog',
       },
       rustDaemonStatus: {
         method: 'GET',

@@ -54,6 +54,9 @@ function buildRuntimeOverviewSummaryRows(summary = null) {
   const bridgeReadyClients = Number.isFinite(Number(source.bridgeReadyClients)) ? Number(source.bridgeReadyClients) : null;
   const snapshotReadyClients = Number.isFinite(Number(source.snapshotReadyClients)) ? Number(source.snapshotReadyClients) : null;
   const runningCount = Number.isFinite(Number(source.runningCount)) ? Number(source.runningCount) : null;
+  const backendCount = Number.isFinite(Number(source.backendCount)) ? Number(source.backendCount) : null;
+  const runtimeClassCount = Number.isFinite(Number(source.runtimeClassCount)) ? Number(source.runtimeClassCount) : null;
+  const runtimeCatalogVersion = cleanString(source.runtimeCatalogVersion);
   if (onlineClients !== null) rows.push({ label: 'Online Clients', value: String(onlineClients) });
   if (bridgeReadyClients !== null) rows.push({ label: 'Bridge-Ready Clients', value: String(bridgeReadyClients) });
   if (snapshotReadyClients !== null) rows.push({ label: 'Snapshot-Ready Clients', value: String(snapshotReadyClients) });
@@ -67,6 +70,12 @@ function buildRuntimeOverviewSummaryRows(summary = null) {
     rows.push({ label: 'Rust Managed', value: source.rustManagedRunning ? 'yes' : 'no' });
   }
   if (runningCount !== null) rows.push({ label: 'Running Jobs', value: String(runningCount) });
+  if (runtimeCatalogVersion && backendCount !== null && runtimeClassCount !== null) {
+    rows.push({
+      label: 'Runtime Catalog',
+      value: `${runtimeCatalogVersion} · ${backendCount} backends · ${runtimeClassCount} runtime classes`,
+    });
+  }
   return rows;
 }
 

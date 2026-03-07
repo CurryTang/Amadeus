@@ -30,6 +30,16 @@ function formatSinkProviders(providers = []) {
   return values.join(', ');
 }
 
+function formatIsolationTier(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'none') return 'Host-native';
+  if (normalized === 'lite') return 'Lite isolation';
+  if (normalized === 'standard') return 'Standard isolation';
+  if (normalized === 'guarded') return 'Guarded isolation';
+  if (normalized === 'strong') return 'Strong isolation';
+  return '';
+}
+
 function resolveNodeReport(runReport = {}, bridgeReport = {}) {
   const primaryReport = runReport && typeof runReport === 'object' ? runReport : {};
   if (Object.keys(primaryReport).length > 0) return primaryReport;
@@ -93,11 +103,15 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     : (bridgeReport?.execution && typeof bridgeReport.execution === 'object'
       ? bridgeReport.execution
       : {});
+  const executionRuntimeProfile = execution?.runtimeProfile && typeof execution.runtimeProfile === 'object'
+    ? execution.runtimeProfile
+    : {};
   const executionLocation = cleanString(execution.location);
   const executionRuntime = [
     cleanString(execution.backend),
     cleanString(execution.runtimeClass),
   ].filter(Boolean).join('/');
+  const executionIsolation = formatIsolationTier(executionRuntimeProfile.isolationTier);
   if (executionLocation) {
     rows.push({
       label: 'Execution',
@@ -108,6 +122,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     rows.push({
       label: 'Runtime',
       value: executionRuntime,
+    });
+  }
+  if (executionIsolation) {
+    rows.push({
+      label: 'Isolation',
+      value: executionIsolation,
     });
   }
 
@@ -194,10 +214,15 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       ? runCompare.other.report.observability
       : {};
     const otherExecutionLocation = cleanString(runCompare?.other?.execution?.location);
+    const otherRuntimeProfile = runCompare?.other?.execution?.runtimeProfile
+      && typeof runCompare.other.execution.runtimeProfile === 'object'
+      ? runCompare.other.execution.runtimeProfile
+      : {};
     const otherExecutionRuntime = [
       cleanString(runCompare?.other?.execution?.backend),
       cleanString(runCompare?.other?.execution?.runtimeClass),
     ].filter(Boolean).join('/');
+    const otherExecutionIsolation = formatIsolationTier(otherRuntimeProfile.isolationTier);
     const otherResolvedTransport = cleanString(runCompare?.other?.resolvedTransport);
     const otherContractStatus = formatContractOk(runCompare?.other?.contract?.ok);
     const otherReadiness = formatReadiness(compareObservability?.statuses?.readiness);
@@ -255,6 +280,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       rows.push({
         label: 'Compare Runtime',
         value: otherExecutionRuntime,
+      });
+    }
+    if (otherExecutionIsolation) {
+      rows.push({
+        label: 'Compare Isolation',
+        value: otherExecutionIsolation,
       });
     }
     if (otherResolvedTransport) {

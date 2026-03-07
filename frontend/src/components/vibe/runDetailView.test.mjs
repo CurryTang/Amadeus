@@ -106,6 +106,9 @@ test('buildRunExecutionSummary prefers normalized execution view and formats res
       mode: 'headless',
       backend: 'container',
       runtimeClass: 'container-fast',
+      runtimeProfile: {
+        isolationTier: 'standard',
+      },
       resources: {
         cpu: 4,
         gpu: 1,
@@ -121,6 +124,7 @@ test('buildRunExecutionSummary prefers normalized execution view and formats res
     mode: 'headless',
     backend: 'container',
     runtimeClass: 'container-fast',
+    isolationTier: 'Standard isolation',
     resourcesLabel: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m',
   });
 });
@@ -330,6 +334,9 @@ test('buildRunCompareSummary surfaces compare-side sink providers from normalize
         location: 'remote',
         backend: 'container',
         runtimeClass: 'container-fast',
+        runtimeProfile: {
+          isolationTier: 'guarded',
+        },
       },
       report: {
         observability: {
@@ -423,6 +430,9 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
         location: 'remote',
         backend: 'container',
         runtimeClass: 'container-fast',
+        runtimeProfile: {
+          isolationTier: 'guarded',
+        },
       },
       contract: {
         ok: false,
@@ -445,6 +455,7 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherSinkProviders: 'wandb, tensorboard',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-fast',
+    otherIsolationTier: 'Guarded isolation',
     otherResolvedTransport: 'daemon-task',
     otherContractStatus: 'Validation failed',
     otherSnapshotBacked: true,
@@ -469,6 +480,9 @@ test('buildRunCompareSummary falls back to thin compare run views when report de
         location: 'remote',
         backend: 'container',
         runtimeClass: 'container-guarded',
+        runtimeProfile: {
+          isolationTier: 'guarded',
+        },
       },
       contract: {
         ok: true,
@@ -495,6 +509,7 @@ test('buildRunCompareSummary falls back to thin compare run views when report de
     otherSinkProviders: '',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-guarded',
+    otherIsolationTier: 'Guarded isolation',
     otherResolvedTransport: 'rust-daemon',
     otherContractStatus: 'Validated',
     otherSnapshotBacked: true,

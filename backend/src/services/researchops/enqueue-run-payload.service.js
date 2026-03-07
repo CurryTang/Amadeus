@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  normalizeExecutionBackend,
+  normalizeRuntimeClass,
+} = require('./runtime-catalog.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -94,8 +99,8 @@ function buildJobSpec(payload = {}) {
     ramGb: fallbackResources.ramGb ?? explicitResources.ramGb,
     timeoutMin: fallbackResources.timeoutMin ?? explicitResources.timeoutMin,
   };
-  const backend = cleanString(explicitJobSpec.backend || payload.backend);
-  const runtimeClass = cleanString(explicitJobSpec.runtimeClass || payload.runtimeClass);
+  const backend = normalizeExecutionBackend(explicitJobSpec.backend || payload.backend);
+  const runtimeClass = normalizeRuntimeClass(explicitJobSpec.runtimeClass || payload.runtimeClass);
 
   if (!backend && !runtimeClass && !hasAnyResource(mergedResources)) {
     return null;

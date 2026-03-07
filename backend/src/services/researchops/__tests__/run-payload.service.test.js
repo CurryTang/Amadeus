@@ -62,6 +62,18 @@ test('buildRunPayload exposes explicit execution contract fields when metadata c
   assert.equal(payload.execution.mode, 'headless');
   assert.equal(payload.execution.backend, 'container');
   assert.equal(payload.execution.runtimeClass, 'container-fast');
+  assert.deepEqual(payload.execution.runtimeProfile, {
+    catalogVersion: 'v0',
+    backend: 'container',
+    runtimeClass: 'container-fast',
+    backendKnown: true,
+    runtimeClassKnown: true,
+    backendLabel: 'Container',
+    runtimeClassLabel: 'Container Fast',
+    runtimeFamily: 'container',
+    isolationTier: 'standard',
+    executionTarget: 'managed-runner',
+  });
   assert.deepEqual(payload.execution.resources, {
     cpu: 4,
     gpu: 1,

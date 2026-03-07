@@ -37,6 +37,16 @@ function formatSinkProviders(providers = []) {
   return values.join(', ');
 }
 
+function formatIsolationTier(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'none') return 'Host-native';
+  if (normalized === 'lite') return 'Lite isolation';
+  if (normalized === 'standard') return 'Standard isolation';
+  if (normalized === 'guarded') return 'Guarded isolation';
+  if (normalized === 'strong') return 'Strong isolation';
+  return '';
+}
+
 function findArtifactById(artifacts = [], artifactId = '') {
   const targetId = cleanString(artifactId);
   if (!targetId) return null;
@@ -73,6 +83,9 @@ function buildRunDetailContext(run = {}, runReport = {}) {
 
 function buildRunExecutionSummary(run = {}) {
   const execution = run?.execution && typeof run.execution === 'object' ? run.execution : {};
+  const runtimeProfile = execution?.runtimeProfile && typeof execution.runtimeProfile === 'object'
+    ? execution.runtimeProfile
+    : {};
   const resources = execution?.resources && typeof execution.resources === 'object' ? execution.resources : {};
   const resourceBits = [
     ['cpu', cleanNumber(resources.cpu)],
@@ -87,6 +100,7 @@ function buildRunExecutionSummary(run = {}) {
     mode: cleanString(execution.mode) || cleanString(run?.mode),
     backend: cleanString(execution.backend),
     runtimeClass: cleanString(execution.runtimeClass),
+    isolationTier: formatIsolationTier(runtimeProfile.isolationTier),
     resourcesLabel: resourceBits.map(([label, value]) => {
       if (label === 'ram') return `ram ${value}GB`;
       if (label === 'timeout') return `timeout ${value}m`;
@@ -364,6 +378,9 @@ function buildRunCompareSummary(comparePayload = {}) {
     ? other.report.observability
     : {};
   const execution = other?.execution && typeof other.execution === 'object' ? other.execution : {};
+  const runtimeProfile = execution?.runtimeProfile && typeof execution.runtimeProfile === 'object'
+    ? execution.runtimeProfile
+    : {};
   const contract = other?.contract && typeof other.contract === 'object' ? other.contract : {};
   const workspaceSnapshot = other?.report?.workspaceSnapshot && typeof other.report.workspaceSnapshot === 'object'
     ? other.report.workspaceSnapshot
@@ -400,6 +417,7 @@ function buildRunCompareSummary(comparePayload = {}) {
     otherSinkProviders: formatSinkProviders(observability?.sinkProviders),
     otherExecutionLocation: cleanString(execution.location),
     otherExecutionRuntime: runtimeBits.length > 0 ? runtimeBits.join('/') : '',
+    otherIsolationTier: formatIsolationTier(runtimeProfile.isolationTier),
     otherResolvedTransport: cleanString(other?.resolvedTransport),
     otherContractStatus: formatContractOk(contract.ok),
     otherSnapshotBacked: Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)),

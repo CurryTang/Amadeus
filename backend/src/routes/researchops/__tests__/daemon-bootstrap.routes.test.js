@@ -7,6 +7,7 @@ const {
   createDaemonBootstrapResponse,
   buildDaemonBootstrapStatusPayload,
   buildRustDaemonStatusResponse,
+  buildRuntimeCatalogResponse,
 } = require('../admin');
 
 test('bootstrap create route returns token metadata and install payload', async () => {
@@ -141,4 +142,28 @@ test('rust daemon status response exposes runtime probe data and reusable runtim
   assert.match(response.debugCommands?.health || '', /curl --unix-socket .* http:\/\/localhost\/health/);
   assert.match(response.debugCommands?.runtime || '', /curl --unix-socket .* http:\/\/localhost\/runtime/);
   assert.match(response.debugCommands?.taskCatalog || '', /curl --unix-socket .* http:\/\/localhost\/task-catalog/);
+});
+
+test('runtime catalog response exposes canonical backends and runtime classes', async () => {
+  const response = buildRuntimeCatalogResponse({
+    refreshedAt: '2026-03-07T12:00:00.000Z',
+  });
+
+  assert.equal(response.refreshedAt, '2026-03-07T12:00:00.000Z');
+  assert.equal(response.version, 'v0');
+  assert.deepEqual(response.backends.map((item) => item.id), ['local', 'container', 'k8s', 'slurm']);
+  assert.deepEqual(response.runtimeClasses.map((item) => item.id), [
+    'wasm-lite',
+    'container-fast',
+    'container-guarded',
+    'microvm-strong',
+  ]);
+  assert.deepEqual(response.actions.catalog, {
+    method: 'GET',
+    path: '/researchops/runtime/catalog',
+  });
+  assert.deepEqual(response.actions.overview, {
+    method: 'GET',
+    path: '/researchops/runtime/overview',
+  });
 });

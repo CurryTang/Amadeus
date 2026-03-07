@@ -78,6 +78,9 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
           location: 'remote',
           backend: 'container',
           runtimeClass: 'container-fast',
+          runtimeProfile: {
+            isolationTier: 'guarded',
+          },
         },
         contract: {
           ok: false,
@@ -122,6 +125,7 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare Sinks', value: 'wandb, tensorboard' },
     { label: 'Compare Execution', value: 'remote' },
     { label: 'Compare Runtime', value: 'container/container-fast' },
+    { label: 'Compare Isolation', value: 'Guarded isolation' },
     { label: 'Compare Transport', value: 'daemon-task' },
     { label: 'Compare Contract', value: 'Validation failed' },
     { label: 'Compare Snapshot', value: 'Snapshot-backed' },
@@ -186,6 +190,9 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
         location: 'remote',
         backend: 'container',
         runtimeClass: 'container-fast',
+        runtimeProfile: {
+          isolationTier: 'standard',
+        },
       },
       resolvedTransport: 'daemon-task',
       contract: {
@@ -220,6 +227,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     { label: 'Contract', value: 'Validation failed' },
     { label: 'Execution', value: 'remote' },
     { label: 'Runtime', value: 'container/container-fast' },
+    { label: 'Isolation', value: 'Standard isolation' },
     { label: 'Readiness', value: 'Needs attention' },
     { label: 'Warnings', value: '2 warnings' },
     { label: 'Sinks', value: 'wandb, tensorboard' },
@@ -239,6 +247,9 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
         location: 'remote',
         backend: 'container',
         runtimeClass: 'container-guarded',
+        runtimeProfile: {
+          isolationTier: 'guarded',
+        },
       },
       resolvedTransport: 'rust-daemon',
       contract: {
@@ -283,6 +294,7 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     { label: 'Contract', value: 'Validated' },
     { label: 'Execution', value: 'remote' },
     { label: 'Runtime', value: 'container/container-guarded' },
+    { label: 'Isolation', value: 'Guarded isolation' },
     { label: 'Readiness', value: 'Ready' },
     { label: 'Sinks', value: 'wandb' },
     { label: 'Snapshot', value: 'Snapshot-backed' },

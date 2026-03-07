@@ -71,6 +71,29 @@ test('normalizeEnqueueRunPayload merges explicit jobSpec with flat fallbacks and
   });
 });
 
+test('normalizeEnqueueRunPayload canonicalizes known backend and runtime aliases', () => {
+  const payload = normalizeEnqueueRunPayload({
+    projectId: 'proj_aliases',
+    runType: 'AGENT',
+    backend: 'docker',
+    runtimeClass: 'guarded',
+    resources: {
+      cpu: 2,
+    },
+  });
+
+  assert.deepEqual(payload.metadata.jobSpec, {
+    backend: 'container',
+    runtimeClass: 'container-guarded',
+    resources: {
+      cpu: 2,
+      gpu: null,
+      ramGb: null,
+      timeoutMin: null,
+    },
+  });
+});
+
 test('normalizeEnqueueRunPayload preserves thin local snapshot hints for bridge-submitted runs', () => {
   const payload = normalizeEnqueueRunPayload({
     projectId: 'proj_bridge',

@@ -121,6 +121,12 @@ function VibeRunDetailModal({
                   <dd>{execution.runtimeClass}</dd>
                 </div>
               )}
+              {execution.isolationTier && (
+                <div>
+                  <dt>Isolation</dt>
+                  <dd>{execution.isolationTier}</dd>
+                </div>
+              )}
               {execution.resourcesLabel && (
                 <div className="vibe-run-detail-grid-span">
                   <dt>Resources</dt>
@@ -253,6 +259,12 @@ function VibeRunDetailModal({
                       <div>
                         <dt>Runtime</dt>
                         <dd>{compareSummary.otherExecutionRuntime}</dd>
+                      </div>
+                    )}
+                    {compareSummary.otherIsolationTier && (
+                      <div>
+                        <dt>Isolation</dt>
+                        <dd>{compareSummary.otherIsolationTier}</dd>
                       </div>
                     )}
                     {compareSummary.otherResolvedTransport && (

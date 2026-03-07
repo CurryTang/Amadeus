@@ -105,6 +105,9 @@ test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts',
     rustSnapshotReady: true,
     rustManagedRunning: false,
     runningCount: 3,
+    runtimeCatalogVersion: 'v0',
+    backendCount: 4,
+    runtimeClassCount: 4,
   });
 
   assert.deepEqual(rows, [
@@ -115,6 +118,7 @@ test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts',
     { label: 'Rust Snapshot Ready', value: 'yes' },
     { label: 'Rust Managed', value: 'no' },
     { label: 'Running Jobs', value: '3' },
+    { label: 'Runtime Catalog', value: 'v0 · 4 backends · 4 runtime classes' },
   ]);
 });
 
@@ -128,6 +132,9 @@ test('buildRuntimeOverviewPanelRows preserves summary-only rows when rust status
       rustSnapshotReady: false,
       rustManagedRunning: false,
       runningCount: 3,
+      runtimeCatalogVersion: 'v0',
+      backendCount: 4,
+      runtimeClassCount: 4,
     },
     rustDaemonStatus: null,
   });
@@ -140,6 +147,7 @@ test('buildRuntimeOverviewPanelRows preserves summary-only rows when rust status
     { label: 'Rust Snapshot Ready', value: 'no' },
     { label: 'Rust Managed', value: 'no' },
     { label: 'Running Jobs', value: '3' },
+    { label: 'Runtime Catalog', value: 'v0 · 4 backends · 4 runtime classes' },
   ]);
 });
 

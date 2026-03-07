@@ -164,6 +164,18 @@ test('buildRunListPayload includes normalized workspace and env snapshot semanti
       timeoutMin: 15,
     },
   });
+  assert.deepEqual(payload.items[0].execution.runtimeProfile, {
+    catalogVersion: 'v0',
+    backend: 'container',
+    runtimeClass: 'container-fast',
+    backendKnown: true,
+    runtimeClassKnown: true,
+    backendLabel: 'Container',
+    runtimeClassLabel: 'Container Fast',
+    runtimeFamily: 'container',
+    isolationTier: 'standard',
+    executionTarget: 'managed-runner',
+  });
 });
 
 test('buildRunListPayload includes thin normalized observability semantics on list items', () => {

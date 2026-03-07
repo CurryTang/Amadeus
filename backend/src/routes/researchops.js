@@ -91,6 +91,7 @@ const {
 } = require('../services/researchops/runner-status-payload.service');
 const { buildResearchOpsHealthPayload } = require('../services/researchops/health-payload.service');
 const { buildRuntimeOverviewPayload } = require('../services/researchops/runtime-overview-payload.service');
+const { buildRuntimeCatalogPayload } = require('../services/researchops/runtime-catalog-payload.service');
 const { probeRustDaemonRuntime } = require('../services/researchops/rust-daemon-runtime.service');
 const { buildRustDaemonStatusPayload } = require('../services/researchops/rust-daemon-status-payload.service');
 const {
@@ -6319,6 +6320,12 @@ router.get('/runtime/overview', async (req, res) => {
     console.error('[ResearchOps] runtime overview failed:', error);
     return res.status(500).json({ error: sanitizeError(error, 'Failed to load runtime overview') });
   }
+});
+
+router.get('/runtime/catalog', (req, res) => {
+  return res.json(buildRuntimeCatalogPayload({
+    refreshedAt: new Date().toISOString(),
+  }));
 });
 
 // Daemons

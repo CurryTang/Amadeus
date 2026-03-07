@@ -96,6 +96,7 @@ test('buildRunCardMetaLabels keeps execution and observability labels in activit
   const labels = buildRunCardMetaLabels({
     executionLabel: 'Remote',
     executionRuntimeLabel: 'container/container-fast',
+    executionIsolationLabel: 'Guarded isolation',
     transportLabel: 'via daemon-task',
     snapshotLabel: 'Snapshot-backed',
     contractLabel: 'Validation failed',
@@ -109,6 +110,7 @@ test('buildRunCardMetaLabels keeps execution and observability labels in activit
   assert.deepEqual(labels, [
     'Remote',
     'container/container-fast',
+    'Guarded isolation',
     'via daemon-task',
     'Snapshot-backed',
     'Validation failed',

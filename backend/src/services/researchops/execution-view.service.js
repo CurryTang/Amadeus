@@ -1,5 +1,11 @@
 'use strict';
 
+const {
+  buildExecutionRuntimeProfile,
+  normalizeExecutionBackend,
+  normalizeRuntimeClass,
+} = require('./runtime-catalog.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -28,15 +34,21 @@ function buildRunExecutionView(run = {}) {
   const jobSpec = readObject(metadata.jobSpec);
   const serverId = cleanString(run?.serverId) || 'local-default';
   const location = serverId === 'local-default' ? 'local' : 'remote';
-  const backend = cleanString(jobSpec.backend || metadata.executionBackend)
+  const backend = normalizeExecutionBackend(jobSpec.backend || metadata.executionBackend)
     || (location === 'local' ? 'local' : '');
-  const runtimeClass = cleanString(jobSpec.runtimeClass || metadata.runtimeClass);
+  const runtimeClass = normalizeRuntimeClass(jobSpec.runtimeClass || metadata.runtimeClass);
+  const runtimeProfile = buildExecutionRuntimeProfile({
+    backend,
+    runtimeClass,
+    location,
+  });
   return {
     serverId,
     location,
     mode: cleanString(run?.mode) || 'interactive',
     backend,
     runtimeClass,
+    runtimeProfile,
     resources: normalizeResources(jobSpec.resources || metadata.resources),
   };
 }

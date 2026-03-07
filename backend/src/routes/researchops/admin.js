@@ -28,6 +28,7 @@ const {
 const { buildExperimentExecutePayload } = require('../../services/researchops/experiment-execute-payload.service');
 const { buildResourcePoolPayload } = require('../../services/researchops/resource-pool-payload.service');
 const { buildRuntimeOverviewPayload } = require('../../services/researchops/runtime-overview-payload.service');
+const { buildRuntimeCatalogPayload } = require('../../services/researchops/runtime-catalog-payload.service');
 const { probeRustDaemonRuntime } = require('../../services/researchops/rust-daemon-runtime.service');
 const {
   buildRustDaemonEnvFileContent,
@@ -573,6 +574,12 @@ router.get('/runtime/overview', async (req, res) => {
   }
 });
 
+router.get('/runtime/catalog', (req, res) => {
+  res.json(buildRuntimeCatalogPayload({
+    refreshedAt: new Date().toISOString(),
+  }));
+});
+
 // Daemons
 router.post('/daemons/bootstrap', async (req, res) => {
   try {
@@ -1055,5 +1062,6 @@ module.exports = router;
 module.exports.createDaemonBootstrapResponse = createDaemonBootstrapResponse;
 module.exports.buildDaemonBootstrapStatusPayload = buildDaemonBootstrapStatusPayload;
 module.exports.buildRustDaemonStatusResponse = buildRustDaemonStatusResponse;
+module.exports.buildRuntimeCatalogResponse = buildRuntimeCatalogPayload;
 module.exports.buildUiConfigResponse = buildUiConfigResponse;
 module.exports.normalizeUiConfigPatch = normalizeUiConfigPatch;

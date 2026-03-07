@@ -55,6 +55,9 @@ test('buildRuntimeOverviewPayload aggregates daemon, rust, and runner views with
   assert.equal(payload.daemons.items.length, 2);
   assert.equal(payload.rustDaemon.status, 'ok');
   assert.equal(payload.runner.items.length, 1);
+  assert.equal(payload.runtimeCatalog.version, 'v0');
+  assert.equal(payload.runtimeCatalog.backends.length, 4);
+  assert.equal(payload.runtimeCatalog.runtimeClasses.length, 4);
   assert.deepEqual(payload.summary, {
     onlineClients: 2,
     bridgeReadyClients: 1,
@@ -63,6 +66,9 @@ test('buildRuntimeOverviewPayload aggregates daemon, rust, and runner views with
     rustSnapshotReady: true,
     rustManagedRunning: true,
     runningCount: 1,
+    runtimeCatalogVersion: 'v0',
+    backendCount: 4,
+    runtimeClassCount: 4,
   });
   assert.deepEqual(payload.actions.overview, {
     method: 'GET',
