@@ -1,4 +1,9 @@
-import { buildRunDetailContext, buildRunDetailOutput, buildRunDetailPrompt } from './runDetailView.js';
+import {
+  buildRunDetailContext,
+  buildRunExecutionSummary,
+  buildRunDetailOutput,
+  buildRunDetailPrompt,
+} from './runDetailView.js';
 
 function VibeRunDetailModal({
   open,
@@ -12,6 +17,7 @@ function VibeRunDetailModal({
   if (!open || !run) return null;
 
   const context = buildRunDetailContext(run, runReport || {});
+  const execution = buildRunExecutionSummary(run);
   const prompt = buildRunDetailPrompt(run);
   const output = buildRunDetailOutput(run, runReport || {});
   const artifacts = Array.isArray(runReport?.artifacts) ? runReport.artifacts : [];
@@ -72,6 +78,36 @@ function VibeRunDetailModal({
                 <div className="vibe-run-detail-grid-span">
                   <dt>Workspace</dt>
                   <dd><code>{context.workspacePath}</code></dd>
+                </div>
+              )}
+              {execution.location && (
+                <div>
+                  <dt>Location</dt>
+                  <dd>{execution.location}</dd>
+                </div>
+              )}
+              {execution.mode && (
+                <div>
+                  <dt>Mode</dt>
+                  <dd>{execution.mode}</dd>
+                </div>
+              )}
+              {execution.backend && (
+                <div>
+                  <dt>Backend</dt>
+                  <dd>{execution.backend}</dd>
+                </div>
+              )}
+              {execution.runtimeClass && (
+                <div>
+                  <dt>Runtime Class</dt>
+                  <dd>{execution.runtimeClass}</dd>
+                </div>
+              )}
+              {execution.resourcesLabel && (
+                <div className="vibe-run-detail-grid-span">
+                  <dt>Resources</dt>
+                  <dd>{execution.resourcesLabel}</dd>
                 </div>
               )}
             </dl>

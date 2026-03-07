@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildAttemptViewFromRun } = require('./attempt-view.service');
+const { buildRunExecutionView } = require('./execution-view.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -22,6 +23,7 @@ function buildRunListItem(run = {}) {
   return {
     ...run,
     attempt: buildAttemptViewFromRun(run),
+    execution: buildRunExecutionView(run),
     resultSnippet: deriveResultSnippet(run),
   };
 }

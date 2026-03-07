@@ -4,6 +4,11 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function cleanNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function findArtifactById(artifacts = [], artifactId = '') {
   const targetId = cleanString(artifactId);
   if (!targetId) return null;
@@ -35,6 +40,30 @@ function buildRunDetailContext(run = {}, runReport = {}) {
     workspacePath: cleanString(runReport?.runWorkspacePath)
       || cleanString(runReport?.workspace?.path)
       || cleanString(metadata.runWorkspacePath),
+  };
+}
+
+function buildRunExecutionSummary(run = {}) {
+  const execution = run?.execution && typeof run.execution === 'object' ? run.execution : {};
+  const resources = execution?.resources && typeof execution.resources === 'object' ? execution.resources : {};
+  const resourceBits = [
+    ['cpu', cleanNumber(resources.cpu)],
+    ['gpu', cleanNumber(resources.gpu)],
+    ['ram', cleanNumber(resources.ramGb)],
+    ['timeout', cleanNumber(resources.timeoutMin)],
+  ].filter(([, value]) => value !== null);
+
+  return {
+    serverId: cleanString(execution.serverId) || cleanString(run?.serverId),
+    location: cleanString(execution.location),
+    mode: cleanString(execution.mode) || cleanString(run?.mode),
+    backend: cleanString(execution.backend),
+    runtimeClass: cleanString(execution.runtimeClass),
+    resourcesLabel: resourceBits.map(([label, value]) => {
+      if (label === 'ram') return `ram ${value}GB`;
+      if (label === 'timeout') return `timeout ${value}m`;
+      return `${label} ${value}`;
+    }).join(' · '),
   };
 }
 
@@ -82,6 +111,7 @@ function buildRunDetailOutput(run = {}, runReport = {}) {
 
 export {
   buildRunDetailContext,
+  buildRunExecutionSummary,
   buildRunDetailOutput,
   buildRunDetailPrompt,
 };

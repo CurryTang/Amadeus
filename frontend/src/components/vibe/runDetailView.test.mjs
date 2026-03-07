@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildRunDetailContext,
+  buildRunExecutionSummary,
   buildRunDetailPrompt,
   buildRunDetailOutput,
 } from './runDetailView.js';
@@ -85,4 +86,33 @@ test('buildRunDetailContext falls back to attempt metadata when run metadata is 
 
   assert.equal(context.treeNodeTitle, 'Recovered Tree Title');
   assert.equal(context.workspacePath, '/tmp/researchops-runs/run_sparse');
+});
+
+test('buildRunExecutionSummary prefers normalized execution view and formats resources', () => {
+  const execution = buildRunExecutionSummary({
+    ...BASE_RUN,
+    mode: 'headless',
+    execution: {
+      serverId: 'srv_remote_1',
+      location: 'remote',
+      mode: 'headless',
+      backend: 'container',
+      runtimeClass: 'container-fast',
+      resources: {
+        cpu: 4,
+        gpu: 1,
+        ramGb: 24,
+        timeoutMin: 30,
+      },
+    },
+  });
+
+  assert.deepEqual(execution, {
+    serverId: 'srv_remote_1',
+    location: 'remote',
+    mode: 'headless',
+    backend: 'container',
+    runtimeClass: 'container-fast',
+    resourcesLabel: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m',
+  });
 });
