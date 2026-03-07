@@ -90,6 +90,11 @@ const {
   buildProjectGitRestorePayload,
   buildProjectKbSetupPayload,
 } = require('../services/researchops/project-control-payload.service');
+const {
+  buildProjectFileContentPayload,
+  buildProjectFileTreePayload,
+  buildProjectKbResourceLocatePayload,
+} = require('../services/researchops/project-file-browser-payload.service');
 const { buildProjectKbAddPaperPayload } = require('../services/researchops/project-kb-paper-payload.service');
 const {
   buildKbSyncJobPayload,
@@ -4467,12 +4472,14 @@ router.get('/projects/:projectId/files/tree', async (req, res) => {
     const tree = project.locationType === 'ssh'
       ? await listSshProjectDirectory(server, browseRoot.rootPath, relativePath, limit)
       : await listLocalProjectDirectory(browseRoot.rootPath, relativePath, limit);
-    return res.json({
+    return res.json(buildProjectFileTreePayload({
       projectId: project.id,
       rootMode: browseRoot.rootMode,
-      ...tree,
-      refreshedAt: new Date().toISOString(),
-    });
+      result: {
+        ...tree,
+        refreshedAt: new Date().toISOString(),
+      },
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
@@ -4505,12 +4512,15 @@ router.get('/projects/:projectId/files/content', async (req, res) => {
     const file = project.locationType === 'ssh'
       ? await readSshProjectTextFile(server, browseRoot.rootPath, relativePath, maxBytes)
       : await readLocalProjectTextFile(browseRoot.rootPath, relativePath, maxBytes);
-    return res.json({
+    return res.json(buildProjectFileContentPayload({
       projectId: project.id,
       rootMode: browseRoot.rootMode,
-      ...file,
-      refreshedAt: new Date().toISOString(),
-    });
+      scope,
+      result: {
+        ...file,
+        refreshedAt: new Date().toISOString(),
+      },
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
@@ -4594,13 +4604,14 @@ router.get('/projects/:projectId/kb/resource-locate', async (req, res) => {
       includePreview,
     });
 
-    return res.json({
+    return res.json(buildProjectKbResourceLocatePayload({
       projectId: project.id,
-      rootMode: 'kb-folder',
       rootPath: kbRootPath,
-      ...located,
-      refreshedAt: new Date().toISOString(),
-    });
+      result: {
+        ...located,
+        refreshedAt: new Date().toISOString(),
+      },
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
