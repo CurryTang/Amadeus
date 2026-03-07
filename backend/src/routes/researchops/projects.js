@@ -100,6 +100,7 @@ const {
   daemonSupportsTaskTypes,
   missingDaemonTaskTypes,
 } = require('../../services/researchops/daemon-task-descriptor.service');
+const { buildProjectBridgeRuntime } = require('../../services/researchops/project-bridge-runtime.service');
 const { buildProjectPathCheckPayload } = require('../../services/researchops/project-path-check-payload.service');
 const {
   buildKnowledgeGroupDeletePayload,
@@ -1272,28 +1273,6 @@ function assertClientDaemonSupportsProjectBootstrap(device = null) {
     'project.ensurePath',
     'project.ensureGit',
   ]);
-}
-
-function buildProjectBridgeRuntime(project = {}, device = null) {
-  const locationType = cleanString(project?.locationType).toLowerCase();
-  const clientMode = cleanString(project?.clientMode).toLowerCase();
-  if (locationType !== 'client' || clientMode !== 'agent') {
-    return null;
-  }
-  const serverId = cleanString(project?.clientDeviceId)
-    || cleanString(device?.id)
-    || cleanString(device?.serverId);
-  const supportedTaskTypes = Array.isArray(device?.supportedTaskTypes) && device.supportedTaskTypes.length > 0
-    ? device.supportedTaskTypes.map((item) => cleanString(item)).filter(Boolean)
-    : ['project.checkPath', 'project.ensurePath', 'project.ensureGit'];
-  const missingBridgeTaskTypes = missingDaemonTaskTypes(device, OPTIONAL_BRIDGE_DAEMON_TASK_TYPES);
-  return {
-    executionTarget: 'client-daemon',
-    serverId: serverId || null,
-    supportsLocalBridgeWorkflow: missingBridgeTaskTypes.length === 0,
-    missingBridgeTaskTypes,
-    supportedTaskTypes,
-  };
 }
 
 function buildClientDaemonBootstrapActions(device = null, serverId = '') {

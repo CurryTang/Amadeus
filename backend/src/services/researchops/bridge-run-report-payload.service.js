@@ -1,5 +1,8 @@
 'use strict';
 
+const { buildBridgeDaemonTaskActions } = require('./bridge-daemon-task-action.service');
+const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -31,9 +34,12 @@ function buildBridgeReportActions(runId = '') {
   };
 }
 
-function buildBridgeRunReportPayload({ report = null } = {}) {
+function buildBridgeRunReportPayload({ report = null, bridgeRuntime = null } = {}) {
   const source = asObject(report);
+  const normalizedBridgeRuntime = buildBridgeRuntimeView(bridgeRuntime);
   const runId = cleanString(source?.run?.id);
+  const projectId = cleanString(source?.run?.projectId);
+  const nodeId = cleanString(source?.attempt?.treeNodeId);
   const checkpoints = Array.isArray(source.checkpoints) ? source.checkpoints : [];
   const highlights = asObject(source.highlights);
   const deliverableArtifactIds = Array.isArray(highlights.deliverableArtifactIds)
@@ -67,7 +73,14 @@ function buildBridgeRunReportPayload({ report = null } = {}) {
       hasFinalOutput: Boolean(highlights.finalOutputArtifactId),
       hasContractFailures: source?.contract?.ok === false,
     },
+    bridgeRuntime: normalizedBridgeRuntime && Object.keys(normalizedBridgeRuntime).length > 0 ? normalizedBridgeRuntime : null,
     actions: buildBridgeReportActions(runId),
+    taskActions: buildBridgeDaemonTaskActions({
+      serverId: normalizedBridgeRuntime?.serverId,
+      projectId,
+      nodeId,
+      runId,
+    }),
     report: source,
   };
 }

@@ -7,9 +7,26 @@ const { buildBridgeRunReportPayload } = require('../bridge-run-report-payload.se
 
 test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fields', () => {
   const payload = buildBridgeRunReportPayload({
+    bridgeRuntime: {
+      executionTarget: 'client-daemon',
+      serverId: 'srv_client_1',
+      supportsLocalBridgeWorkflow: true,
+      missingBridgeTaskTypes: [],
+      supportedTaskTypes: [
+        'project.checkPath',
+        'project.ensurePath',
+        'project.ensureGit',
+        'bridge.fetchNodeContext',
+        'bridge.fetchContextPack',
+        'bridge.submitNodeRun',
+        'bridge.fetchRunReport',
+        'bridge.submitRunNote',
+      ],
+    },
     report: {
       run: {
         id: 'run_123',
+        projectId: 'proj_1',
         status: 'SUCCEEDED',
       },
       attempt: {
@@ -89,6 +106,41 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   assert.equal(payload.flags.hasFinalOutput, false);
   assert.equal(payload.flags.hasContractFailures, true);
   assert.equal(payload.followUp.relatedRunIds.length, 2);
+  assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
+  assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
+  assert.deepEqual(payload.taskActions.fetchNodeContext, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchNodeContext',
+    payload: {
+      projectId: 'proj_1',
+      nodeId: 'node_eval',
+    },
+  });
+  assert.deepEqual(payload.taskActions.fetchContextPack, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchContextPack',
+    payload: {
+      runId: 'run_123',
+    },
+  });
+  assert.deepEqual(payload.taskActions.fetchRunReport, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchRunReport',
+    payload: {
+      runId: 'run_123',
+    },
+  });
+  assert.deepEqual(payload.taskActions.submitRunNote, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.submitRunNote',
+    payload: {
+      runId: 'run_123',
+    },
+  });
   assert.deepEqual(payload.actions.contextPack, {
     method: 'GET',
     path: '/researchops/runs/run_123/context-pack',
