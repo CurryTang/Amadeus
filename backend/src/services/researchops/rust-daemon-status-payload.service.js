@@ -10,6 +10,29 @@ function shellQuote(value = '') {
   return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
 }
 
+function buildRustDaemonDebugCommands({
+  endpoint = '',
+  socketPath = '',
+} = {}) {
+  const normalizedEndpoint = cleanString(endpoint);
+  const normalizedSocketPath = cleanString(socketPath);
+  if (normalizedSocketPath) {
+    return {
+      health: `curl --unix-socket ${shellQuote(normalizedSocketPath)} http://localhost/health`,
+      runtime: `curl --unix-socket ${shellQuote(normalizedSocketPath)} http://localhost/runtime`,
+      taskCatalog: `curl --unix-socket ${shellQuote(normalizedSocketPath)} http://localhost/task-catalog`,
+    };
+  }
+  if (normalizedEndpoint) {
+    return {
+      health: `curl ${normalizedEndpoint.replace(/\/+$/, '')}/health`,
+      runtime: `curl ${normalizedEndpoint.replace(/\/+$/, '')}/runtime`,
+      taskCatalog: `curl ${normalizedEndpoint.replace(/\/+$/, '')}/task-catalog`,
+    };
+  }
+  return null;
+}
+
 function buildRustDaemonEnvFileContent({
   apiBaseUrl = '',
   transport = 'http',
@@ -112,6 +135,10 @@ function buildRustDaemonStatusPayload({
       : null,
     error: cleanString(source.error) || null,
     runtimeOptions,
+    debugCommands: buildRustDaemonDebugCommands({
+      endpoint: source.endpoint,
+      socketPath: source.socketPath,
+    }),
     actions: {
       status: {
         method: 'GET',
@@ -130,6 +157,7 @@ function buildRustDaemonStatusPayload({
 }
 
 module.exports = {
+  buildRustDaemonDebugCommands,
   buildRustDaemonEnvFileContent,
   buildRustDaemonPrototypeRuntimeOptions,
   buildRustDaemonStatusPayload,

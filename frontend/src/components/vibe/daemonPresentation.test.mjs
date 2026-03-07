@@ -223,6 +223,34 @@ test('buildBootstrapRuntimeCommands also accepts dedicated rust status payloads'
   ]);
 });
 
+test('buildBootstrapRuntimeCommands also exposes debug probe commands from rust status payloads', () => {
+  const items = buildBootstrapRuntimeCommands({
+    debugCommands: {
+      health: 'curl http://127.0.0.1:7788/health',
+      runtime: 'curl http://127.0.0.1:7788/runtime',
+      taskCatalog: 'curl http://127.0.0.1:7788/task-catalog',
+    },
+  });
+
+  assert.deepEqual(items, [
+    {
+      key: 'rust-debug-health',
+      label: 'Rust debug (Health)',
+      command: 'curl http://127.0.0.1:7788/health',
+    },
+    {
+      key: 'rust-debug-runtime',
+      label: 'Rust debug (Runtime)',
+      command: 'curl http://127.0.0.1:7788/runtime',
+    },
+    {
+      key: 'rust-debug-task-catalog',
+      label: 'Rust debug (Task Catalog)',
+      command: 'curl http://127.0.0.1:7788/task-catalog',
+    },
+  ]);
+});
+
 test('buildBootstrapRuntimeEnvFiles returns downloadable rust env files', () => {
   const items = buildBootstrapRuntimeEnvFiles({
     runtimeOptions: {

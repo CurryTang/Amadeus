@@ -45,6 +45,9 @@ test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime opt
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.http, /researchops-bootstrap-rust-daemon\.sh/);
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.launcher, /researchops:rust-daemon/);
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.verify, /researchops:verify-rust-daemon-prototype/);
+  assert.match(payload.debugCommands.health, /curl .*\/health/);
+  assert.match(payload.debugCommands.runtime, /curl .*\/runtime/);
+  assert.match(payload.debugCommands.taskCatalog, /curl .*\/task-catalog/);
   assert.deepEqual(payload.actions.status, {
     method: 'GET',
     path: '/researchops/daemons/rust/status',

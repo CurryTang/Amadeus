@@ -104,6 +104,9 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
     ? runtimeOptions.rustDaemonPrototype
     : null;
   const commands = rustPrototype && typeof rustPrototype === 'object' ? rustPrototype.commands : null;
+  const debugCommands = bootstrap && typeof bootstrap === 'object' && bootstrap.debugCommands && typeof bootstrap.debugCommands === 'object'
+    ? bootstrap.debugCommands
+    : null;
   const items = [];
   const launcherCommand = cleanString(commands?.launcher);
   const httpCommand = cleanString(commands?.http);
@@ -135,6 +138,30 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
       key: 'rust-verify',
       label: 'Rust daemon (Verify)',
       command: verifyCommand,
+    });
+  }
+  const debugHealth = cleanString(debugCommands?.health);
+  const debugRuntime = cleanString(debugCommands?.runtime);
+  const debugTaskCatalog = cleanString(debugCommands?.taskCatalog);
+  if (debugHealth) {
+    items.push({
+      key: 'rust-debug-health',
+      label: 'Rust debug (Health)',
+      command: debugHealth,
+    });
+  }
+  if (debugRuntime) {
+    items.push({
+      key: 'rust-debug-runtime',
+      label: 'Rust debug (Runtime)',
+      command: debugRuntime,
+    });
+  }
+  if (debugTaskCatalog) {
+    items.push({
+      key: 'rust-debug-task-catalog',
+      label: 'Rust debug (Task Catalog)',
+      command: debugTaskCatalog,
     });
   }
   return items;
