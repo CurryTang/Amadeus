@@ -65,6 +65,7 @@ const {
   buildKnowledgeAssetListPayload,
   buildKnowledgeAssetPayload,
   buildKnowledgeGroupAssetsPayload,
+  buildKnowledgeGroupAssetMutationPayload,
 } = require('../services/researchops/knowledge-asset-payload.service');
 const { buildSkillListPayload } = require('../services/researchops/skill-payload.service');
 const {
@@ -4954,7 +4955,10 @@ router.post('/knowledge/groups/:groupId/assets', async (req, res) => {
       req.params.groupId,
       assetIds
     );
-    return res.json(result);
+    return res.json(buildKnowledgeGroupAssetMutationPayload({
+      groupId: req.params.groupId,
+      result,
+    }));
   } catch (error) {
     console.error('[ResearchOps] addAssetsToKnowledgeGroup failed:', error);
     if (error.code === 'GROUP_NOT_FOUND') return res.status(404).json({ error: 'Knowledge group not found' });
@@ -4969,7 +4973,11 @@ router.delete('/knowledge/groups/:groupId/assets/:assetId', async (req, res) => 
       req.params.groupId,
       req.params.assetId
     );
-    return res.json({ success: true });
+    return res.json(buildKnowledgeGroupAssetMutationPayload({
+      groupId: req.params.groupId,
+      assetId: req.params.assetId,
+      success: true,
+    }));
   } catch (error) {
     console.error('[ResearchOps] removeAssetFromKnowledgeGroup failed:', error);
     if (error.code === 'GROUP_NOT_FOUND') return res.status(404).json({ error: 'Knowledge group not found' });

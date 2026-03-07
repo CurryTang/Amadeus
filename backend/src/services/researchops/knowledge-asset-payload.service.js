@@ -123,8 +123,38 @@ function buildKnowledgeGroupAssetsPayload({
   };
 }
 
+function buildKnowledgeGroupAssetMutationPayload({
+  groupId = null,
+  assetId = null,
+  result = null,
+  success = null,
+} = {}) {
+  const normalizedGroupId = normalizeGroupId(groupId);
+  const normalizedAssetId = normalizeAssetId(assetId);
+  const source = result && typeof result === 'object' ? result : {};
+  const base = buildKnowledgeGroupAssetsPayload({ groupId: normalizedGroupId });
+  if (normalizedAssetId !== null) {
+    base.actions.removeAsset = {
+      method: 'DELETE',
+      path: `/researchops/knowledge/groups/${encodeURIComponent(String(normalizedGroupId))}/assets/${encodeURIComponent(String(normalizedAssetId))}`,
+    };
+  }
+  return {
+    groupId: normalizedGroupId,
+    assetId: normalizedAssetId,
+    success: typeof success === 'boolean' ? success : null,
+    added: Number.isFinite(Number(source.added)) ? Number(source.added) : 0,
+    ignored: Number.isFinite(Number(source.ignored)) ? Number(source.ignored) : 0,
+    validAssetIds: (Array.isArray(source.validAssetIds) ? source.validAssetIds : [])
+      .map((item) => normalizeAssetId(item))
+      .filter((item) => item !== null),
+    actions: base.actions,
+  };
+}
+
 module.exports = {
   buildKnowledgeAssetListPayload,
   buildKnowledgeAssetPayload,
   buildKnowledgeGroupAssetsPayload,
+  buildKnowledgeGroupAssetMutationPayload,
 };
