@@ -67,6 +67,16 @@ function buildRuntimeOverviewSummaryRows(summary = null) {
   return rows;
 }
 
+function buildRuntimeOverviewPanelRows({
+  runtimeOverviewSummary = null,
+  rustDaemonStatus = null,
+} = {}) {
+  return [
+    ...buildRuntimeOverviewSummaryRows(runtimeOverviewSummary),
+    ...buildRustDaemonStatusRows(rustDaemonStatus),
+  ];
+}
+
 function buildRustDaemonStatusNote(health = null) {
   const rustDaemon = getRustDaemonPayload(health);
   if (!rustDaemon || typeof rustDaemon !== 'object') return '';
@@ -273,6 +283,7 @@ export {
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
+  buildRuntimeOverviewPanelRows,
   buildRuntimeOverviewSummaryRows,
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,

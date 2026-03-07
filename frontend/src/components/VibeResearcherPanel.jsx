@@ -28,8 +28,7 @@ import {
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
-  buildRuntimeOverviewSummaryRows,
-  buildRustDaemonStatusRows,
+  buildRuntimeOverviewPanelRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
   getRuntimeOverviewClientDevices,
@@ -1635,13 +1634,9 @@ function VibeResearcherPanel({
     () => buildRustDaemonStatusNote(rustDaemonStatus),
     [rustDaemonStatus],
   );
-  const rustDaemonStatusRows = useMemo(
-    () => buildRustDaemonStatusRows(rustDaemonStatus),
-    [rustDaemonStatus],
-  );
-  const runtimeOverviewSummaryRows = useMemo(
-    () => buildRuntimeOverviewSummaryRows(runtimeOverviewSummary),
-    [runtimeOverviewSummary],
+  const runtimeOverviewPanelRows = useMemo(
+    () => buildRuntimeOverviewPanelRows({ runtimeOverviewSummary, rustDaemonStatus }),
+    [runtimeOverviewSummary, rustDaemonStatus],
   );
   const rustDaemonRuntimeSource = useMemo(() => {
     if (clientBootstrapData?.runtimeOptions && typeof clientBootstrapData.runtimeOptions === 'object') {
@@ -5847,14 +5842,9 @@ function VibeResearcherPanel({
                           {refreshingRustDaemonStatus ? 'Refreshing Rust…' : 'Refresh Rust Status'}
                         </button>
                       </div>
-                      {rustDaemonStatusRows.length > 0 && (
+                      {runtimeOverviewPanelRows.length > 0 && (
                         <div className="vibe-client-browser-box">
-                          {runtimeOverviewSummaryRows.map((row) => (
-                            <p key={`runtime-overview-${row.label}`} className="vibe-empty">
-                              <strong>{row.label}:</strong> {row.value}
-                            </p>
-                          ))}
-                          {rustDaemonStatusRows.map((row) => (
+                          {runtimeOverviewPanelRows.map((row) => (
                             <p key={row.label} className="vibe-empty">
                               <strong>{row.label}:</strong> {row.value}
                             </p>

@@ -6,6 +6,7 @@ import {
   buildBootstrapRuntimeCommandGroups,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
+  buildRuntimeOverviewPanelRows,
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   buildRuntimeOverviewSummaryRows,
@@ -75,6 +76,29 @@ test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts',
     { label: 'Snapshot-Ready Clients', value: '1' },
     { label: 'Rust Bridge Ready', value: 'yes' },
     { label: 'Rust Snapshot Ready', value: 'yes' },
+    { label: 'Running Jobs', value: '3' },
+  ]);
+});
+
+test('buildRuntimeOverviewPanelRows preserves summary-only rows when rust status is absent', () => {
+  const rows = buildRuntimeOverviewPanelRows({
+    runtimeOverviewSummary: {
+      onlineClients: 2,
+      bridgeReadyClients: 1,
+      snapshotReadyClients: 1,
+      rustBridgeReady: false,
+      rustSnapshotReady: false,
+      runningCount: 3,
+    },
+    rustDaemonStatus: null,
+  });
+
+  assert.deepEqual(rows, [
+    { label: 'Online Clients', value: '2' },
+    { label: 'Bridge-Ready Clients', value: '1' },
+    { label: 'Snapshot-Ready Clients', value: '1' },
+    { label: 'Rust Bridge Ready', value: 'no' },
+    { label: 'Rust Snapshot Ready', value: 'no' },
     { label: 'Running Jobs', value: '3' },
   ]);
 });
