@@ -70,6 +70,7 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
       snapshotBackedCount: 1,
       instrumentedCount: 1,
       instrumentedProviders: ['wandb'],
+      resolvedTransports: ['daemon-task'],
       status: 'needs_attention',
     },
   });
@@ -86,6 +87,7 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
     snapshotBackedCount: 1,
     instrumentedCount: 1,
     instrumentedProviders: ['wandb'],
+    resolvedTransports: ['daemon-task'],
     status: 'needs_attention',
   });
 });

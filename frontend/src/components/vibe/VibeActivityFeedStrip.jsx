@@ -41,6 +41,9 @@ function VibeActivityFeedStrip({
   if (reviewSummary && Array.isArray(reviewSummary.instrumentedProviders) && reviewSummary.instrumentedProviders.length > 0) {
     reviewBits.push(`sinks ${reviewSummary.instrumentedProviders.join(', ')}`);
   }
+  if (reviewSummary && Array.isArray(reviewSummary.resolvedTransports) && reviewSummary.resolvedTransports.length > 0) {
+    reviewBits.push(`transports ${reviewSummary.resolvedTransports.join(', ')}`);
+  }
   if (reviewSummary && Number(reviewSummary.failedCount) > 0) {
     reviewBits.push(`${Number(reviewSummary.failedCount)} failed`);
   }

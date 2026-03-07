@@ -263,8 +263,8 @@ test('filterRunsForSelectedNode narrows to the active node but falls back when e
 
 test('buildRecentRunReviewSummary groups active and attention states for activity headers', () => {
   const summary = buildRecentRunReviewSummary([
-    { id: 'run_a', status: 'RUNNING', execution: { location: 'remote' }, metadata: { localSnapshot: { kind: 'workspace_patch' } }, observability: { sinkProviders: ['wandb'] } },
-    { id: 'run_b', status: 'FAILED', execution: { location: 'remote' }, observability: { sinkProviders: ['tensorboard'] } },
+    { id: 'run_a', status: 'RUNNING', execution: { location: 'remote' }, resolvedTransport: 'daemon-task', metadata: { localSnapshot: { kind: 'workspace_patch' } }, observability: { sinkProviders: ['wandb'] } },
+    { id: 'run_b', status: 'FAILED', execution: { location: 'remote' }, resolvedTransport: 'rust-daemon', observability: { sinkProviders: ['tensorboard'] } },
     { id: 'run_c', status: 'SUCCEEDED', contract: { ok: false }, metadata: { localSnapshot: { kind: 'workspace_patch' } } },
     { id: 'run_d', status: 'CANCELLED' },
   ]);
@@ -281,6 +281,7 @@ test('buildRecentRunReviewSummary groups active and attention states for activit
     snapshotBackedCount: 2,
     instrumentedCount: 2,
     instrumentedProviders: ['tensorboard', 'wandb'],
+    resolvedTransports: ['daemon-task', 'rust-daemon'],
     status: 'needs_attention',
   });
 });

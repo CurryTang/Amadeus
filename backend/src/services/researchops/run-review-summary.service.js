@@ -24,6 +24,7 @@ function buildRunReviewSummary(runs = []) {
   let snapshotBackedCount = 0;
   let instrumentedCount = 0;
   const instrumentedProviders = new Set();
+  const resolvedTransports = new Set();
 
   items.forEach((run) => {
     const status = normalizeStatus(run?.status);
@@ -55,6 +56,10 @@ function buildRunReviewSummary(runs = []) {
     if (cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)) {
       snapshotBackedCount += 1;
     }
+    const resolvedTransport = cleanString(run?.resolvedTransport || metadata.resolvedTransport);
+    if (resolvedTransport) {
+      resolvedTransports.add(resolvedTransport);
+    }
     if (Array.isArray(observability.sinkProviders) && observability.sinkProviders.some((item) => cleanString(item))) {
       instrumentedCount += 1;
       observability.sinkProviders.forEach((item) => {
@@ -85,6 +90,7 @@ function buildRunReviewSummary(runs = []) {
     snapshotBackedCount,
     instrumentedCount,
     instrumentedProviders: [...instrumentedProviders].sort((a, b) => a.localeCompare(b)),
+    resolvedTransports: [...resolvedTransports].sort((a, b) => a.localeCompare(b)),
     status,
   };
 }
