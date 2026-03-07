@@ -7,6 +7,7 @@ const {
   normalizeProjectLocationPayload,
   deriveProjectCapabilities,
   buildProjectPayload,
+  buildProjectListPayload,
 } = require('../project-location.service');
 
 test('normalizes client agent projects with clientDeviceId and path', () => {
@@ -112,5 +113,32 @@ test('buildProjectPayload exposes capabilities, location, and follow-up actions'
   assert.deepEqual(payload.git, {
     mode: 'initialized',
     branch: 'main',
+  });
+});
+
+test('buildProjectListPayload keeps project items compatible while adding capabilities', () => {
+  const payload = buildProjectListPayload({
+    items: [
+      {
+        id: 'proj_1',
+        name: 'Auto Research',
+        locationType: 'client',
+        clientMode: 'agent',
+        clientDeviceId: 'srv_client_1',
+        projectPath: '/Users/alice/my-project',
+      },
+    ],
+    limit: 50,
+  });
+
+  assert.equal(payload.limit, 50);
+  assert.equal(payload.items.length, 1);
+  assert.equal(payload.items[0].id, 'proj_1');
+  assert.equal(payload.items[0].name, 'Auto Research');
+  assert.equal(payload.items[0].capabilities.executionTarget, 'client-daemon');
+  assert.equal(payload.items[0].location.projectPath, '/Users/alice/my-project');
+  assert.deepEqual(payload.items[0].actions.detail, {
+    method: 'GET',
+    path: '/researchops/projects/proj_1',
   });
 });

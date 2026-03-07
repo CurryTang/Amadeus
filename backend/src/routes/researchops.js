@@ -56,6 +56,7 @@ const {
 } = require('../services/researchops/daemon-payload.service');
 const {
   buildProjectPayload,
+  buildProjectListPayload,
 } = require('../services/researchops/project-location.service');
 const { buildNodeBridgeView } = require('../services/researchops/node-bridge-view.service');
 const { normalizeEnqueueRunPayload } = require('../services/researchops/enqueue-run-payload.service');
@@ -3194,10 +3195,14 @@ router.get('/dashboard', async (req, res) => {
 // Projects
 router.get('/projects', async (req, res) => {
   try {
+    const limit = parseLimit(req.query.limit, 50, 200);
     const items = await researchOpsStore.listProjects(getUserId(req), {
-      limit: parseLimit(req.query.limit, 50, 200),
+      limit,
     });
-    res.json({ items });
+    res.json(buildProjectListPayload({
+      items,
+      limit,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listProjects failed:', error);
     res.status(500).json({ error: 'Failed to list projects' });

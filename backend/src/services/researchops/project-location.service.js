@@ -182,9 +182,27 @@ function buildProjectPayload({ project = null, git = undefined } = {}) {
   return payload;
 }
 
+function normalizeProjectListItem(project = null) {
+  const payload = buildProjectPayload({ project });
+  return {
+    ...(project && typeof project === 'object' ? project : {}),
+    capabilities: payload.capabilities,
+    location: payload.location,
+    actions: payload.actions,
+  };
+}
+
+function buildProjectListPayload({ items = [], limit = null } = {}) {
+  return {
+    limit: Number.isFinite(Number(limit)) ? Number(limit) : null,
+    items: (Array.isArray(items) ? items : []).map((item) => normalizeProjectListItem(item)),
+  };
+}
+
 module.exports = {
   normalizeProjectLocationPayload,
   deriveProjectCapabilities,
   assertProjectExecutionAllowed,
   buildProjectPayload,
+  buildProjectListPayload,
 };
