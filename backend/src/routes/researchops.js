@@ -67,7 +67,10 @@ const {
   buildKnowledgeGroupAssetsPayload,
   buildKnowledgeGroupAssetMutationPayload,
 } = require('../services/researchops/knowledge-asset-payload.service');
-const { buildSkillListPayload } = require('../services/researchops/skill-payload.service');
+const {
+  buildSkillListPayload,
+  buildSkillSyncPayload,
+} = require('../services/researchops/skill-payload.service');
 const {
   buildObservedSessionListPayload,
 } = require('../services/researchops/observed-session-payload.service');
@@ -6348,7 +6351,7 @@ router.get('/skills', async (req, res) => {
 router.post('/skills/sync', async (req, res) => {
   try {
     const result = await researchOpsStore.syncLocalSkillsToRemote(getUserId(req));
-    return res.json(result);
+    return res.json(buildSkillSyncPayload({ result }));
   } catch (error) {
     console.error('[ResearchOps] syncLocalSkillsToRemote failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to sync skills to object storage') });

@@ -14,7 +14,11 @@ const {
   buildIdeaPayload,
 } = require('../../services/researchops/idea-payload.service');
 const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
-const { buildSkillListPayload } = require('../../services/researchops/skill-payload.service');
+const {
+  buildSkillContentPayload,
+  buildSkillListPayload,
+  buildSkillSyncPayload,
+} = require('../../services/researchops/skill-payload.service');
 const {
   buildGeneratedPlanPayload,
   buildEnqueuedPlanPayload,
@@ -532,7 +536,7 @@ router.get('/skills', async (req, res) => {
 router.post('/skills/sync', async (req, res) => {
   try {
     const result = await researchOpsStore.syncLocalSkillsToRemote(getUserId(req));
-    return res.json(result);
+    return res.json(buildSkillSyncPayload({ result }));
   } catch (error) {
     console.error('[ResearchOps] syncLocalSkillsToRemote failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to sync skills to object storage') });
@@ -552,7 +556,10 @@ router.get('/skills/:skillId/content', async (req, res) => {
   if (!mdPath) return res.status(400).json({ error: 'Invalid skill id' });
   try {
     const content = await fs.readFile(mdPath, 'utf8');
-    return res.json({ skillId: req.params.skillId, content });
+    return res.json(buildSkillContentPayload({
+      skillId: req.params.skillId,
+      content,
+    }));
   } catch (err) {
     if (err.code === 'ENOENT') return res.status(404).json({ error: 'Skill not found' });
     console.error('[ResearchOps] getSkillContent failed:', err);
@@ -568,7 +575,13 @@ router.put('/skills/:skillId/content', async (req, res) => {
   try {
     await fs.mkdir(path.dirname(mdPath), { recursive: true });
     await fs.writeFile(mdPath, content, 'utf8');
-    return res.json({ ok: true, skillId: req.params.skillId });
+    return res.json({
+      ok: true,
+      ...buildSkillContentPayload({
+        skillId: req.params.skillId,
+        content,
+      }),
+    });
   } catch (err) {
     console.error('[ResearchOps] saveSkillContent failed:', err);
     return res.status(500).json({ error: 'Failed to save skill' });

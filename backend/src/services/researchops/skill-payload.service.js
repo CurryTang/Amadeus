@@ -46,6 +46,39 @@ function buildSkillListPayload({ items = [] } = {}) {
   };
 }
 
+function buildSkillContentPayload({
+  skillId = '',
+  content = '',
+} = {}) {
+  const safeSkillId = cleanString(skillId);
+  return {
+    skillId: safeSkillId || null,
+    content: typeof content === 'string' ? content : '',
+    actions: buildSkillActions(safeSkillId),
+  };
+}
+
+function buildSkillSyncPayload({ result = null } = {}) {
+  const source = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  return {
+    ...source,
+    syncedCount: Number.isFinite(Number(source.syncedCount)) ? Number(source.syncedCount) : 0,
+    uploaded: Array.isArray(source.uploaded) ? source.uploaded : [],
+    actions: {
+      list: {
+        method: 'GET',
+        path: '/researchops/skills',
+      },
+      sync: {
+        method: 'POST',
+        path: '/researchops/skills/sync',
+      },
+    },
+  };
+}
+
 module.exports = {
   buildSkillListPayload,
+  buildSkillContentPayload,
+  buildSkillSyncPayload,
 };

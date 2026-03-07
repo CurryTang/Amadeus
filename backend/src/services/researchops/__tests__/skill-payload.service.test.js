@@ -3,7 +3,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildSkillListPayload } = require('../skill-payload.service');
+const {
+  buildSkillListPayload,
+  buildSkillContentPayload,
+  buildSkillSyncPayload,
+} = require('../skill-payload.service');
 
 test('buildSkillListPayload keeps skill items compatible while exposing actions', () => {
   const payload = buildSkillListPayload({
@@ -24,6 +28,44 @@ test('buildSkillListPayload keeps skill items compatible while exposing actions'
     method: 'GET',
     path: '/researchops/skills/skill_report/content',
   });
+  assert.deepEqual(payload.actions.list, {
+    method: 'GET',
+    path: '/researchops/skills',
+  });
+  assert.deepEqual(payload.actions.sync, {
+    method: 'POST',
+    path: '/researchops/skills/sync',
+  });
+});
+
+test('buildSkillContentPayload preserves content root while exposing follow-up actions', () => {
+  const payload = buildSkillContentPayload({
+    skillId: 'skill_report',
+    content: '# Skill',
+  });
+
+  assert.equal(payload.skillId, 'skill_report');
+  assert.equal(payload.content, '# Skill');
+  assert.deepEqual(payload.actions.content, {
+    method: 'GET',
+    path: '/researchops/skills/skill_report/content',
+  });
+  assert.deepEqual(payload.actions.updateContent, {
+    method: 'PUT',
+    path: '/researchops/skills/skill_report/content',
+  });
+});
+
+test('buildSkillSyncPayload exposes sync result and list follow-up action', () => {
+  const payload = buildSkillSyncPayload({
+    result: {
+      syncedCount: 3,
+      uploaded: ['skill_report'],
+    },
+  });
+
+  assert.equal(payload.syncedCount, 3);
+  assert.deepEqual(payload.uploaded, ['skill_report']);
   assert.deepEqual(payload.actions.list, {
     method: 'GET',
     path: '/researchops/skills',
