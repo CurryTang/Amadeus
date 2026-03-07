@@ -28,6 +28,10 @@ test('buildNodeBridgeView can inline bridge report when run evidence is provided
       metadata: {
         treeNodeId: 'node_eval',
         treeNodeTitle: 'Evaluation branch',
+        localSnapshot: {
+          kind: 'workspace_patch',
+          note: 'local edits staged for remote execution',
+        },
       },
     },
     contextPack: {
@@ -45,4 +49,6 @@ test('buildNodeBridgeView can inline bridge report when run evidence is provided
   assert.equal(payload.bridgeReport.counts.artifacts, 1);
   assert.equal(payload.bridgeReport.counts.pendingCheckpoints, 1);
   assert.equal(payload.capabilities.hasBridgeReport, true);
+  assert.equal(payload.capabilities.hasWorkspaceSnapshot, true);
+  assert.equal(payload.capabilities.hasLocalSnapshot, true);
 });

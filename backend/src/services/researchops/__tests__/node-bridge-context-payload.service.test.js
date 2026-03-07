@@ -47,6 +47,18 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
       bridgeVersion: 'v0',
       runId: 'run_eval',
       status: 'SUCCEEDED',
+      snapshots: {
+        workspace: {
+          path: '/tmp/researchops-runs/run_eval',
+          localSnapshot: {
+            kind: 'workspace_patch',
+            note: 'local edits staged for remote execution',
+          },
+        },
+        env: {
+          backend: 'container',
+        },
+      },
       counts: {
         artifacts: 2,
         checkpoints: 1,
@@ -65,4 +77,7 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
   assert.equal(payload.contextPack.view.runId, 'run_eval');
   assert.equal(payload.bridgeReport.runId, 'run_eval');
   assert.equal(payload.capabilities.hasBridgeReport, true);
+  assert.equal(payload.capabilities.hasWorkspaceSnapshot, true);
+  assert.equal(payload.capabilities.hasLocalSnapshot, true);
+  assert.equal(payload.capabilities.hasEnvSnapshot, true);
 });

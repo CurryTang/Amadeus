@@ -23,6 +23,11 @@ function buildNodeBridgeContextPayload({
   const normalizedState = asObject(nodeState);
   const normalizedBlocking = asObject(blocking);
   const normalizedContextPack = asObject(contextPack);
+  const normalizedBridgeReport = asObject(bridgeReport);
+  const bridgeSnapshots = asObject(normalizedBridgeReport.snapshots);
+  const workspaceSnapshot = asObject(bridgeSnapshots.workspace);
+  const envSnapshot = asObject(bridgeSnapshots.env);
+  const localSnapshot = asObject(workspaceSnapshot.localSnapshot);
   const lastRun = run ? buildRunPayload({ run }) : null;
   return {
     bridgeVersion: 'v0',
@@ -36,11 +41,14 @@ function buildNodeBridgeContextPayload({
     },
     lastRun,
     contextPack: normalizedContextPack && Object.keys(normalizedContextPack).length > 0 ? normalizedContextPack : null,
-    bridgeReport: bridgeReport && typeof bridgeReport === 'object' ? bridgeReport : null,
+    bridgeReport: normalizedBridgeReport && Object.keys(normalizedBridgeReport).length > 0 ? normalizedBridgeReport : null,
     capabilities: {
       hasLastRun: Boolean(lastRun?.run?.id),
       hasContextPack: Boolean(normalizedContextPack?.view || normalizedContextPack?.pack || normalizedContextPack?.mode),
-      hasBridgeReport: Boolean(bridgeReport?.runId),
+      hasBridgeReport: Boolean(normalizedBridgeReport?.runId),
+      hasWorkspaceSnapshot: Boolean(workspaceSnapshot.path || workspaceSnapshot.runSpecArtifactId || workspaceSnapshot.sourceServerId),
+      hasLocalSnapshot: Boolean(localSnapshot.kind || localSnapshot.note),
+      hasEnvSnapshot: Boolean(envSnapshot.backend || envSnapshot.runtimeClass || envSnapshot.resources),
       canRun: true,
     },
   };
