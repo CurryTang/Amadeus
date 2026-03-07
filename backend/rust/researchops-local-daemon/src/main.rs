@@ -5,8 +5,11 @@ use researchops_local_daemon::{
     build_runtime_summary,
     serve_http_requests,
     serve_one_http_request,
+    serve_unix_requests,
+    serve_one_unix_request,
 };
 use std::net::TcpListener;
+use std::os::unix::net::UnixListener;
 
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -29,6 +32,17 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(socket_path) = args
+        .windows(2)
+        .find(|window| window.first().map(|value| value.as_str()) == Some("--serve-unix-once"))
+        .and_then(|window| window.get(1))
+    {
+        let _ = std::fs::remove_file(socket_path);
+        let listener = UnixListener::bind(socket_path)?;
+        serve_one_unix_request(listener, enable_bridge)?;
+        return Ok(());
+    }
+
     if let Some(listen_addr) = args
         .windows(2)
         .find(|window| window.first().map(|value| value.as_str()) == Some("--serve"))
@@ -41,6 +55,22 @@ fn main() -> Result<()> {
             .and_then(|value| value.parse::<usize>().ok());
         let listener = TcpListener::bind(listen_addr)?;
         serve_http_requests(listener, enable_bridge, max_requests)?;
+        return Ok(());
+    }
+
+    if let Some(socket_path) = args
+        .windows(2)
+        .find(|window| window.first().map(|value| value.as_str()) == Some("--serve-unix"))
+        .and_then(|window| window.get(1))
+    {
+        let max_requests = args
+            .windows(2)
+            .find(|window| window.first().map(|value| value.as_str()) == Some("--max-requests"))
+            .and_then(|window| window.get(1))
+            .and_then(|value| value.parse::<usize>().ok());
+        let _ = std::fs::remove_file(socket_path);
+        let listener = UnixListener::bind(socket_path)?;
+        serve_unix_requests(listener, enable_bridge, max_requests)?;
         return Ok(());
     }
 

@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::os::unix::net::UnixListener;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -204,6 +205,25 @@ pub fn serve_http_requests(listener: TcpListener, enable_bridge: bool, max_reque
     let mut handled = 0_usize;
     loop {
         let (mut stream, _) = listener.accept().context("accept tcp connection")?;
+        respond_to_http_connection(&mut stream, enable_bridge)?;
+        handled += 1;
+        if max_requests.is_some_and(|value| handled >= value) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+pub fn serve_one_unix_request(listener: UnixListener, enable_bridge: bool) -> Result<()> {
+    let (mut stream, _) = listener.accept().context("accept unix connection")?;
+    respond_to_http_connection(&mut stream, enable_bridge)?;
+    Ok(())
+}
+
+pub fn serve_unix_requests(listener: UnixListener, enable_bridge: bool, max_requests: Option<usize>) -> Result<()> {
+    let mut handled = 0_usize;
+    loop {
+        let (mut stream, _) = listener.accept().context("accept unix connection")?;
         respond_to_http_connection(&mut stream, enable_bridge)?;
         handled += 1;
         if max_requests.is_some_and(|value| handled >= value) {

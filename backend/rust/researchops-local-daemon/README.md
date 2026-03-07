@@ -52,11 +52,25 @@ cd /Users/czk/auto-researcher/backend
 npm run researchops:rust-daemon-serve
 ```
 
+Serve continuously over a Unix domain socket:
+
+```bash
+cd /Users/czk/auto-researcher/backend
+npm run researchops:rust-daemon-serve-unix
+```
+
 You can also cap the loop for testing:
 
 ```bash
 source "$HOME/.cargo/env"
 cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet -- --serve 127.0.0.1:7788 --max-requests 2
+```
+
+Or do the same on a socket:
+
+```bash
+source "$HOME/.cargo/env"
+cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet -- --serve-unix /tmp/researchops-local-daemon.sock --max-requests 2
 ```
 
 Set `RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=false` to print a project-only runtime summary.
