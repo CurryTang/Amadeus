@@ -44,12 +44,11 @@ const {
   buildAgentSessionMessagesPayload,
 } = require('../services/researchops/agent-session-message-payload.service');
 const { buildContextPackPayload } = require('../services/researchops/context-pack-payload.service');
-const { buildNodeBridgeContextPayload } = require('../services/researchops/node-bridge-context-payload.service');
+const { buildNodeBridgeView } = require('../services/researchops/node-bridge-view.service');
 const { normalizeEnqueueRunPayload } = require('../services/researchops/enqueue-run-payload.service');
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
 const { buildRunPayload } = require('../services/researchops/run-payload.service');
 const { buildQueuedRunActionPayload } = require('../services/researchops/queued-run-action-payload.service');
-const { buildBridgeRunReportPayload } = require('../services/researchops/bridge-run-report-payload.service');
 const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge-note-payload.service');
 const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const { buildRunReportPayload } = require('../services/researchops/run-report-payload.service');
@@ -7466,7 +7465,9 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
     const lastRunId = String(nodeState?.lastRunId || '').trim();
     const run = lastRunId ? await researchOpsStore.getRun(userId, lastRunId).catch(() => null) : null;
     let contextPack = null;
-    let bridgeReport = null;
+    let reportSteps = [];
+    let reportArtifacts = [];
+    let reportCheckpoints = [];
     if (includeContextPack && run) {
       try {
         const context = await buildRunIntentAndPack({
@@ -7488,28 +7489,22 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
       }
     }
     if (includeReport && run) {
-      const [steps, artifacts, checkpoints] = await Promise.all([
+      [reportSteps, reportArtifacts, reportCheckpoints] = await Promise.all([
         researchOpsStore.listRunSteps(userId, run.id).catch(() => []),
         researchOpsStore.listRunArtifacts(userId, run.id, { limit: 1000 }).catch(() => []),
         researchOpsStore.listRunCheckpoints(userId, run.id, { limit: 500 }).catch(() => []),
       ]);
-      bridgeReport = buildBridgeRunReportPayload({
-        report: buildRunReportPayload({
-          run,
-          steps,
-          artifacts,
-          checkpoints,
-        }),
-      });
     }
-    return res.json(buildNodeBridgeContextPayload({
+    return res.json(buildNodeBridgeView({
       projectId: project.id,
       node,
       nodeState,
       blocking: evaluateNodeBlocking(node, state),
       run,
       contextPack,
-      bridgeReport,
+      reportSteps,
+      reportArtifacts,
+      reportCheckpoints,
     }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to build node bridge context'));
