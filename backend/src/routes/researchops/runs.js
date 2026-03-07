@@ -281,7 +281,7 @@ router.post('/runs/enqueue-v2', async (req, res) => {
         .catch((err) => console.error('[runs/enqueue-v2] immediate dispatch failed:', err.message));
     });
 
-    return res.status(201).json({ run });
+    return res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] enqueueRunV2 failed:', error);
     if (error.code === 'PROJECT_NOT_FOUND') {
@@ -300,7 +300,7 @@ router.post('/runs/enqueue', async (req, res) => {
       await enforceExperimentProjectPathPolicy(getUserId(req), projectId, runType);
     }
     const run = await researchOpsStore.enqueueRun(getUserId(req), req.body || {});
-    res.status(201).json({ run });
+    res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] enqueueRun failed:', error);
     if (error.code === 'PROJECT_NOT_FOUND') {
