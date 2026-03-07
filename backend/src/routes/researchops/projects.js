@@ -19,6 +19,7 @@ const researchOpsRunner = require('../../services/researchops/runner');
 const autopilotService = require('../../services/researchops/autopilot.service');
 const knowledgeGroupsService = require('../../services/knowledge-groups.service');
 const contextPackService = require('../../services/researchops/context-pack.service');
+const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
 const projectInsightsProxy = require('../../services/project-insights-proxy.service');
 const projectInsightsService = require('../../services/project-insights.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
@@ -6942,7 +6943,7 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
         runIntent,
         routedContext,
       });
-      return res.json({ pack });
+      return res.json(buildContextPackPayload({ pack }));
     } catch (innerError) {
       console.warn('[ResearchOps] routed context pack fallback to legacy builder:', innerError?.message || innerError);
       const pack = await contextPackService.buildContextPack(userId, {
@@ -6950,7 +6951,7 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
         projectId: project.id,
         contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
       });
-      return res.json({ pack, mode: 'legacy' });
+      return res.json(buildContextPackPayload({ pack, mode: 'legacy' }));
     }
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to build context pack'));
