@@ -1,5 +1,6 @@
 use anyhow::Result;
 use researchops_local_daemon::{
+    executor::build_executor_catalog,
     build_task_catalog,
     build_runtime_task_types,
     build_runtime_summary,
@@ -14,6 +15,10 @@ use std::os::unix::net::UnixListener;
 
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.iter().any(|arg| arg == "--executor-catalog") {
+        println!("{}", serde_json::to_string_pretty(&build_executor_catalog())?);
+        return Ok(());
+    }
     if args.iter().any(|arg| arg == "--task-catalog") {
         println!("{}", serde_json::to_string_pretty(&build_task_catalog())?);
         return Ok(());
