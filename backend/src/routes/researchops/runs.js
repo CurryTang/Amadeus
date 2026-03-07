@@ -31,10 +31,7 @@ const {
   fetchRunContextPackViaDaemon,
   submitRunBridgeNoteViaDaemon,
 } = require('../../services/researchops/bridge-daemon-rpc.service');
-const {
-  assertBridgeDaemonTransportReady,
-  readBridgeTransportMode,
-} = require('../../services/researchops/bridge-transport.service');
+const { dispatchBridgeTransport } = require('../../services/researchops/bridge-route-dispatch.service');
 const { buildRunArtifactListPayload } = require('../../services/researchops/run-artifact-list-payload.service');
 const {
   buildRunCheckpointDecisionPayload,
@@ -755,25 +752,28 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
       run,
       store: researchOpsStore,
     });
-    if (readBridgeTransportMode(req.query.transport) === 'daemon-task') {
-      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
-      return res.json(await fetchRunBridgeReportViaDaemon({
+    const payload = await dispatchBridgeTransport({
+      transport: req.query.transport,
+      bridgeRuntime,
+      viaDaemon: ({ serverId }) => fetchRunBridgeReportViaDaemon({
         userId,
-        serverId: daemonServerId,
+        serverId,
         runId,
-      }));
-    }
-
-    const report = buildRunReportPayload({
-      run,
-      steps,
-      artifacts,
-      checkpoints,
-      summaryText: null,
-      manifest: null,
-      mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
+      }),
+      viaHttp: async () => {
+        const report = buildRunReportPayload({
+          run,
+          steps,
+          artifacts,
+          checkpoints,
+          summaryText: null,
+          manifest: null,
+          mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
+        });
+        return buildBridgeRunReportPayload({ report, bridgeRuntime });
+      },
     });
-    return res.json(buildBridgeRunReportPayload({ report, bridgeRuntime }));
+    return res.json(payload);
   } catch (error) {
     console.error('[ResearchOps] getBridgeRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -836,31 +836,34 @@ router.post('/runs/:runId/bridge-note', async (req, res) => {
       run,
       store: researchOpsStore,
     });
-    if (readBridgeTransportMode(req.body?.transport) === 'daemon-task') {
-      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
-      return res.json(await submitRunBridgeNoteViaDaemon({
+    const payload = await dispatchBridgeTransport({
+      transport: req.body?.transport,
+      bridgeRuntime,
+      viaDaemon: ({ serverId }) => submitRunBridgeNoteViaDaemon({
         userId,
-        serverId: daemonServerId,
+        serverId,
         runId,
         title: req.body?.title,
         content,
         noteType: req.body?.noteType,
-      }));
-    }
-
-    const artifact = await researchOpsStore.createRunArtifact(
-      userId,
-      runId,
-      buildBridgeNoteArtifactInput({
-        title: req.body?.title,
-        content,
-        noteType: req.body?.noteType,
-      })
-    );
-    return res.json(buildBridgeNotePayload({
-      runId,
-      artifact: withArtifactDownloadUrl(artifact, runId),
-    }));
+      }),
+      viaHttp: async () => {
+        const artifact = await researchOpsStore.createRunArtifact(
+          userId,
+          runId,
+          buildBridgeNoteArtifactInput({
+            title: req.body?.title,
+            content,
+            noteType: req.body?.noteType,
+          })
+        );
+        return buildBridgeNotePayload({
+          runId,
+          artifact: withArtifactDownloadUrl(artifact, runId),
+        });
+      },
+    });
+    return res.json(payload);
   } catch (error) {
     console.error('[ResearchOps] createBridgeNote failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -902,66 +905,75 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
       run,
       store: researchOpsStore,
     });
-    if (readBridgeTransportMode(req.query.transport) === 'daemon-task') {
-      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
-      return res.json(await fetchRunContextPackViaDaemon({
+    const payload = await dispatchBridgeTransport({
+      transport: req.query.transport,
+      bridgeRuntime,
+      viaDaemon: ({ serverId }) => fetchRunContextPackViaDaemon({
         userId,
-        serverId: daemonServerId,
+        serverId,
         runId,
-      }));
-    }
-    const project = await researchOpsStore.getProject(userId, run.projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    const nodeId = String(run?.metadata?.nodeId || run?.metadata?.treeNodeId || '').trim();
-    let node = {
-      id: nodeId || 'adhoc',
-      title: 'Run context',
-      kind: 'experiment',
-      commands: [{ run: String(run?.metadata?.experimentCommand || '').trim() }],
-      checks: [],
-      assumption: [],
-      target: [],
-      git: { base: String(run?.metadata?.baseCommit || 'HEAD').trim() },
-    };
-    try {
-      const { project: resolvedProject, server } = await resolveProjectContext(userId, run.projectId);
-      const [{ plan }, { state }] = await Promise.all([
-        treePlanService.readProjectPlan({ project: resolvedProject, server }),
-        treeStateService.readProjectState({ project: resolvedProject, server }),
-      ]);
-      if (nodeId) {
-        const planNode = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
-        if (planNode) node = planNode;
-      }
-      const runIntent = contextRouterService.buildRunIntent({
-        project,
-        node,
-        state,
-        run,
-      });
-      const routedContext = await contextRouterService.routeContextForIntent({
-        userId,
-        project,
-        runIntent,
-        store: researchOpsStore,
-      });
-      const pack = await contextPackService.buildRoutedContextPack(userId, {
-        runId: run.id,
-        projectId: project.id,
-        runIntent,
-        routedContext,
-      });
-      return res.json(buildContextPackPayload({ pack }));
-    } catch (innerError) {
-      console.warn('[ResearchOps] routed context pack fallback to legacy builder:', innerError?.message || innerError);
-      const pack = await contextPackService.buildContextPack(userId, {
-        runId: run.id,
-        projectId: project.id,
-        contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
-      });
-      return res.json(buildContextPackPayload({ pack, mode: 'legacy' }));
-    }
+      }),
+      viaHttp: async () => {
+        const project = await researchOpsStore.getProject(userId, run.projectId);
+        if (!project) {
+          const error = new Error('Project not found');
+          error.code = 'PROJECT_NOT_FOUND';
+          throw error;
+        }
+        const nodeId = String(run?.metadata?.nodeId || run?.metadata?.treeNodeId || '').trim();
+        let node = {
+          id: nodeId || 'adhoc',
+          title: 'Run context',
+          kind: 'experiment',
+          commands: [{ run: String(run?.metadata?.experimentCommand || '').trim() }],
+          checks: [],
+          assumption: [],
+          target: [],
+          git: { base: String(run?.metadata?.baseCommit || 'HEAD').trim() },
+        };
+        try {
+          const { project: resolvedProject, server } = await resolveProjectContext(userId, run.projectId);
+          const [{ plan }, { state }] = await Promise.all([
+            treePlanService.readProjectPlan({ project: resolvedProject, server }),
+            treeStateService.readProjectState({ project: resolvedProject, server }),
+          ]);
+          if (nodeId) {
+            const planNode = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+            if (planNode) node = planNode;
+          }
+          const runIntent = contextRouterService.buildRunIntent({
+            project,
+            node,
+            state,
+            run,
+          });
+          const routedContext = await contextRouterService.routeContextForIntent({
+            userId,
+            project,
+            runIntent,
+            store: researchOpsStore,
+          });
+          const pack = await contextPackService.buildRoutedContextPack(userId, {
+            runId: run.id,
+            projectId: project.id,
+            runIntent,
+            routedContext,
+          });
+          return buildContextPackPayload({ pack });
+        } catch (innerError) {
+          console.warn('[ResearchOps] routed context pack fallback to legacy builder:', innerError?.message || innerError);
+          const pack = await contextPackService.buildContextPack(userId, {
+            runId: run.id,
+            projectId: project.id,
+            contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
+          });
+          return buildContextPackPayload({ pack, mode: 'legacy' });
+        }
+      },
+    });
+    return res.json(payload);
   } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     return res.status(400).json(toErrorPayload(error, 'Failed to build context pack'));
   }
 });

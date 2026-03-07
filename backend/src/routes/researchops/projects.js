@@ -65,10 +65,7 @@ const {
   fetchNodeBridgeContextViaDaemon,
   submitNodeBridgeRunViaDaemon,
 } = require('../../services/researchops/bridge-daemon-rpc.service');
-const {
-  assertBridgeDaemonTransportReady,
-  readBridgeTransportMode,
-} = require('../../services/researchops/bridge-transport.service');
+const { dispatchBridgeTransport } = require('../../services/researchops/bridge-route-dispatch.service');
 const {
   readBridgeContextOptions,
   readBridgeRunOptions,
@@ -6917,11 +6914,12 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
       project,
       store: researchOpsStore,
     });
-    if (readBridgeTransportMode(req.body?.transport) === 'daemon-task') {
-      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
-      const daemonResult = await submitNodeBridgeRunViaDaemon({
+    const payload = await dispatchBridgeTransport({
+      transport: req.body?.transport,
+      bridgeRuntime,
+      viaDaemon: ({ serverId }) => submitNodeBridgeRunViaDaemon({
         userId,
-        serverId: daemonServerId,
+        serverId,
         projectId: project.id,
         nodeId,
         force,
@@ -6930,30 +6928,31 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
         clarifyMessages,
         workspaceSnapshot,
         localSnapshot,
-      });
-      return res.status(preflightOnly ? 200 : 202).json(daemonResult);
-    }
-
-    const result = await executeTreeNodeRun({
-      userId,
-      project,
-      server,
-      node,
-      treeState: state,
-      force,
-      preflightOnly,
-      runSource: 'bridge-run',
-      searchTrialCount,
-      clarifyMessages,
-      workspaceSnapshot,
-      localSnapshot,
+      }),
+      viaHttp: async () => {
+        const result = await executeTreeNodeRun({
+          userId,
+          project,
+          server,
+          node,
+          treeState: state,
+          force,
+          preflightOnly,
+          runSource: 'bridge-run',
+          searchTrialCount,
+          clarifyMessages,
+          workspaceSnapshot,
+          localSnapshot,
+        });
+        return buildBridgeTreeRunPayload({
+          projectId: project.id,
+          nodeId,
+          bridgeRuntime,
+          result,
+        });
+      },
     });
-    return res.status(preflightOnly ? 200 : 202).json(buildBridgeTreeRunPayload({
-      projectId: project.id,
-      nodeId,
-      bridgeRuntime,
-      result,
-    }));
+    return res.status(preflightOnly ? 200 : 202).json(payload);
   } catch (error) {
     if (error.code === 'NODE_BLOCKED') {
       return res.status(409).json({
@@ -7206,71 +7205,80 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
       project,
       store: researchOpsStore,
     });
-    if (readBridgeTransportMode(req.query.transport) === 'daemon-task') {
-      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
-      return res.json(await fetchNodeBridgeContextViaDaemon({
+    const payload = await dispatchBridgeTransport({
+      transport: req.query.transport,
+      bridgeRuntime,
+      viaDaemon: ({ serverId }) => fetchNodeBridgeContextViaDaemon({
         userId,
-        serverId: daemonServerId,
+        serverId,
         projectId: project.id,
         nodeId,
         includeContextPack,
         includeReport,
-      }));
-    }
-    const [{ plan }, stateRead] = await Promise.all([
-      treePlanService.readProjectPlan({ project, server }),
-      treeStateService.readProjectState({ project, server }),
-    ]);
-    const state = await hydrateTreeStateRunStatuses(userId, stateRead?.state || {});
-    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
-    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
-    const nodeState = state?.nodes?.[nodeId] || null;
-    const lastRunId = String(nodeState?.lastRunId || '').trim();
-    const run = lastRunId ? await researchOpsStore.getRun(userId, lastRunId).catch(() => null) : null;
-    let contextPack = null;
-    let reportSteps = [];
-    let reportArtifacts = [];
-    let reportCheckpoints = [];
-    if (includeContextPack && run) {
-      try {
-        const context = await buildRunIntentAndPack({
-          userId,
-          project,
-          node,
-          run,
-          treeState: state,
-        });
-        contextPack = buildContextPackPayload({ pack: context.pack });
-      } catch (innerError) {
-        console.warn('[ResearchOps] bridge-context routed pack fallback to legacy builder:', innerError?.message || innerError);
-        const pack = await contextPackService.buildContextPack(userId, {
-          runId: run.id,
+      }),
+      viaHttp: async () => {
+        const [{ plan }, stateRead] = await Promise.all([
+          treePlanService.readProjectPlan({ project, server }),
+          treeStateService.readProjectState({ project, server }),
+        ]);
+        const state = await hydrateTreeStateRunStatuses(userId, stateRead?.state || {});
+        const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
+        if (!node) {
+          const error = new Error(`Node not found: ${nodeId}`);
+          error.code = 'NODE_NOT_FOUND';
+          throw error;
+        }
+        const nodeState = state?.nodes?.[nodeId] || null;
+        const lastRunId = String(nodeState?.lastRunId || '').trim();
+        const run = lastRunId ? await researchOpsStore.getRun(userId, lastRunId).catch(() => null) : null;
+        let contextPack = null;
+        let reportSteps = [];
+        let reportArtifacts = [];
+        let reportCheckpoints = [];
+        if (includeContextPack && run) {
+          try {
+            const context = await buildRunIntentAndPack({
+              userId,
+              project,
+              node,
+              run,
+              treeState: state,
+            });
+            contextPack = buildContextPackPayload({ pack: context.pack });
+          } catch (innerError) {
+            console.warn('[ResearchOps] bridge-context routed pack fallback to legacy builder:', innerError?.message || innerError);
+            const pack = await contextPackService.buildContextPack(userId, {
+              runId: run.id,
+              projectId: project.id,
+              contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
+            });
+            contextPack = buildContextPackPayload({ pack, mode: 'legacy' });
+          }
+        }
+        if (includeReport && run) {
+          [reportSteps, reportArtifacts, reportCheckpoints] = await Promise.all([
+            researchOpsStore.listRunSteps(userId, run.id).catch(() => []),
+            researchOpsStore.listRunArtifacts(userId, run.id, { limit: 1000 }).catch(() => []),
+            researchOpsStore.listRunCheckpoints(userId, run.id, { limit: 500 }).catch(() => []),
+          ]);
+        }
+        return buildNodeBridgeView({
           projectId: project.id,
-          contextRefs: run.contextRefs || run.metadata?.contextRefs || {},
+          node,
+          nodeState,
+          blocking: evaluateNodeBlocking(node, state),
+          run,
+          contextPack,
+          bridgeRuntime,
+          reportSteps,
+          reportArtifacts,
+          reportCheckpoints,
         });
-        contextPack = buildContextPackPayload({ pack, mode: 'legacy' });
-      }
-    }
-    if (includeReport && run) {
-      [reportSteps, reportArtifacts, reportCheckpoints] = await Promise.all([
-        researchOpsStore.listRunSteps(userId, run.id).catch(() => []),
-        researchOpsStore.listRunArtifacts(userId, run.id, { limit: 1000 }).catch(() => []),
-        researchOpsStore.listRunCheckpoints(userId, run.id, { limit: 500 }).catch(() => []),
-      ]);
-    }
-    return res.json(buildNodeBridgeView({
-      projectId: project.id,
-      node,
-      nodeState,
-      blocking: evaluateNodeBlocking(node, state),
-      run,
-      contextPack,
-      bridgeRuntime,
-      reportSteps,
-      reportArtifacts,
-      reportCheckpoints,
-    }));
+      },
+    });
+    return res.json(payload);
   } catch (error) {
+    if (error.code === 'NODE_NOT_FOUND') return res.status(404).json({ error: error.message });
     return res.status(400).json(toErrorPayload(error, 'Failed to build node bridge context'));
   }
 });
