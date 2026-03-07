@@ -64,6 +64,7 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Compare payloads now also include concrete base/other run action descriptors for `report`, `artifacts`, `bridge-report`, and the active compare URL, so compare consumers can keep traversing current APIs without rebuilding route strings
   - Run artifact list responses now use a normalized payload with per-artifact download actions and `isDeliverable` flags, so artifact consumers no longer have to special-case the last remaining raw `items` response in the run evidence flow
   - Run step list responses now also use a normalized payload keyed by `runId`, so current detail/replay consumers no longer depend on another bare `{ items }` seam in the same evidence family
+  - Run event list responses now also use a normalized payload keyed by `runId` and `afterSequence`, so replay/polling consumers no longer depend on the old raw store result while traversing the same run evidence family
   - Run detail now auto-loads a lightweight compare summary for the first related/parent run and shows it inline without adding a new compare console
   - Run detail can now switch compare targets across related/parent runs using existing visible run history instead of a dedicated compare page
   - Node workbench review/evidence summary now includes thin compare status/evidence rows when a related run comparison exists

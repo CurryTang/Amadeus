@@ -24,6 +24,7 @@ const { buildBridgeRunReportPayload } = require('../../services/researchops/brid
 const { buildBridgeNoteArtifactInput } = require('../../services/researchops/bridge-note-payload.service');
 const { buildRunComparePayload } = require('../../services/researchops/run-compare-payload.service');
 const { buildRunArtifactListPayload } = require('../../services/researchops/run-artifact-list-payload.service');
+const { buildRunEventListPayload } = require('../../services/researchops/run-event-list-payload.service');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { buildRunStepListPayload } = require('../../services/researchops/run-step-list-payload.service');
 const { getDb } = require('../../db');
@@ -445,11 +446,13 @@ router.post('/runs/:runId/events', async (req, res) => {
 
 router.get('/runs/:runId/events', async (req, res) => {
   try {
+    const runId = String(req.params.runId || '').trim();
+    const afterSequence = String(req.query.afterSequence || '').trim();
     const result = await researchOpsStore.listRunEvents(getUserId(req), req.params.runId, {
-      afterSequence: req.query.afterSequence,
+      afterSequence,
       limit: parseLimit(req.query.limit, 200, 1000),
     });
-    return res.json(result);
+    return res.json(buildRunEventListPayload({ runId, afterSequence, result }));
   } catch (error) {
     console.error('[ResearchOps] listRunEvents failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
