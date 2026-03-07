@@ -44,6 +44,7 @@ const {
   buildAgentSessionMessagesPayload,
 } = require('../services/researchops/agent-session-message-payload.service');
 const { buildContextPackPayload } = require('../services/researchops/context-pack-payload.service');
+const { normalizeEnqueueRunPayload } = require('../services/researchops/enqueue-run-payload.service');
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
 const { buildRunPayload } = require('../services/researchops/run-payload.service');
 const { buildQueuedRunActionPayload } = require('../services/researchops/queued-run-action-payload.service');
@@ -5314,13 +5315,14 @@ router.post('/plan/enqueue-v2', async (req, res) => {
 router.post('/runs/enqueue-v2', async (req, res) => {
   try {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const runPayload = body.run && typeof body.run === 'object' ? body.run : body;
+    const runPayload = normalizeEnqueueRunPayload(
+      body.run && typeof body.run === 'object' ? body.run : body
+    );
     const projectId = String(runPayload.projectId || '').trim();
     if (!projectId) {
       return res.status(400).json({ error: 'projectId is required' });
     }
 
-    const mode = String(runPayload.mode || 'headless').trim().toLowerCase();
     const workflowInput = Array.isArray(runPayload.workflow) ? runPayload.workflow : [];
     const workflow = workflowSchemaService.normalizeAndValidateWorkflow(workflowInput, {
       allowEmpty: true,
@@ -5334,7 +5336,7 @@ router.post('/runs/enqueue-v2', async (req, res) => {
       runType,
       provider: String(runPayload.provider || 'codex_cli').trim() || 'codex_cli',
       schemaVersion: '2.0',
-      mode: mode === 'interactive' ? 'interactive' : 'headless',
+      mode: runPayload.mode,
       workflow,
       skillRefs: Array.isArray(runPayload.skillRefs) ? runPayload.skillRefs : [],
       contextRefs: runPayload.contextRefs && typeof runPayload.contextRefs === 'object'
@@ -5349,9 +5351,7 @@ router.post('/runs/enqueue-v2', async (req, res) => {
       hitlPolicy: runPayload.hitlPolicy && typeof runPayload.hitlPolicy === 'object'
         ? runPayload.hitlPolicy
         : {},
-      metadata: runPayload.metadata && typeof runPayload.metadata === 'object'
-        ? runPayload.metadata
-        : {},
+      metadata: runPayload.metadata,
     });
     return res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
@@ -5365,13 +5365,13 @@ router.post('/runs/enqueue-v2', async (req, res) => {
 
 router.post('/runs/enqueue', async (req, res) => {
   try {
-    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+    const payload = normalizeEnqueueRunPayload(req.body && typeof req.body === 'object' ? req.body : {});
     const runType = String(payload.runType || '').trim().toUpperCase();
     const projectId = String(payload.projectId || '').trim();
     if (projectId && runType) {
       await enforceExperimentProjectPathPolicy(getUserId(req), projectId, runType);
     }
-    const run = await researchOpsStore.enqueueRun(getUserId(req), req.body || {});
+    const run = await researchOpsStore.enqueueRun(getUserId(req), payload);
     res.status(201).json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] enqueueRun failed:', error);
