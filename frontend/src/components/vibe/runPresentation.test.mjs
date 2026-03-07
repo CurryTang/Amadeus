@@ -106,13 +106,17 @@ test('buildRecentRunReviewSummary groups active and attention states for activit
     { id: 'run_a', status: 'RUNNING' },
     { id: 'run_b', status: 'FAILED' },
     { id: 'run_c', status: 'SUCCEEDED', contract: { ok: false } },
+    { id: 'run_d', status: 'CANCELLED' },
   ]);
 
   assert.deepEqual(summary, {
-    totalCount: 3,
+    totalCount: 4,
     activeCount: 1,
-    attentionCount: 2,
+    attentionCount: 3,
     completedCount: 1,
+    failedCount: 1,
+    cancelledCount: 1,
+    contractFailureCount: 1,
     status: 'needs_attention',
   });
 });

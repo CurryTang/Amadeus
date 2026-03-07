@@ -65,6 +65,9 @@ function buildRecentRunReviewSummary(runs = []) {
   let activeCount = 0;
   let attentionCount = 0;
   let completedCount = 0;
+  let failedCount = 0;
+  let cancelledCount = 0;
+  let contractFailureCount = 0;
   items.forEach((run) => {
     const status = cleanString(run?.status).toUpperCase();
     if (['RUNNING', 'QUEUED', 'PENDING'].includes(status)) {
@@ -73,9 +76,14 @@ function buildRecentRunReviewSummary(runs = []) {
       completedCount += 1;
     } else if (status === 'FAILED' || status === 'CANCELLED') {
       attentionCount += 1;
+      if (status === 'FAILED') failedCount += 1;
+      if (status === 'CANCELLED') cancelledCount += 1;
     }
     if (run?.contract?.ok === false && !['FAILED', 'CANCELLED'].includes(status)) {
+      contractFailureCount += 1;
       attentionCount += 1;
+    } else if (run?.contract?.ok === false) {
+      contractFailureCount += 1;
     }
   });
   let status = 'idle';
@@ -91,6 +99,9 @@ function buildRecentRunReviewSummary(runs = []) {
     activeCount,
     attentionCount,
     completedCount,
+    failedCount,
+    cancelledCount,
+    contractFailureCount,
     status,
   };
 }

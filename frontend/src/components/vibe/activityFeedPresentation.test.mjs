@@ -63,6 +63,9 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
       activeCount: 0,
       attentionCount: 1,
       completedCount: 0,
+      failedCount: 1,
+      cancelledCount: 0,
+      contractFailureCount: 1,
       status: 'needs_attention',
     },
   });
@@ -72,6 +75,9 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
     activeCount: 0,
     attentionCount: 1,
     completedCount: 0,
+    failedCount: 1,
+    cancelledCount: 0,
+    contractFailureCount: 1,
     status: 'needs_attention',
   });
 });

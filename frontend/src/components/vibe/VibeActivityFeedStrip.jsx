@@ -25,6 +25,15 @@ function VibeActivityFeedStrip({
   if (reviewSummary && Number(reviewSummary.completedCount) > 0) {
     reviewBits.push(`${Number(reviewSummary.completedCount)} completed`);
   }
+  if (reviewSummary && Number(reviewSummary.contractFailureCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.contractFailureCount)} contract failures`);
+  }
+  if (reviewSummary && Number(reviewSummary.failedCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.failedCount)} failed`);
+  }
+  if (reviewSummary && Number(reviewSummary.cancelledCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.cancelledCount)} cancelled`);
+  }
 
   return (
     <section className="vibe-activity-feed vibe-card vibe-card--neo">
