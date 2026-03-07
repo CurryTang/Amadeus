@@ -3,6 +3,7 @@ import axios from 'axios';
 import EmptyState from '../ui/EmptyState';
 import ClarificationChat from './ClarificationChat';
 import { buildContextPackSummary } from './contextPackPresentation.js';
+import { buildNodeBridgeSummary } from './nodeBridgePresentation.js';
 import { buildNodeReviewSummary } from './reviewPresentation.js';
 import { buildSearchSummaryRows, buildSearchTrialRows } from './searchPresentation.js';
 import { getTreeNodeKindLabel, isObservedTreeNode, isSearchTreeNode } from './treeNodePresentation.js';
@@ -46,6 +47,8 @@ function VibeNodeWorkbench({
   runReportLoading,
   runContextView,
   runContextLoading = false,
+  nodeBridgeContext,
+  nodeBridgeLoading = false,
   onSaveCommands,
   onLoadSearch,
   onRefreshObservedSession,
@@ -184,9 +187,23 @@ function VibeNodeWorkbench({
   const commands = useMemo(() => parseCommands(node), [node]);
 
   const artifacts = Array.isArray(runReport?.artifacts) ? runReport.artifacts : [];
+  const effectiveContextView = useMemo(() => {
+    if (runContextView && typeof runContextView === 'object' && Object.keys(runContextView).length > 0) {
+      return runContextView;
+    }
+    const bridgePack = nodeBridgeContext?.contextPack && typeof nodeBridgeContext.contextPack === 'object'
+      ? nodeBridgeContext.contextPack
+      : {};
+    const bridgeView = bridgePack?.view && typeof bridgePack.view === 'object' ? bridgePack.view : null;
+    return bridgeView && Object.keys(bridgeView).length > 0 ? bridgeView : null;
+  }, [nodeBridgeContext, runContextView]);
   const contextSummaryRows = useMemo(
-    () => buildContextPackSummary(runContextView || {}),
-    [runContextView]
+    () => buildContextPackSummary(effectiveContextView || {}),
+    [effectiveContextView]
+  );
+  const bridgeSummaryRows = useMemo(
+    () => buildNodeBridgeSummary(nodeBridgeContext || {}),
+    [nodeBridgeContext]
   );
   const reviewSummaryRows = useMemo(
     () => buildNodeReviewSummary(node, nodeState, runReport, runCompare),
@@ -320,13 +337,34 @@ function VibeNodeWorkbench({
             {!isObservedNode && (
               <article>
                 <h4>Run Context</h4>
-                {runContextLoading ? (
+                {runContextLoading || nodeBridgeLoading ? (
                   <p className="vibe-empty">Loading context…</p>
                 ) : contextSummaryRows.length === 0 ? (
                   <p className="vibe-empty">No routed context loaded for the active run.</p>
                 ) : (
                   <div className="vibe-list">
                     {contextSummaryRows.map((row) => (
+                      <div key={row.label} className="vibe-list-item">
+                        <div className="vibe-list-main">
+                          <strong>{row.label}</strong>
+                          <span>{row.value}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </article>
+            )}
+            {!isObservedNode && (
+              <article>
+                <h4>Bridge / Runtime</h4>
+                {nodeBridgeLoading ? (
+                  <p className="vibe-empty">Loading bridge runtime…</p>
+                ) : bridgeSummaryRows.length === 0 ? (
+                  <p className="vibe-empty">No bridge runtime available for this node.</p>
+                ) : (
+                  <div className="vibe-list">
+                    {bridgeSummaryRows.map((row) => (
                       <div key={row.label} className="vibe-list-item">
                         <div className="vibe-list-main">
                           <strong>{row.label}</strong>

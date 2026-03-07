@@ -547,6 +547,8 @@ function VibeResearcherPanel({
   const [runCompareLoading, setRunCompareLoading] = useState(false);
   const [runContextPack, setRunContextPack] = useState(null);
   const [runContextPackLoading, setRunContextPackLoading] = useState(false);
+  const [nodeBridgeContext, setNodeBridgeContext] = useState(null);
+  const [nodeBridgeContextLoading, setNodeBridgeContextLoading] = useState(false);
   const [showRunDetailModal, setShowRunDetailModal] = useState(false);
   const [observedSessionsLoading, setObservedSessionsLoading] = useState(false);
   const [observedSessionRefreshingId, setObservedSessionRefreshingId] = useState('');
@@ -1217,6 +1219,35 @@ function VibeResearcherPanel({
       setRunCompare(null);
     } finally {
       if (!silent) setRunCompareLoading(false);
+    }
+  }, [apiUrl, headers]);
+
+  const loadNodeBridgeContext = useCallback(async (projectId, nodeId, { silent = false } = {}) => {
+    const targetProjectId = String(projectId || '').trim();
+    const targetNodeId = String(nodeId || '').trim();
+    if (!targetProjectId || !targetNodeId) {
+      setNodeBridgeContext(null);
+      setNodeBridgeContextLoading(false);
+      return;
+    }
+    if (!silent) setNodeBridgeContextLoading(true);
+    try {
+      const response = await axios.get(
+        `${apiUrl}/researchops/projects/${targetProjectId}/tree/nodes/${targetNodeId}/bridge-context`,
+        {
+          headers,
+          params: {
+            includeContextPack: true,
+            includeReport: true,
+          },
+        }
+      );
+      setNodeBridgeContext(response.data || null);
+    } catch (err) {
+      console.warn('Failed to load node bridge context:', err?.message || err);
+      setNodeBridgeContext(null);
+    } finally {
+      if (!silent) setNodeBridgeContextLoading(false);
     }
   }, [apiUrl, headers]);
 
@@ -3298,6 +3329,16 @@ function VibeResearcherPanel({
       },
     };
   }, [observedSessions, treeState]);
+
+  useEffect(() => {
+    if (!selectedProjectId || !selectedNodeId) {
+      setNodeBridgeContext(null);
+      setNodeBridgeContextLoading(false);
+      return;
+    }
+    loadNodeBridgeContext(selectedProjectId, selectedNodeId, { silent: true });
+  }, [loadNodeBridgeContext, selectedNodeId, selectedNodeLastRunId, selectedProjectId]);
+
   const shouldShowJumpstartGate = useMemo(() => shouldShowProjectEntryGate({
     project: selectedProject,
     plan: treePlan,
@@ -3320,6 +3361,7 @@ function VibeResearcherPanel({
   const selectedObservedSession = useMemo(() => (
     selectedNodeId ? (observedSessionsByNodeId.get(selectedNodeId) || null) : null
   ), [observedSessionsByNodeId, selectedNodeId]);
+  const selectedNodeLastRunId = cleanString(selectedTreeNodeState?.lastRunId);
 
   const knowledgeBaseFolder = String(selectedProject?.kbFolderPath || '').trim();
 
@@ -3892,6 +3934,9 @@ function VibeResearcherPanel({
     if (!selectedRunId) return;
     loadRunReport(selectedRunId);
     loadRunContextPack(selectedRunId);
+    if (selectedProjectId && selectedNodeId) {
+      loadNodeBridgeContext(selectedProjectId, selectedNodeId, { silent: true });
+    }
     const otherRunId = cleanString(selectedCompareRunId)
       || deriveRunCompareTargetId(selectedRun || {}, activeRunReport || {});
     if (otherRunId) {
@@ -3902,10 +3947,13 @@ function VibeResearcherPanel({
     }
   }, [
     activeRunReport,
+    loadNodeBridgeContext,
     loadRunCompare,
     loadRunContextPack,
     loadRunReport,
     selectedCompareRunId,
+    selectedNodeId,
+    selectedProjectId,
     selectedRun,
     selectedRunId,
   ]);
@@ -4516,6 +4564,8 @@ function VibeResearcherPanel({
                       runReportLoading={runReportLoading}
                       runContextView={activeRunContextView}
                       runContextLoading={runContextPackLoading}
+                      nodeBridgeContext={nodeBridgeContext}
+                      nodeBridgeLoading={nodeBridgeContextLoading}
                       searchData={searchData}
                       searchLoading={searchLoading}
                       onSaveCommands={handleSaveNodeCommands}
