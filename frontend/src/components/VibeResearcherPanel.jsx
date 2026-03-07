@@ -21,6 +21,7 @@ import { DEFAULT_LAUNCHER_SKILL, getLauncherPromptPrefix } from './vibe/launcher
 import { buildPayloadWithContinuation, addContinuationChip } from './vibe/launcherContinuation';
 import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
+import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
@@ -1289,16 +1290,26 @@ function VibeResearcherPanel({
   const applyPlanPatches = useCallback(async (patches = []) => {
     const projectId = String(selectedProjectId || '').trim();
     if (!projectId || !Array.isArray(patches) || patches.length === 0) return null;
-    const response = await axios.post(
-      `${apiUrl}/researchops/projects/${projectId}/tree/plan/patches`,
-      { patches },
-      { headers }
-    );
-    const nextPlan = response.data?.plan || null;
-    setTreePlan(nextPlan);
-    setTreeValidation(response.data?.validation || null);
-    await loadTreeWorkspace(projectId, { silent: true });
-    return response.data || null;
+    try {
+      const response = await axios.post(
+        `${apiUrl}/researchops/projects/${projectId}/tree/plan/patches`,
+        { patches },
+        { headers }
+      );
+      const nextPlan = response.data?.plan || null;
+      setTreePlan(nextPlan);
+      setTreeValidation(response.data?.validation || null);
+      setTreeError('');
+      await loadTreeWorkspace(projectId, { silent: true });
+      return response.data || null;
+    } catch (err) {
+      const feedback = getPlanPatchFeedback(err);
+      if (feedback.validation) {
+        setTreeValidation(feedback.validation);
+      }
+      setTreeError(feedback.message);
+      throw err;
+    }
   }, [apiUrl, headers, loadTreeWorkspace, selectedProjectId]);
 
   const savePlanDsl = useCallback(async (nextPlan) => {
