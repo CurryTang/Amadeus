@@ -26,6 +26,7 @@ import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
 import { getTreeExecutionErrorMessage } from './vibe/treeExecutionErrorPresentation';
+import { buildTreeNodeActionMessage } from './vibe/treeNodeActionPresentation';
 import { buildTreeRunAllMessage } from './vibe/treeRunAllPresentation';
 import { buildTreeRunStepMessage } from './vibe/treeRunStepPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
@@ -2820,7 +2821,7 @@ function VibeResearcherPanel({
     }
   }, [apiUrl, headers, selectedProjectId]);
 
-  const promoteSearchWinner = useCallback(async (nodeId) => {
+  const promoteSearchWinner = useCallback(async (nodeId, options = {}) => {
     const projectId = String(selectedProjectId || '').trim();
     const safeNodeId = String(nodeId || '').trim();
     if (!projectId || !safeNodeId) return;
@@ -2840,8 +2841,15 @@ function VibeResearcherPanel({
         {},
         { headers }
       );
+      setTreeError('');
+      setTreeActionMessage(buildTreeNodeActionMessage('promote', {
+        nodeId: safeNodeId,
+        nodeTitle: options?.nodeTitle || safeNodeId,
+        trialId: winner.id,
+      }));
       await loadTreeWorkspace(projectId, { silent: true });
     } catch (err) {
+      setTreeActionMessage('');
       setTreeError(err?.response?.data?.error || err?.message || 'Failed to promote search winner');
     } finally {
       setSubmitting(false);
@@ -2874,11 +2882,16 @@ function VibeResearcherPanel({
       }
       if (action === 'approve_gate') {
         await axios.post(`${apiUrl}/researchops/projects/${projectId}/tree/nodes/${nodeId}/approve`, {}, { headers });
+        setTreeError('');
+        setTreeActionMessage(buildTreeNodeActionMessage('approve_gate', {
+          nodeId,
+          nodeTitle: node.title || nodeId,
+        }));
         await loadTreeWorkspace(projectId, { silent: true });
         return;
       }
       if (action === 'promote') {
-        await promoteSearchWinner(nodeId);
+        await promoteSearchWinner(nodeId, { nodeTitle: node.title || nodeId });
         return;
       }
       if (action === 'continue_from') {
