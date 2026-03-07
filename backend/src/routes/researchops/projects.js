@@ -20,6 +20,7 @@ const autopilotService = require('../../services/researchops/autopilot.service')
 const knowledgeGroupsService = require('../../services/knowledge-groups.service');
 const contextPackService = require('../../services/researchops/context-pack.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
+const { buildQueuedRunActionPayload } = require('../../services/researchops/queued-run-action-payload.service');
 const {
   buildQueuedTreeRunAllItem,
   buildTreeRunAllPayload,
@@ -4516,11 +4517,11 @@ router.post('/projects/:projectId/files/augment', async (req, res) => {
         cwd: defaultProjectCwd || undefined,
       },
     });
-    return res.status(201).json({
+    return res.status(201).json(buildQueuedRunActionPayload({
       success: true,
       message: 'Augmentation run queued',
       run,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     console.error('[ResearchOps] files/augment failed:', error);
