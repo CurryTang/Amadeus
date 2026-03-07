@@ -77,12 +77,14 @@ function buildRustDaemonStatusPayload({
   rustDaemon = null,
   apiBaseUrl = '',
   cwd = process.cwd(),
+  refreshedAt = '',
 } = {}) {
   const runtimeOptions = buildRustDaemonPrototypeRuntimeOptions({ apiBaseUrl, cwd });
   const source = rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {};
   return {
     enabled: source.enabled === true,
     status: cleanString(source.status) || 'disabled',
+    refreshedAt: cleanString(refreshedAt) || new Date().toISOString(),
     transport: cleanString(source.transport) || null,
     endpoint: cleanString(source.endpoint) || null,
     socketPath: cleanString(source.socketPath) || null,

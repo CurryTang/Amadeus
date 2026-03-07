@@ -62,6 +62,7 @@ function buildRustDaemonStatusRows(health = null) {
   const rustDaemon = getRustDaemonPayload(health);
   if (!rustDaemon || typeof rustDaemon !== 'object' || rustDaemon.enabled !== true) return [];
   const rows = [];
+  const refreshedAt = cleanString(rustDaemon.refreshedAt);
   const transport = cleanString(rustDaemon.transport);
   const endpoint = cleanString(rustDaemon.endpoint);
   const socketPath = cleanString(rustDaemon.socketPath);
@@ -80,6 +81,7 @@ function buildRustDaemonStatusRows(health = null) {
     ? catalogParity.extraTaskTypes.map((item) => cleanString(item)).filter(Boolean)
     : [];
 
+  if (refreshedAt) rows.push({ label: 'Rust Checked', value: refreshedAt });
   if (transport) rows.push({ label: 'Rust Transport', value: transport });
   if (endpoint) rows.push({ label: 'Rust Endpoint', value: endpoint });
   if (socketPath) rows.push({ label: 'Rust Socket', value: socketPath });

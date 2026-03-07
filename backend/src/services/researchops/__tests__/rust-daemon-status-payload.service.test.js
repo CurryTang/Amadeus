@@ -10,6 +10,7 @@ const {
 test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime options/actions', () => {
   const payload = buildRustDaemonStatusPayload({
     apiBaseUrl: 'https://example.com/api',
+    refreshedAt: '2026-03-07T12:00:00.000Z',
     rustDaemon: {
       enabled: true,
       status: 'ok',
@@ -36,6 +37,7 @@ test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime opt
   assert.equal(payload.status, 'ok');
   assert.equal(payload.transport, 'http');
   assert.equal(payload.endpoint, 'http://127.0.0.1:7788');
+  assert.equal(payload.refreshedAt, '2026-03-07T12:00:00.000Z');
   assert.equal(payload.runtime.task_catalog_version, 'v0');
   assert.equal(payload.taskCatalog.version, 'v0');
   assert.equal(payload.catalogParity.status, 'aligned');

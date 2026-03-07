@@ -506,6 +506,7 @@ function VibeResearcherPanel({
   const [clientDevices, setClientDevices] = useState([]);
   const [rustDaemonStatus, setRustDaemonStatus] = useState(null);
   const [loadingClientDevices, setLoadingClientDevices] = useState(false);
+  const [refreshingRustDaemonStatus, setRefreshingRustDaemonStatus] = useState(false);
   const [clientBootstrapOpen, setClientBootstrapOpen] = useState(false);
   const [clientBootstrapBusy, setClientBootstrapBusy] = useState(false);
   const [clientBootstrapData, setClientBootstrapData] = useState(null);
@@ -1547,12 +1548,27 @@ function VibeResearcherPanel({
     }
   }, [apiUrl, headers, projectServerId]);
 
+  const loadRustDaemonStatus = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setRefreshingRustDaemonStatus(true);
+    try {
+      const res = await axios.get(`${apiUrl}/researchops/daemons/rust/status`, { headers });
+      setRustDaemonStatus(res?.data && typeof res.data === 'object' ? res.data : null);
+      return res?.data || null;
+    } catch (err) {
+      console.error('Failed to load rust daemon status:', err);
+      setRustDaemonStatus(null);
+      return null;
+    } finally {
+      if (!silent) setRefreshingRustDaemonStatus(false);
+    }
+  }, [apiUrl, headers]);
+
   const loadClientDevices = useCallback(async () => {
     setLoadingClientDevices(true);
     try {
       const [devicesResult, rustStatusResult] = await Promise.allSettled([
         axios.get(`${apiUrl}/researchops/daemons`, { headers }),
-        axios.get(`${apiUrl}/researchops/daemons/rust/status`, { headers }),
+        loadRustDaemonStatus({ silent: true }),
       ]);
       if (devicesResult.status !== 'fulfilled') {
         throw devicesResult.reason;
@@ -1560,8 +1576,8 @@ function VibeResearcherPanel({
       const devices = Array.isArray(devicesResult.value?.data?.items) ? devicesResult.value.data.items : [];
       setClientDevices(devices);
       setRustDaemonStatus(
-        rustStatusResult.status === 'fulfilled' && rustStatusResult.value?.data && typeof rustStatusResult.value.data === 'object'
-          ? rustStatusResult.value.data
+        rustStatusResult.status === 'fulfilled' && rustStatusResult.value && typeof rustStatusResult.value === 'object'
+          ? rustStatusResult.value
           : null
       );
       if (!projectClientDeviceId && devices.length > 0) {
@@ -1573,7 +1589,7 @@ function VibeResearcherPanel({
     } finally {
       setLoadingClientDevices(false);
     }
-  }, [apiUrl, headers, projectClientDeviceId]);
+  }, [apiUrl, headers, loadRustDaemonStatus, projectClientDeviceId]);
 
   const onlineClientDevices = useMemo(
     () => filterOnlineClientDevices(clientDevices),
@@ -5751,6 +5767,16 @@ function VibeResearcherPanel({
                           {rustDaemonStatusNote}
                         </p>
                       )}
+                      <div className="vibe-inline-actions">
+                        <button
+                          type="button"
+                          className="vibe-secondary-btn"
+                          onClick={() => loadRustDaemonStatus()}
+                          disabled={refreshingRustDaemonStatus}
+                        >
+                          {refreshingRustDaemonStatus ? 'Refreshing Rust…' : 'Refresh Rust Status'}
+                        </button>
+                      </div>
                       {rustDaemonStatusRows.length > 0 && (
                         <div className="vibe-client-browser-box">
                           {rustDaemonStatusRows.map((row) => (

@@ -6311,6 +6311,7 @@ router.get('/daemons/rust/status', async (req, res) => {
       rustDaemon,
       apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
       cwd: process.cwd(),
+      refreshedAt: new Date().toISOString(),
     }));
   } catch (error) {
     console.error('[ResearchOps] rust daemon status failed:', error);

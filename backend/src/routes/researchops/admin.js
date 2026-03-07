@@ -315,11 +315,13 @@ function buildDaemonBootstrapStatusPayload({
 function buildRustDaemonStatusResponse({
   rustDaemon,
   apiBaseUrl = '',
+  refreshedAt = '',
 } = {}) {
   return buildRustDaemonStatusPayload({
     rustDaemon,
     apiBaseUrl,
     cwd: process.cwd(),
+    refreshedAt,
   });
 }
 
@@ -577,6 +579,7 @@ router.get('/daemons/rust/status', async (req, res) => {
     return res.json(buildRustDaemonStatusResponse({
       rustDaemon,
       apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+      refreshedAt: new Date().toISOString(),
     }));
   } catch (error) {
     console.error('[ResearchOps] rust daemon status failed:', error);
