@@ -28,4 +28,5 @@ test('rust daemon prototype task catalog stays aligned with the JS daemon task c
   assert.match(result.stdout, /rust daemon prototype contract ok/i);
   assert.match(result.stdout, /rust daemon prototype proxy ok/i);
   assert.match(result.stdout, /rust daemon prototype task execution ok/i);
+  assert.match(result.stdout, /rust daemon prototype unix task execution ok/i);
 });

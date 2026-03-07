@@ -81,6 +81,49 @@ async function waitForDaemon(url, attempts = 40) {
   throw new Error(`daemon did not become ready: ${url}`);
 }
 
+function requestUnixJson(socketPath, requestPath, { method = 'GET', body = null, timeoutMs = 1500 } = {}) {
+  return new Promise((resolve, reject) => {
+    const bodyText = body ? JSON.stringify(body) : '';
+    const request = http.request({
+      socketPath,
+      path: requestPath,
+      method,
+      headers: {
+        Accept: 'application/json',
+        Connection: 'close',
+        ...(body ? {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(bodyText),
+        } : {}),
+      },
+      timeout: timeoutMs,
+    }, (response) => {
+      let responseBody = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        responseBody += chunk;
+      });
+      response.on('end', () => {
+        if ((response.statusCode || 0) < 200 || (response.statusCode || 0) >= 300) {
+          reject(new Error(`unix daemon request failed (${response.statusCode || 0})`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(responseBody || '{}'));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    request.on('timeout', () => request.destroy(new Error('unix daemon request timeout')));
+    request.on('error', reject);
+    if (body) {
+      request.write(bodyText);
+    }
+    request.end();
+  });
+}
+
 async function createMockBackend() {
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/api/researchops/runs/run_verify/bridge-report') {
@@ -169,6 +212,60 @@ async function verifyRustDaemonExecution() {
   }
 }
 
+async function verifyRustUnixDaemonExecution() {
+  const socketPath = path.join(os.tmpdir(), `researchops-rust-daemon-${Date.now()}-${process.pid}.sock`);
+  const cargoManifestPath = path.join(__dirname, '..', 'rust', 'researchops-local-daemon', 'Cargo.toml');
+  const daemon = spawn(
+    'cargo',
+    ['run', '--manifest-path', cargoManifestPath, '--quiet', '--', '--serve-unix', socketPath, '--max-requests', '6'],
+    {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        PATH: `${process.env.HOME}/.cargo/bin:${process.env.PATH}`,
+        RESEARCHOPS_API_BASE_URL: 'http://127.0.0.1:9',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+
+  let stderr = '';
+  daemon.stderr.on('data', (chunk) => {
+    stderr += String(chunk);
+  });
+
+  try {
+    for (let index = 0; index < 40; index += 1) {
+      try {
+        await fs.access(socketPath);
+        break;
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'researchops-rust-daemon-unix-'));
+    const taskJson = await requestUnixJson(socketPath, '/tasks/execute', {
+      method: 'POST',
+      body: {
+        taskType: 'project.checkPath',
+        payload: {
+          projectPath: tempDir,
+        },
+      },
+    });
+    assert.equal(taskJson.exists, true);
+    assert.equal(taskJson.isDirectory, true);
+  } finally {
+    daemon.kill('SIGTERM');
+    await new Promise((resolve) => daemon.once('exit', resolve));
+    await fs.rm(socketPath, { force: true }).catch(() => {});
+  }
+
+  if (stderr.trim()) {
+    throw new Error(stderr.trim());
+  }
+}
+
 async function main() {
   const rustCatalog = readRustTaskCatalog();
   const jsCatalog = readJsTaskCatalog();
@@ -181,10 +278,12 @@ async function main() {
   );
 
   await verifyRustDaemonExecution();
+  await verifyRustUnixDaemonExecution();
 
   process.stdout.write('rust daemon prototype contract ok\n');
   process.stdout.write('rust daemon prototype proxy ok\n');
   process.stdout.write('rust daemon prototype task execution ok\n');
+  process.stdout.write('rust daemon prototype unix task execution ok\n');
 }
 
 main().catch((error) => {
