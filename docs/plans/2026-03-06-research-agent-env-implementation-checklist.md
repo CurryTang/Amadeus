@@ -55,5 +55,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Tree node bridge context now has a thin current-architecture payload for local bridge clients (`node`, `nodeState`, `blocking`, `lastRun`, optional `contextPack`)
   - Bridge clients can now read a compact `bridge-report` view and submit thin `workspaceSnapshot` / `localSnapshot` hints through existing enqueue APIs
   - Bridge clients can now submit markdown run notes through existing artifact storage via `bridge-note`
+  - Tree `run-step` now accepts bridge snapshot hints too, so snapshot-backed runs can stay on the normal tree execution path
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility

@@ -54,6 +54,10 @@ const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge
 const { buildRunReportPayload } = require('../services/researchops/run-report-payload.service');
 const { buildRunTreePayload } = require('../services/researchops/run-tree-payload.service');
 const {
+  buildTreeRunMetadata,
+  shouldUseGitManagedTreeRun,
+} = require('../services/researchops/tree-run-metadata.service');
+const {
   buildResearchOpsSshArgs,
   classifySshError,
 } = require('../services/ssh-auth.service');
@@ -6268,43 +6272,6 @@ function runStatusToNodeStatus(runStatus = '') {
   return '';
 }
 
-function shouldUseGitManagedTreeRun({
-  node = {},
-  runSource = 'run-step',
-} = {}) {
-  const normalizedKind = cleanString(node?.kind).toLowerCase();
-  if (normalizedKind === 'setup') return false;
-  if (cleanString(runSource).toLowerCase() === 'jumpstart') return false;
-  return true;
-}
-
-function buildTreeRunMetadata({
-  project = {},
-  node = {},
-  runSource = 'run-step',
-  commands = [],
-  clarifyMessages = [],
-} = {}) {
-  const joinedCommand = (Array.isArray(commands) ? commands : []).join(' && ') || 'echo "node has no commands"';
-  return {
-    sourceType: 'tree',
-    sourceLabel: 'Tree',
-    nodeId: node.id,
-    treeNodeId: node.id,
-    treeNodeTitle: String(node?.title || node?.id || '').trim(),
-    runSource,
-    planNodeKind: node.kind || 'experiment',
-    baseCommit: String(node?.git?.base || 'HEAD').trim(),
-    gitManaged: shouldUseGitManagedTreeRun({ node, runSource }),
-    commandCount: Array.isArray(commands) ? commands.length : 0,
-    experimentCommand: joinedCommand,
-    command: 'bash',
-    args: ['-lc', joinedCommand],
-    cwd: String(project?.projectPath || '').trim() || undefined,
-    ...(Array.isArray(clarifyMessages) && clarifyMessages.length > 0 ? { clarifyContext: clarifyMessages } : {}),
-  };
-}
-
 function extractNodeCommands(node = {}) {
   const commands = [];
   const raw = Array.isArray(node?.commands) ? node.commands : [];
@@ -6716,6 +6683,9 @@ async function executeTreeNodeRun({
   preflightOnly = false,
   runSource = 'run-step',
   searchTrialCount = 1,
+  clarifyMessages = [],
+  workspaceSnapshot = null,
+  localSnapshot = null,
 }) {
   const state = treeStateService.normalizeState(treeState);
   const blocking = evaluateNodeBlocking(node, state);
@@ -6775,6 +6745,15 @@ async function executeTreeNodeRun({
         runType: 'EXPERIMENT',
         serverId: String(project?.serverId || '').trim() || 'local-default',
         command: commands.join(' && ') || 'echo \"node has no commands\"',
+        metadata: buildTreeRunMetadata({
+          project,
+          node,
+          runSource,
+          commands,
+          clarifyMessages,
+          workspaceSnapshot,
+          localSnapshot,
+        }),
       },
     };
   }
@@ -6797,6 +6776,8 @@ async function executeTreeNodeRun({
       runSource,
       commands,
       clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
     }),
   });
 
@@ -7147,6 +7128,13 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     const force = parseBoolean(req.body?.force, false);
     const preflightOnly = parseBoolean(req.body?.preflightOnly, false);
     const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
+    const clarifyMessages = Array.isArray(req.body?.clarifyMessages) ? req.body.clarifyMessages : [];
+    const workspaceSnapshot = req.body?.workspaceSnapshot && typeof req.body.workspaceSnapshot === 'object'
+      ? req.body.workspaceSnapshot
+      : null;
+    const localSnapshot = req.body?.localSnapshot && typeof req.body.localSnapshot === 'object'
+      ? req.body.localSnapshot
+      : null;
 
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
@@ -7162,6 +7150,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
       preflightOnly,
       runSource: 'run-step',
       searchTrialCount,
+      clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
     });
     return res.status(preflightOnly ? 200 : 202).json({
       projectId: project.id,
