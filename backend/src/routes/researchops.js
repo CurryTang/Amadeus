@@ -7893,6 +7893,7 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
         clarifyMessages,
         workspaceSnapshot,
         localSnapshot,
+        executionRequest: req.body?.executionRequest,
       }),
       viaHttp: async () => {
         const result = await executeTreeNodeRun({

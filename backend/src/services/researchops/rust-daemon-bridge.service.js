@@ -1,10 +1,26 @@
 'use strict';
 
 const http = require('node:http');
+const { buildExecutionResultPayload } = require('./execution-result-payload.service');
 const { readRustDaemonConfig } = require('./rust-daemon-runtime.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function asObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function normalizeExecutorBridgeResult(result = null) {
+  const source = asObject(result);
+  if (!source) return result;
+  return {
+    ...source,
+    ...(source.executionResult && typeof source.executionResult === 'object'
+      ? { executionResult: buildExecutionResultPayload({ result: source.executionResult }) }
+      : {}),
+  };
 }
 
 function requestRustDaemonJson({
@@ -134,9 +150,10 @@ async function submitNodeBridgeRunViaRustDaemon({
   clarifyMessages,
   workspaceSnapshot,
   localSnapshot,
+  executionRequest,
   env,
 } = {}) {
-  return callRustDaemonTask({
+  const response = await callRustDaemonTask({
     env,
     taskType: 'bridge.submitNodeRun',
     payload: {
@@ -148,8 +165,10 @@ async function submitNodeBridgeRunViaRustDaemon({
       ...(clarifyMessages !== undefined ? { clarifyMessages } : {}),
       ...(workspaceSnapshot !== undefined ? { workspaceSnapshot } : {}),
       ...(localSnapshot !== undefined ? { localSnapshot } : {}),
+      ...(executionRequest && typeof executionRequest === 'object' ? { executionRequest } : {}),
     },
   });
+  return normalizeExecutorBridgeResult(response);
 }
 
 async function fetchRunBridgeReportViaRustDaemon({
@@ -189,6 +208,7 @@ module.exports = {
   fetchNodeBridgeContextViaRustDaemon,
   fetchRunBridgeReportViaRustDaemon,
   fetchRunContextPackViaRustDaemon,
+  normalizeExecutorBridgeResult,
   requestRustDaemonJson,
   submitNodeBridgeRunViaRustDaemon,
   submitRunBridgeNoteViaRustDaemon,
