@@ -24,10 +24,31 @@ function summarizeReport(report = {}) {
   };
 }
 
+function buildRunActions(runId = '') {
+  const safeRunId = cleanString(runId);
+  if (!safeRunId) return {};
+  return {
+    report: {
+      method: 'GET',
+      path: `/researchops/runs/${safeRunId}/report`,
+    },
+    artifacts: {
+      method: 'GET',
+      path: `/researchops/runs/${safeRunId}/artifacts`,
+    },
+    bridgeReport: {
+      method: 'GET',
+      path: `/researchops/runs/${safeRunId}/bridge-report`,
+    },
+  };
+}
+
 function asCompareItem(run = null, report = null) {
+  const normalizedRunId = cleanString(run?.id);
   return {
     ...buildRunPayload({ run }),
     report: summarizeReport(report),
+    actions: buildRunActions(normalizedRunId),
   };
 }
 
@@ -59,6 +80,8 @@ function buildRunComparePayload({
     ...(Array.isArray(base.followUp?.relatedRunIds) ? base.followUp.relatedRunIds : []),
     ...(Array.isArray(other.followUp?.relatedRunIds) ? other.followUp.relatedRunIds : []),
   ]);
+  const requestedId = cleanString(requestedOtherRunId);
+  const baseRunId = cleanString(run?.id);
 
   return {
     run,
@@ -66,9 +89,18 @@ function buildRunComparePayload({
     execution: base.execution,
     followUp: base.followUp,
     report: base.report,
+    actions: {
+      ...buildRunActions(baseRunId),
+      ...(baseRunId && requestedId ? {
+        compare: {
+          method: 'GET',
+          path: `/researchops/runs/${baseRunId}/compare?otherRunId=${requestedId}`,
+        },
+      } : {}),
+    },
     other,
     relation: {
-      requestedOtherRunId: cleanString(requestedOtherRunId) || null,
+      requestedOtherRunId: requestedId || null,
       sameProject: cleanString(run?.projectId) !== '' && cleanString(run?.projectId) === cleanString(otherRun?.projectId),
       sameNode: Boolean(baseNodeId && baseNodeId === otherNodeId),
       sharedTreeNodeId: baseNodeId && baseNodeId === otherNodeId ? baseNodeId : null,

@@ -74,4 +74,20 @@ test('buildRunComparePayload exposes comparable run/report summaries', () => {
   assert.deepEqual(payload.report.highlights.deliverableArtifactIds, ['artifact_summary_1', 'artifact_final_1']);
   assert.equal(payload.other.report.summary, 'ablation summary');
   assert.deepEqual(payload.other.report.checkpointStatuses, ['failed']);
+  assert.deepEqual(payload.actions.report, {
+    method: 'GET',
+    path: '/researchops/runs/run_base/report',
+  });
+  assert.deepEqual(payload.actions.compare, {
+    method: 'GET',
+    path: '/researchops/runs/run_base/compare?otherRunId=run_other',
+  });
+  assert.deepEqual(payload.other.actions.artifacts, {
+    method: 'GET',
+    path: '/researchops/runs/run_other/artifacts',
+  });
+  assert.deepEqual(payload.other.actions.bridgeReport, {
+    method: 'GET',
+    path: '/researchops/runs/run_other/bridge-report',
+  });
 });

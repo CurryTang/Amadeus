@@ -61,6 +61,7 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Bridge node context/report aggregation is now centralized in a testable backend seam instead of being route-only logic
   - Bridge-oriented route parsing is now centralized, so `run-step`, `bridge-run`, and `bridge-context` share the same request normalization in modular and monolith routes
   - Runs now expose a thin current-architecture compare payload at `/runs/:runId/compare?otherRunId=...`, built from existing run/report data rather than a new review workflow
+  - Compare payloads now also include concrete base/other run action descriptors for `report`, `artifacts`, `bridge-report`, and the active compare URL, so compare consumers can keep traversing current APIs without rebuilding route strings
   - Run detail now auto-loads a lightweight compare summary for the first related/parent run and shows it inline without adding a new compare console
   - Run detail can now switch compare targets across related/parent runs using existing visible run history instead of a dedicated compare page
   - Node workbench review/evidence summary now includes thin compare status/evidence rows when a related run comparison exists
