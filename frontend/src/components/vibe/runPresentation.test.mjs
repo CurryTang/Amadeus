@@ -103,9 +103,9 @@ test('filterRunsForSelectedNode narrows to the active node but falls back when e
 
 test('buildRecentRunReviewSummary groups active and attention states for activity headers', () => {
   const summary = buildRecentRunReviewSummary([
-    { id: 'run_a', status: 'RUNNING' },
-    { id: 'run_b', status: 'FAILED' },
-    { id: 'run_c', status: 'SUCCEEDED', contract: { ok: false } },
+    { id: 'run_a', status: 'RUNNING', execution: { location: 'remote' }, metadata: { localSnapshot: { kind: 'workspace_patch' } } },
+    { id: 'run_b', status: 'FAILED', execution: { location: 'remote' } },
+    { id: 'run_c', status: 'SUCCEEDED', contract: { ok: false }, metadata: { localSnapshot: { kind: 'workspace_patch' } } },
     { id: 'run_d', status: 'CANCELLED' },
   ]);
 
@@ -117,6 +117,8 @@ test('buildRecentRunReviewSummary groups active and attention states for activit
     failedCount: 1,
     cancelledCount: 1,
     contractFailureCount: 1,
+    remoteExecutionCount: 2,
+    snapshotBackedCount: 2,
     status: 'needs_attention',
   });
 });
