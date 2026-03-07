@@ -111,6 +111,10 @@ const {
   buildProjectVenvStatusPayload,
   buildProjectWorkspacePayload,
 } = require('../services/researchops/project-insights-payload.service');
+const {
+  buildProjectTodoClearPayload,
+  buildProjectTodoNextActionsPayload,
+} = require('../services/researchops/project-todo-payload.service');
 const { buildProjectKbAddPaperPayload } = require('../services/researchops/project-kb-paper-payload.service');
 const {
   buildKbSyncJobPayload,
@@ -5176,8 +5180,10 @@ router.get('/projects/:projectId/todos/next-actions', async (req, res) => {
       researchOpsStore.listIdeas(userId, { projectId, limit: 400 }),
       researchOpsStore.listRuns(userId, { projectId, limit: 400 }),
     ]);
-    const payload = buildTodoNextActions({ todos, runs, project });
-    return res.json(payload);
+    return res.json(buildProjectTodoNextActionsPayload({
+      projectId,
+      result: buildTodoNextActions({ todos, runs, project }),
+    }));
   } catch (error) {
     console.error('[ResearchOps] next todo actions failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to generate next TODO actions') });
@@ -5205,13 +5211,13 @@ router.post('/projects/:projectId/todos/clear', async (req, res) => {
       summary: `Cleared in bulk on ${new Date().toISOString()}`,
     })));
 
-    return res.json({
+    return res.json(buildProjectTodoClearPayload({
       projectId,
       cleared: targets.length,
       totalTodos: Array.isArray(todos) ? todos.length : 0,
       status: targetStatus,
       refreshedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] clear todos failed:', error);
     return res.status(400).json(toErrorPayload(error, 'Failed to clear TODOs'));
