@@ -189,6 +189,26 @@ test('buildBootstrapRuntimeCommands returns labeled rust prototype commands', ()
   ]);
 });
 
+test('buildBootstrapRuntimeCommands also accepts dedicated rust status payloads', () => {
+  const items = buildBootstrapRuntimeCommands({
+    runtimeOptions: {
+      rustDaemonPrototype: {
+        commands: {
+          http: 'sh /tmp/researchops-bootstrap-rust-daemon.sh',
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(items, [
+    {
+      key: 'rust-http',
+      label: 'Rust daemon (HTTP)',
+      command: 'sh /tmp/researchops-bootstrap-rust-daemon.sh',
+    },
+  ]);
+});
+
 test('buildBootstrapRuntimeEnvFiles returns downloadable rust env files', () => {
   const items = buildBootstrapRuntimeEnvFiles({
     runtimeOptions: {
@@ -214,6 +234,30 @@ test('buildBootstrapRuntimeEnvFiles returns downloadable rust env files', () => 
       filename: '.env.researchops-rust-daemon.http',
       content: 'RESEARCHOPS_RUST_DAEMON_TRANSPORT=http',
     },
+    {
+      key: 'rust-env-unix',
+      label: 'Rust env (Unix socket)',
+      filename: '.env.researchops-rust-daemon.unix',
+      content: 'RESEARCHOPS_RUST_DAEMON_TRANSPORT=unix',
+    },
+  ]);
+});
+
+test('buildBootstrapRuntimeEnvFiles also accepts dedicated rust status payloads', () => {
+  const items = buildBootstrapRuntimeEnvFiles({
+    runtimeOptions: {
+      rustDaemonPrototype: {
+        envFiles: {
+          unix: {
+            filename: '.env.researchops-rust-daemon.unix',
+            content: 'RESEARCHOPS_RUST_DAEMON_TRANSPORT=unix',
+          },
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(items, [
     {
       key: 'rust-env-unix',
       label: 'Rust env (Unix socket)',

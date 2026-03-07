@@ -1587,13 +1587,22 @@ function VibeResearcherPanel({
     () => buildRustDaemonStatusRows(rustDaemonStatus),
     [rustDaemonStatus],
   );
+  const rustDaemonRuntimeSource = useMemo(() => {
+    if (clientBootstrapData?.runtimeOptions && typeof clientBootstrapData.runtimeOptions === 'object') {
+      return clientBootstrapData;
+    }
+    if (rustDaemonStatus?.runtimeOptions && typeof rustDaemonStatus.runtimeOptions === 'object') {
+      return rustDaemonStatus;
+    }
+    return null;
+  }, [clientBootstrapData, rustDaemonStatus]);
   const clientBootstrapRuntimeCommands = useMemo(
-    () => buildBootstrapRuntimeCommands(clientBootstrapData),
-    [clientBootstrapData],
+    () => buildBootstrapRuntimeCommands(rustDaemonRuntimeSource),
+    [rustDaemonRuntimeSource],
   );
   const clientBootstrapRuntimeEnvFiles = useMemo(
-    () => buildBootstrapRuntimeEnvFiles(clientBootstrapData),
-    [clientBootstrapData],
+    () => buildBootstrapRuntimeEnvFiles(rustDaemonRuntimeSource),
+    [rustDaemonRuntimeSource],
   );
 
   const ensureClientBootstrapHostname = useCallback(() => {
