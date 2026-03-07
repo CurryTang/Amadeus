@@ -15,6 +15,16 @@ const CLIENT_AGENT_DAEMON_TASK_TYPES = [
   'project.ensureGit',
 ];
 
+const CLIENT_AGENT_BRIDGE_ROUTE_TEMPLATES = {
+  nodeBridgeContext: '/researchops/projects/{projectId}/tree/nodes/{nodeId}/bridge-context',
+  nodeBridgeRun: '/researchops/projects/{projectId}/tree/nodes/{nodeId}/bridge-run',
+  runContextPack: '/researchops/runs/{runId}/context-pack',
+  runReport: '/researchops/runs/{runId}/report',
+  runArtifacts: '/researchops/runs/{runId}/artifacts',
+  runBridgeReport: '/researchops/runs/{runId}/bridge-report',
+  runBridgeNote: '/researchops/runs/{runId}/bridge-note',
+};
+
 function deriveProjectCapabilities(project = {}) {
   const locationType = cleanString(project.locationType).toLowerCase() || 'local';
   const clientMode = cleanString(project.clientMode).toLowerCase();
@@ -39,6 +49,7 @@ function deriveProjectCapabilities(project = {}) {
       executionTarget: 'client-daemon',
       supportsLocalBridgeWorkflow: true,
       daemonTaskTypes: CLIENT_AGENT_DAEMON_TASK_TYPES,
+      bridgeRouteTemplates: CLIENT_AGENT_BRIDGE_ROUTE_TEMPLATES,
     };
   }
 

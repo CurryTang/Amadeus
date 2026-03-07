@@ -58,4 +58,13 @@ test('derives client agent capabilities as daemon-backed execution flow', () => 
     'project.ensurePath',
     'project.ensureGit',
   ]);
+  assert.deepEqual(caps.bridgeRouteTemplates, {
+    nodeBridgeContext: '/researchops/projects/{projectId}/tree/nodes/{nodeId}/bridge-context',
+    nodeBridgeRun: '/researchops/projects/{projectId}/tree/nodes/{nodeId}/bridge-run',
+    runContextPack: '/researchops/runs/{runId}/context-pack',
+    runReport: '/researchops/runs/{runId}/report',
+    runArtifacts: '/researchops/runs/{runId}/artifacts',
+    runBridgeReport: '/researchops/runs/{runId}/bridge-report',
+    runBridgeNote: '/researchops/runs/{runId}/bridge-note',
+  });
 });
