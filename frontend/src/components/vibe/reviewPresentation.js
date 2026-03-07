@@ -15,6 +15,14 @@ function formatDeliverableCount(count = 0) {
   return value === 1 ? '1 deliverable artifact' : `${value} deliverable artifacts`;
 }
 
+function formatReadiness(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'needs_attention') return 'Needs attention';
+  if (normalized === 'pending_outputs') return 'Pending outputs';
+  if (normalized === 'ready') return 'Ready';
+  return '';
+}
+
 function resolveNodeReport(runReport = {}, bridgeReport = {}) {
   const primaryReport = runReport && typeof runReport === 'object' ? runReport : {};
   if (Object.keys(primaryReport).length > 0) return primaryReport;
@@ -105,12 +113,18 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
 
   const otherRunId = cleanString(runCompare?.other?.run?.id);
   if (otherRunId) {
+    const compareObservability = runCompare?.other?.report?.observability
+      && typeof runCompare.other.report.observability === 'object'
+      ? runCompare.other.report.observability
+      : {};
     const otherExecutionLocation = cleanString(runCompare?.other?.execution?.location);
     const otherExecutionRuntime = [
       cleanString(runCompare?.other?.execution?.backend),
       cleanString(runCompare?.other?.execution?.runtimeClass),
     ].filter(Boolean).join('/');
     const otherContractStatus = formatContractOk(runCompare?.other?.contract?.ok);
+    const otherReadiness = formatReadiness(compareObservability?.statuses?.readiness);
+    const otherWarningsCount = Math.max(Number(compareObservability?.counts?.warnings) || 0, 0);
     const compareWorkspaceSnapshot = runCompare?.other?.report?.workspaceSnapshot
       && typeof runCompare.other.report.workspaceSnapshot === 'object'
       ? runCompare.other.report.workspaceSnapshot
@@ -133,6 +147,18 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       rows.push({
         label: 'Compare Node',
         value: 'Same node',
+      });
+    }
+    if (otherReadiness) {
+      rows.push({
+        label: 'Compare Readiness',
+        value: otherReadiness,
+      });
+    }
+    if (otherWarningsCount > 0) {
+      rows.push({
+        label: 'Compare Warnings',
+        value: otherWarningsCount === 1 ? '1 warning' : `${otherWarningsCount} warnings`,
       });
     }
     if (otherExecutionLocation) {

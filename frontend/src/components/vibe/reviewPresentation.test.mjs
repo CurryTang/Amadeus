@@ -80,6 +80,14 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
           ok: false,
         },
         report: {
+          observability: {
+            statuses: {
+              readiness: 'needs_attention',
+            },
+            counts: {
+              warnings: 2,
+            },
+          },
           workspaceSnapshot: {
             localSnapshot: {
               kind: 'workspace_patch',
@@ -102,6 +110,8 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare', value: 'run_alt' },
     { label: 'Compare Status', value: 'FAILED' },
     { label: 'Compare Node', value: 'Same node' },
+    { label: 'Compare Readiness', value: 'Needs attention' },
+    { label: 'Compare Warnings', value: '2 warnings' },
     { label: 'Compare Execution', value: 'remote' },
     { label: 'Compare Runtime', value: 'container/container-fast' },
     { label: 'Compare Contract', value: 'Validation failed' },
