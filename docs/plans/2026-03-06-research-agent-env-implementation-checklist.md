@@ -20,24 +20,35 @@ NODE_PATH=/Users/czk/auto-researcher/backend/node_modules node --test \
   backend/src/services/researchops/__tests__/attempt-view.service.test.js \
   backend/src/services/researchops/__tests__/run-report-view.test.js \
   backend/src/services/researchops/__tests__/run-report-payload.service.test.js \
-  backend/src/services/researchops/__tests__/observed-session.materialization.test.js
+  backend/src/services/researchops/__tests__/observed-session.materialization.test.js \
+  backend/src/services/researchops/__tests__/enqueue-run-payload.service.test.js \
+  backend/src/services/researchops/__tests__/daemon-payload.service.test.js \
+  backend/src/services/researchops/__tests__/client-daemon.service.test.js
 ```
 
 ### Frontend
 
 ```bash
-node frontend/src/components/vibe/runPresentation.test.mjs
+node frontend/src/components/vibe/agentSessionApiResponse.test.mjs
+node frontend/src/components/vibe/agentSessionMessageApiResponse.test.mjs
+node frontend/src/components/vibe/agentSessionPresentation.test.mjs
+node frontend/src/components/vibe/agentSessionContextPresentation.test.mjs
+node frontend/src/components/vibe/contextPackApiResponse.test.mjs
+node frontend/src/components/vibe/contextPackPresentation.test.mjs
 node frontend/src/components/vibe/runDetailView.test.mjs
 node frontend/src/components/vibe/observedSessionPresentation.test.mjs
-node frontend/src/components/vibe/treeExecutionSummary.test.mjs
 ```
 
 ## Results
 
 - Status: passed
 - Notes:
-  - Backend verification passed: 26 tests, 0 failures
-  - Frontend verification passed: 13 tests, 0 failures
+  - Backend verification passed: 37 tests, 0 failures
+  - Frontend verification passed: 20 tests, 0 failures
   - `Recent Runs` now defaults to node scope when matching runs exist and falls back to project scope otherwise
   - `RunReport` now exposes attempt-shaped read data plus deliverable artifact highlights
   - Observed sessions now surface detached node titles without adding hard attach semantics
+  - Interactive agent sessions now use normalized session/detail/message payloads and show active run context
+  - Run detail now exposes normalized execution contract data (`location`, `mode`, `backend`, `runtimeClass`, `resources`)
+  - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
+  - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility

@@ -11,6 +11,7 @@ const {
   buildDaemonListPayload,
   buildDaemonRegistrationPayload,
 } = require('../../services/researchops/daemon-payload.service');
+const { buildResourcePoolPayload } = require('../../services/researchops/resource-pool-payload.service');
 const { parseLimit, getUserId, sanitizeError, cleanString } = require('./shared');
 
 const CHATDSE_ENFORCED_HOST = 'compute.example.edu';
@@ -665,12 +666,12 @@ router.get('/cluster/resource-pool', async (req, res) => {
       unregisteredServers: 0,
     });
 
-    return res.json({
+    return res.json(buildResourcePoolPayload({
       aggregate,
       servers,
       dispatcher,
       refreshedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] cluster resource-pool failed:', error);
     return res.status(500).json({ error: 'Failed to load cluster resource pool' });
