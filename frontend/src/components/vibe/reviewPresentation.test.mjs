@@ -176,6 +176,9 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     {},
     {
       resolvedTransport: 'daemon-task',
+      contract: {
+        ok: false,
+      },
       highlights: {
         deliverableArtifactIds: ['art_summary'],
       },
@@ -193,6 +196,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
 
   assert.deepEqual(rows, [
     { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Contract', value: 'Validation failed' },
     { label: 'Readiness', value: 'Needs attention' },
     { label: 'Warnings', value: '2 warnings' },
     { label: 'Sinks', value: 'wandb, tensorboard' },
@@ -208,6 +212,9 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     {},
     {
       resolvedTransport: 'rust-daemon',
+      contract: {
+        ok: true,
+      },
       bridgeRuntime: {
         supportsLocalBridgeWorkflow: true,
       },
@@ -235,6 +242,7 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
   assert.deepEqual(rows, [
     { label: 'Checkpoints', value: '1 pending · 1 resolved' },
     { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Contract', value: 'Validated' },
     { label: 'Readiness', value: 'Ready' },
     { label: 'Sinks', value: 'wandb' },
     { label: 'Transport', value: 'rust-daemon' },

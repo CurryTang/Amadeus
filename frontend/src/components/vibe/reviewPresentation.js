@@ -69,6 +69,13 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       ? formatDeliverableCount(deliverableArtifactIds.length)
       : 'No deliverable artifacts yet',
   });
+  const contractStatus = formatContractOk(effectiveRunReport?.contract?.ok ?? runReport?.contract?.ok ?? bridgeReport?.contract?.ok);
+  if (contractStatus) {
+    rows.push({
+      label: 'Contract',
+      value: contractStatus,
+    });
+  }
 
   const observability = effectiveRunReport?.observability && typeof effectiveRunReport.observability === 'object'
     ? effectiveRunReport.observability
