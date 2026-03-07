@@ -68,6 +68,24 @@ function normalizeState(state = {}) {
   };
 }
 
+function normalizeNodeStatePatch(patch = {}) {
+  const next = {
+    ...patch,
+  };
+  if (Object.prototype.hasOwnProperty.call(next, 'status')) {
+    next.status = cleanString(next.status).toUpperCase() || undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, 'manualApproved')) {
+    next.manualApproved = Boolean(next.manualApproved);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, 'search')) {
+    next.search = next.search && typeof next.search === 'object' && !Array.isArray(next.search)
+      ? next.search
+      : {};
+  }
+  return next;
+}
+
 async function readLocalState(filePath) {
   try {
     const raw = await fs.readFile(filePath, 'utf8');
@@ -227,9 +245,10 @@ function setNodeState(state, nodeId, patch = {}) {
   const id = cleanString(nodeId);
   if (!id) return state;
   const next = normalizeState(state);
+  const normalizedPatch = normalizeNodeStatePatch(patch);
   next.nodes[id] = {
     ...(next.nodes[id] && typeof next.nodes[id] === 'object' ? next.nodes[id] : {}),
-    ...patch,
+    ...normalizedPatch,
     updatedAt: new Date().toISOString(),
   };
   next.updatedAt = new Date().toISOString();
