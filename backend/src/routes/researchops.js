@@ -96,6 +96,7 @@ const {
   buildProjectGitRestorePayload,
   buildProjectKbSetupPayload,
 } = require('../services/researchops/project-control-payload.service');
+const { buildProjectDeletePayload } = require('../services/researchops/project-delete-payload.service');
 const {
   buildProjectFileContentPayload,
   buildProjectFileTreePayload,
@@ -3588,13 +3589,12 @@ router.delete('/projects/:projectId', async (req, res) => {
 
     const summary = await deleteProjectWithStorageCleanup(userId, project, { force, deleteStorage });
     if (!summary) return res.status(404).json({ error: 'Project not found' });
-    return res.json({
-      success: true,
+    return res.json(buildProjectDeletePayload({
       projectId,
       force,
       deleteStorage,
       summary,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_HAS_ACTIVE_RUNS') {
       return res.status(409).json({
