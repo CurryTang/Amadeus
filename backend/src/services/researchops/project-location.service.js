@@ -9,6 +9,12 @@ function cleanObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+const CLIENT_AGENT_DAEMON_TASK_TYPES = [
+  'project.checkPath',
+  'project.ensurePath',
+  'project.ensureGit',
+];
+
 function deriveProjectCapabilities(project = {}) {
   const locationType = cleanString(project.locationType).toLowerCase() || 'local';
   const clientMode = cleanString(project.clientMode).toLowerCase();
@@ -30,6 +36,9 @@ function deriveProjectCapabilities(project = {}) {
       canBackgroundRun: true,
       canDeployLocal: true,
       requiresBrowserWorkspaceLink: false,
+      executionTarget: 'client-daemon',
+      supportsLocalBridgeWorkflow: true,
+      daemonTaskTypes: CLIENT_AGENT_DAEMON_TASK_TYPES,
     };
   }
 

@@ -1224,6 +1224,24 @@ async function buildProjectPathCheckResponse(input = {}, deps = {}) {
       clientMode: 'agent',
       clientDeviceId: normalized.clientDeviceId,
       serverId: normalized.serverId,
+      execution: {
+        location: 'client',
+        transport: 'daemon-rpc',
+        serverId: normalized.clientDeviceId,
+        taskType: 'project.checkPath',
+      },
+      actions: {
+        ensurePath: {
+          transport: 'daemon-rpc',
+          serverId: normalized.clientDeviceId,
+          taskType: 'project.ensurePath',
+        },
+        ensureGit: {
+          transport: 'daemon-rpc',
+          serverId: normalized.clientDeviceId,
+          taskType: 'project.ensureGit',
+        },
+      },
       projectPath: remoteResult.normalizedPath || normalized.projectPath,
       exists: Boolean(remoteResult.exists),
       isDirectory: Boolean(remoteResult.isDirectory),

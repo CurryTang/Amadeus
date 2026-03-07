@@ -42,3 +42,20 @@ test('derives browser client capabilities as non-executable', () => {
   assert.equal(caps.canGitInit, false);
   assert.equal(caps.requiresBrowserWorkspaceLink, true);
 });
+
+test('derives client agent capabilities as daemon-backed execution flow', () => {
+  const caps = deriveProjectCapabilities({
+    locationType: 'client',
+    clientMode: 'agent',
+    clientDeviceId: 'srv_client_1',
+  });
+
+  assert.equal(caps.canExecute, true);
+  assert.equal(caps.executionTarget, 'client-daemon');
+  assert.equal(caps.supportsLocalBridgeWorkflow, true);
+  assert.deepEqual(caps.daemonTaskTypes, [
+    'project.checkPath',
+    'project.ensurePath',
+    'project.ensureGit',
+  ]);
+});

@@ -26,6 +26,22 @@ test('builds client agent path-check response via daemon target', async () => {
   assert.equal(result.exists, true);
   assert.equal(result.isDirectory, true);
   assert.equal(result.canCreate, true);
+  assert.deepEqual(result.execution, {
+    location: 'client',
+    transport: 'daemon-rpc',
+    serverId: 'srv_client_1',
+    taskType: 'project.checkPath',
+  });
+  assert.deepEqual(result.actions.ensurePath, {
+    transport: 'daemon-rpc',
+    serverId: 'srv_client_1',
+    taskType: 'project.ensurePath',
+  });
+  assert.deepEqual(result.actions.ensureGit, {
+    transport: 'daemon-rpc',
+    serverId: 'srv_client_1',
+    taskType: 'project.ensureGit',
+  });
 });
 
 test('rejects server-side path check for browser client projects', async () => {

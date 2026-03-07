@@ -83,3 +83,5 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility
   - Daemon registration/list/heartbeat payloads now also expose current built-in task types plus concrete task-control action descriptors, so client-daemon code can discover current RPC surfaces without hardcoding them separately
   - Daemon bootstrap responses now also expose follow-up action paths and thin register body hints, so local installer/bootstrap consumers can continue through current register/status APIs without reverse-engineering admin route shapes
+  - Client-agent project capabilities now explicitly declare the current `client-daemon` execution target and supported daemon RPC task types instead of only exposing generic execution booleans
+  - Client-agent project path-check responses now expose the active `project.checkPath` execution transport plus follow-up `project.ensurePath` / `project.ensureGit` RPC descriptors, making the current daemon-backed bootstrap flow discoverable without route/source inspection
