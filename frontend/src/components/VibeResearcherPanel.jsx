@@ -28,10 +28,12 @@ import {
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
+  buildRuntimeOverviewSummaryRows,
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
   getRuntimeOverviewClientDevices,
+  getRuntimeOverviewSummary,
   getRuntimeOverviewRustStatus,
 } from './vibe/daemonPresentation';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
@@ -509,6 +511,7 @@ function VibeResearcherPanel({
   const [pathCheckResult, setPathCheckResult] = useState(null);
   const [clientDevices, setClientDevices] = useState([]);
   const [rustDaemonStatus, setRustDaemonStatus] = useState(null);
+  const [runtimeOverviewSummary, setRuntimeOverviewSummary] = useState(null);
   const [loadingClientDevices, setLoadingClientDevices] = useState(false);
   const [refreshingRustDaemonStatus, setRefreshingRustDaemonStatus] = useState(false);
   const [clientBootstrapOpen, setClientBootstrapOpen] = useState(false);
@@ -1612,6 +1615,7 @@ function VibeResearcherPanel({
       const devices = getRuntimeOverviewClientDevices(overview);
       setClientDevices(devices);
       setRustDaemonStatus(getRuntimeOverviewRustStatus(overview));
+      setRuntimeOverviewSummary(getRuntimeOverviewSummary(overview));
       if (!projectClientDeviceId && devices.length > 0) {
         setProjectClientDeviceId(String(devices[0].id));
       }
@@ -1634,6 +1638,10 @@ function VibeResearcherPanel({
   const rustDaemonStatusRows = useMemo(
     () => buildRustDaemonStatusRows(rustDaemonStatus),
     [rustDaemonStatus],
+  );
+  const runtimeOverviewSummaryRows = useMemo(
+    () => buildRuntimeOverviewSummaryRows(runtimeOverviewSummary),
+    [runtimeOverviewSummary],
   );
   const rustDaemonRuntimeSource = useMemo(() => {
     if (clientBootstrapData?.runtimeOptions && typeof clientBootstrapData.runtimeOptions === 'object') {
@@ -5841,6 +5849,11 @@ function VibeResearcherPanel({
                       </div>
                       {rustDaemonStatusRows.length > 0 && (
                         <div className="vibe-client-browser-box">
+                          {runtimeOverviewSummaryRows.map((row) => (
+                            <p key={`runtime-overview-${row.label}`} className="vibe-empty">
+                              <strong>{row.label}:</strong> {row.value}
+                            </p>
+                          ))}
                           {rustDaemonStatusRows.map((row) => (
                             <p key={row.label} className="vibe-empty">
                               <strong>{row.label}:</strong> {row.value}

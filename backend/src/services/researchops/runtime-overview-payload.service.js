@@ -1,5 +1,21 @@
 'use strict';
 
+function buildRuntimeOverviewSummary({ daemons = null, rustDaemon = null, runner = null } = {}) {
+  const daemonItems = Array.isArray(daemons?.items) ? daemons.items : [];
+  const onlineClients = daemonItems.filter((item) => String(item?.status || '').trim().toUpperCase() === 'ONLINE').length;
+  const bridgeReadyClients = daemonItems.filter((item) => item?.capabilities?.supportsLocalBridgeWorkflow === true).length;
+  const snapshotReadyClients = daemonItems.filter((item) => item?.capabilities?.supportsWorkspaceSnapshotCapture === true).length;
+  const runningCount = Array.isArray(runner?.items) ? runner.items.length : 0;
+  return {
+    onlineClients,
+    bridgeReadyClients,
+    snapshotReadyClients,
+    rustBridgeReady: rustDaemon?.runtime?.supports_local_bridge_workflow === true,
+    rustSnapshotReady: rustDaemon?.runtime?.supports_workspace_snapshot_capture === true,
+    runningCount,
+  };
+}
+
 function buildRuntimeOverviewPayload({
   daemons = null,
   rustDaemon = null,
@@ -26,6 +42,7 @@ function buildRuntimeOverviewPayload({
       : {
           items: [],
         },
+    summary: buildRuntimeOverviewSummary({ daemons, rustDaemon, runner }),
     actions: {
       overview: {
         method: 'GET',
@@ -48,5 +65,6 @@ function buildRuntimeOverviewPayload({
 }
 
 module.exports = {
+  buildRuntimeOverviewSummary,
   buildRuntimeOverviewPayload,
 };

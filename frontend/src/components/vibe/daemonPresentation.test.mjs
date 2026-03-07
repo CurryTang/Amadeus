@@ -8,6 +8,7 @@ import {
   buildClientDeviceOption,
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
+  buildRuntimeOverviewSummaryRows,
   filterOnlineClientDevices,
   getRuntimeOverviewClientDevices,
   getRuntimeOverviewRustStatus,
@@ -55,6 +56,27 @@ test('runtime overview helpers extract daemon items and rust status from aggrega
 
   assert.deepEqual(getRuntimeOverviewClientDevices(overview), [{ id: 'srv_1', status: 'ONLINE' }]);
   assert.deepEqual(getRuntimeOverviewRustStatus(overview), { enabled: true, status: 'ok' });
+});
+
+
+test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts', () => {
+  const rows = buildRuntimeOverviewSummaryRows({
+    onlineClients: 2,
+    bridgeReadyClients: 1,
+    snapshotReadyClients: 1,
+    rustBridgeReady: true,
+    rustSnapshotReady: true,
+    runningCount: 3,
+  });
+
+  assert.deepEqual(rows, [
+    { label: 'Online Clients', value: '2' },
+    { label: 'Bridge-Ready Clients', value: '1' },
+    { label: 'Snapshot-Ready Clients', value: '1' },
+    { label: 'Rust Bridge Ready', value: 'yes' },
+    { label: 'Rust Snapshot Ready', value: 'yes' },
+    { label: 'Running Jobs', value: '3' },
+  ]);
 });
 
 test('buildRustDaemonStatusNote summarizes an active rust daemon runtime', () => {

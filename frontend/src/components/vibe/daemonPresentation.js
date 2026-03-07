@@ -42,6 +42,31 @@ function getRuntimeOverviewRustStatus(input = null) {
   return input.rustDaemon && typeof input.rustDaemon === 'object' ? input.rustDaemon : null;
 }
 
+function getRuntimeOverviewSummary(input = null) {
+  if (!input || typeof input !== 'object') return null;
+  return input.summary && typeof input.summary === 'object' ? input.summary : null;
+}
+
+function buildRuntimeOverviewSummaryRows(summary = null) {
+  const source = summary && typeof summary === 'object' ? summary : {};
+  const rows = [];
+  const onlineClients = Number.isFinite(Number(source.onlineClients)) ? Number(source.onlineClients) : null;
+  const bridgeReadyClients = Number.isFinite(Number(source.bridgeReadyClients)) ? Number(source.bridgeReadyClients) : null;
+  const snapshotReadyClients = Number.isFinite(Number(source.snapshotReadyClients)) ? Number(source.snapshotReadyClients) : null;
+  const runningCount = Number.isFinite(Number(source.runningCount)) ? Number(source.runningCount) : null;
+  if (onlineClients !== null) rows.push({ label: 'Online Clients', value: String(onlineClients) });
+  if (bridgeReadyClients !== null) rows.push({ label: 'Bridge-Ready Clients', value: String(bridgeReadyClients) });
+  if (snapshotReadyClients !== null) rows.push({ label: 'Snapshot-Ready Clients', value: String(snapshotReadyClients) });
+  if (source.rustBridgeReady === true || source.rustBridgeReady === false) {
+    rows.push({ label: 'Rust Bridge Ready', value: source.rustBridgeReady ? 'yes' : 'no' });
+  }
+  if (source.rustSnapshotReady === true || source.rustSnapshotReady === false) {
+    rows.push({ label: 'Rust Snapshot Ready', value: source.rustSnapshotReady ? 'yes' : 'no' });
+  }
+  if (runningCount !== null) rows.push({ label: 'Running Jobs', value: String(runningCount) });
+  return rows;
+}
+
 function buildRustDaemonStatusNote(health = null) {
   const rustDaemon = getRustDaemonPayload(health);
   if (!rustDaemon || typeof rustDaemon !== 'object') return '';
@@ -248,9 +273,11 @@ export {
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
+  buildRuntimeOverviewSummaryRows,
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
+  getRuntimeOverviewSummary,
   getRustDaemonPayload,
   getRuntimeOverviewClientDevices,
   getRuntimeOverviewRustStatus,
