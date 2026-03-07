@@ -102,6 +102,38 @@ test('buildRecentRunCards surfaces execution and snapshot labels from normalized
   assert.equal(cards[1].snapshotLabel, '');
 });
 
+test('buildRecentRunCards surfaces contract-failure labels from normalized contract views', () => {
+  const cards = buildRecentRunCards([
+    {
+      id: 'run_contract_fail',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T11:00:00.000Z',
+      metadata: {
+        prompt: 'Inspect contract failure',
+      },
+      contract: {
+        ok: false,
+      },
+    },
+    {
+      id: 'run_contract_ok',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T10:00:00.000Z',
+      metadata: {
+        prompt: 'Inspect validated run',
+      },
+      contract: {
+        ok: true,
+      },
+    },
+  ]);
+
+  assert.equal(cards[0].contractLabel, 'Validation failed');
+  assert.equal(cards[1].contractLabel, '');
+});
+
 test('getRunSourceLabel falls back to linked entities when sourceType is absent', () => {
   assert.equal(getRunSourceLabel({ metadata: { treeNodeId: 'node_a' } }), 'Tree');
   assert.equal(getRunSourceLabel({ metadata: { todoId: 'todo_a' } }), 'TODO');

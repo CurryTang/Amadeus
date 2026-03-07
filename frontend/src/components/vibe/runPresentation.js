@@ -50,6 +50,11 @@ function getSnapshotLabel(run = {}) {
   return cleanString(localSnapshot.kind) || cleanString(localSnapshot.note) ? 'Snapshot-backed' : '';
 }
 
+function getContractLabel(run = {}) {
+  const contract = run?.contract && typeof run.contract === 'object' ? run.contract : {};
+  return contract.ok === false ? 'Validation failed' : '';
+}
+
 function buildRecentRunCards(runs = []) {
   if (!Array.isArray(runs)) return [];
   return [...runs]
@@ -72,6 +77,7 @@ function buildRecentRunCards(runs = []) {
         snippet: cleanString(run?.resultSnippet),
         executionLabel: getExecutionLabel(run),
         snapshotLabel: getSnapshotLabel(run),
+        contractLabel: getContractLabel(run),
         timestamp: formatTimestamp(run?.createdAt),
         raw: run,
       };
