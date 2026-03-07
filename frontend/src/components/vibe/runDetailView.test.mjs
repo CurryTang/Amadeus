@@ -133,6 +133,10 @@ test('buildRunSnapshotSummary exposes workspace and environment snapshot rows wh
       path: '/tmp/researchops-runs/run_123',
       sourceServerId: 'srv_remote_1',
       runSpecArtifactId: 'art_spec',
+      localSnapshot: {
+        kind: 'workspace_patch',
+        note: 'local edits staged for remote execution',
+      },
     },
     envSnapshot: {
       backend: 'container',
@@ -150,6 +154,8 @@ test('buildRunSnapshotSummary exposes workspace and environment snapshot rows wh
     { label: 'Workspace Path', value: '/tmp/researchops-runs/run_123' },
     { label: 'Workspace Source', value: 'srv_remote_1' },
     { label: 'Run Spec', value: 'art_spec' },
+    { label: 'Local Snapshot', value: 'workspace_patch' },
+    { label: 'Local Note', value: 'local edits staged for remote execution' },
     { label: 'Env Backend', value: 'container' },
     { label: 'Runtime Class', value: 'container-fast' },
     { label: 'Env Resources', value: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m' },

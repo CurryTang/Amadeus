@@ -94,6 +94,15 @@ function buildRunSnapshotSummary(run = {}, runReport = {}) {
   if (cleanString(workspaceSnapshot.runSpecArtifactId)) {
     rows.push({ label: 'Run Spec', value: cleanString(workspaceSnapshot.runSpecArtifactId) });
   }
+  const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
+    ? workspaceSnapshot.localSnapshot
+    : {};
+  if (cleanString(localSnapshot.kind)) {
+    rows.push({ label: 'Local Snapshot', value: cleanString(localSnapshot.kind) });
+  }
+  if (cleanString(localSnapshot.note)) {
+    rows.push({ label: 'Local Note', value: cleanString(localSnapshot.note) });
+  }
   if (cleanString(envSnapshot.backend)) {
     rows.push({ label: 'Env Backend', value: cleanString(envSnapshot.backend) });
   }

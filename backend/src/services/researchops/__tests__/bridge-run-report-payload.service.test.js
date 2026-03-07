@@ -32,6 +32,10 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
         path: '/tmp/researchops-runs/run_123',
         sourceServerId: 'srv_remote_1',
         runSpecArtifactId: 'art_spec',
+        localSnapshot: {
+          kind: 'workspace_patch',
+          note: 'local edits staged for remote execution',
+        },
       },
       envSnapshot: {
         backend: 'container',
@@ -64,6 +68,7 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   assert.equal(payload.attempt.treeNodeId, 'node_eval');
   assert.equal(payload.execution.location, 'remote');
   assert.equal(payload.snapshots.workspace.path, '/tmp/researchops-runs/run_123');
+  assert.equal(payload.snapshots.workspace.localSnapshot.kind, 'workspace_patch');
   assert.equal(payload.highlights.deliverableArtifactIds.length, 2);
   assert.equal(payload.counts.artifacts, 2);
   assert.equal(payload.counts.pendingCheckpoints, 1);

@@ -23,6 +23,10 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
         continuationPhase: 'analysis',
         runWorkspacePath: '/tmp/researchops-runs/run_123',
         cwdSourceServerId: 'srv_remote_1',
+        localSnapshot: {
+          kind: 'workspace_patch',
+          note: 'local edits staged for remote execution',
+        },
         jobSpec: {
           backend: 'container',
           runtimeClass: 'container-fast',
@@ -59,6 +63,10 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
     path: '/tmp/researchops-runs/run_123',
     sourceServerId: 'srv_remote_1',
     runSpecArtifactId: 'art_spec',
+    localSnapshot: {
+      kind: 'workspace_patch',
+      note: 'local edits staged for remote execution',
+    },
   });
   assert.deepEqual(payload.followUp, {
     parentRunId: 'run_parent',

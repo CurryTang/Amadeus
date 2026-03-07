@@ -27,13 +27,23 @@ function normalizeResources(resources = {}) {
 
 function buildWorkspaceSnapshotView(run = {}, artifacts = [], runWorkspacePath = '') {
   const metadata = asObject(run?.metadata);
+  const metadataWorkspaceSnapshot = asObject(metadata.workspaceSnapshot);
+  const metadataLocalSnapshot = asObject(metadata.localSnapshot);
   const runSpecArtifact = (Array.isArray(artifacts) ? artifacts : []).find(
     (item) => cleanString(item?.kind) === 'run_spec_snapshot'
   ) || null;
+  const localSnapshotKind = cleanString(metadataLocalSnapshot.kind);
+  const localSnapshotNote = cleanString(metadataLocalSnapshot.note);
   return {
-    path: cleanString(runWorkspacePath) || null,
-    sourceServerId: cleanString(metadata.cwdSourceServerId || run?.serverId) || null,
-    runSpecArtifactId: cleanString(runSpecArtifact?.id) || null,
+    path: cleanString(metadataWorkspaceSnapshot.path || runWorkspacePath) || null,
+    sourceServerId: cleanString(metadataWorkspaceSnapshot.sourceServerId || metadata.cwdSourceServerId || run?.serverId) || null,
+    runSpecArtifactId: cleanString(metadataWorkspaceSnapshot.runSpecArtifactId || runSpecArtifact?.id) || null,
+    localSnapshot: localSnapshotKind || localSnapshotNote
+      ? {
+        ...(localSnapshotKind ? { kind: localSnapshotKind } : {}),
+        ...(localSnapshotNote ? { note: localSnapshotNote } : {}),
+      }
+      : null,
   };
 }
 
