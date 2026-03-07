@@ -7,6 +7,22 @@ const { buildRunReportPayload } = require('../run-report-payload.service');
 
 test('buildRunReportPayload exposes attempt semantics while staying run-centered', () => {
   const payload = buildRunReportPayload({
+    bridgeRuntime: {
+      executionTarget: 'client-daemon',
+      serverId: 'srv_client_1',
+      supportsLocalBridgeWorkflow: true,
+      missingBridgeTaskTypes: [],
+      supportedTaskTypes: [
+        'project.checkPath',
+        'project.ensurePath',
+        'project.ensureGit',
+        'bridge.fetchNodeContext',
+        'bridge.fetchContextPack',
+        'bridge.submitNodeRun',
+        'bridge.fetchRunReport',
+        'bridge.submitRunNote',
+      ],
+    },
     run: {
       id: 'run_123',
       projectId: 'proj_1',
@@ -97,6 +113,41 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
     ok: null,
     missingTables: [],
     missingFigures: [],
+  });
+  assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
+  assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
+  assert.deepEqual(payload.taskActions.fetchNodeContext, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchNodeContext',
+    payload: {
+      projectId: 'proj_1',
+      nodeId: 'baseline_root',
+    },
+  });
+  assert.deepEqual(payload.taskActions.fetchContextPack, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchContextPack',
+    payload: {
+      runId: 'run_123',
+    },
+  });
+  assert.deepEqual(payload.taskActions.fetchRunReport, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchRunReport',
+    payload: {
+      runId: 'run_123',
+    },
+  });
+  assert.deepEqual(payload.taskActions.submitRunNote, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.submitRunNote',
+    payload: {
+      runId: 'run_123',
+    },
   });
   assert.equal('bundle' in payload, false);
   assert.equal('reviewQueue' in payload, false);

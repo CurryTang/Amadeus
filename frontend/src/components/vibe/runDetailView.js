@@ -149,6 +149,46 @@ function buildRunFollowUpSummary(run = {}, runReport = {}) {
   return rows;
 }
 
+function buildRunBridgeSummary(run = {}, runReport = {}) {
+  const bridgeRuntime = runReport?.bridgeRuntime && typeof runReport.bridgeRuntime === 'object'
+    ? runReport.bridgeRuntime
+    : {};
+  const taskActions = runReport?.taskActions && typeof runReport.taskActions === 'object'
+    ? runReport.taskActions
+    : {};
+  const rows = [];
+  const runtimeTarget = cleanString(bridgeRuntime.executionTarget);
+  const serverId = cleanString(bridgeRuntime.serverId);
+  const missingBridgeTaskTypes = Array.isArray(bridgeRuntime.missingBridgeTaskTypes)
+    ? bridgeRuntime.missingBridgeTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  if (!runtimeTarget && !serverId && missingBridgeTaskTypes.length === 0 && !taskActions.fetchRunReport && !taskActions.submitRunNote) {
+    return rows;
+  }
+  if (runtimeTarget) {
+    rows.push({ label: 'Bridge Runtime', value: runtimeTarget });
+  }
+  if (serverId) {
+    rows.push({ label: 'Bridge Server', value: serverId });
+  }
+  rows.push({
+    label: 'Bridge Transport',
+    value: bridgeRuntime.supportsLocalBridgeWorkflow === true ? 'daemon-task ready' : 'daemon-task available',
+  });
+  if (missingBridgeTaskTypes.length > 0) {
+    rows.push({ label: 'Missing Bridge Tasks', value: missingBridgeTaskTypes.join(', ') });
+  }
+  const reportTaskType = cleanString(taskActions?.fetchRunReport?.taskType);
+  if (reportTaskType) {
+    rows.push({ label: 'Bridge Report Task', value: reportTaskType });
+  }
+  const noteTaskType = cleanString(taskActions?.submitRunNote?.taskType);
+  if (noteTaskType) {
+    rows.push({ label: 'Bridge Note Task', value: noteTaskType });
+  }
+  return rows;
+}
+
 function deriveRunCompareTargetId(run = {}, runReport = {}) {
   const runId = cleanString(run?.id);
   const runFollowUp = run?.followUp && typeof run.followUp === 'object' ? run.followUp : {};
@@ -332,6 +372,7 @@ export {
   buildRunCompareSummary,
   buildRunContractSummary,
   buildRunDetailContext,
+  buildRunBridgeSummary,
   buildRunExecutionSummary,
   buildRunFollowUpSummary,
   buildRunSnapshotSummary,

@@ -5986,6 +5986,11 @@ router.get('/runs/:runId/report', async (req, res) => {
     const runId = String(req.params.runId || '').trim();
     const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
+    const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
+      userId,
+      run,
+      store: researchOpsStore,
+    });
 
     const includeInline = req.query.inline === 'true';
     let summaryText = null;
@@ -6027,6 +6032,7 @@ router.get('/runs/:runId/report', async (req, res) => {
       checkpoints,
       summaryText,
       manifest,
+      bridgeRuntime,
       mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
     }));
   } catch (error) {

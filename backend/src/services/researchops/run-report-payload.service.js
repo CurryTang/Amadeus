@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildBridgeDaemonTaskActions } = require('./bridge-daemon-task-action.service');
+const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 const { deriveRunWorkspacePath, findRunReportHighlights } = require('./run-report-view');
 const { buildAttemptViewFromRun } = require('./attempt-view.service');
 const { buildRunExecutionView } = require('./execution-view.service');
@@ -18,15 +20,18 @@ function buildRunReportPayload({
   checkpoints,
   summaryText,
   manifest,
+  bridgeRuntime = null,
   mapArtifact = (item) => item,
 }) {
   const runWorkspacePath = cleanString(deriveRunWorkspacePath(run, {
     stepResults: steps,
   }));
   const list = Array.isArray(artifacts) ? artifacts : [];
+  const attempt = buildAttemptViewFromRun(run);
+  const normalizedBridgeRuntime = buildBridgeRuntimeView(bridgeRuntime);
   return {
     run,
-    attempt: buildAttemptViewFromRun(run),
+    attempt,
     execution: buildRunExecutionView(run),
     steps: Array.isArray(steps) ? steps : [],
     artifacts: list.map((item) => mapArtifact(item, run)),
@@ -40,6 +45,13 @@ function buildRunReportPayload({
     followUp: buildRunFollowUpView(run),
     contract: buildRunOutputContractView(run, manifest),
     highlights: findRunReportHighlights(list),
+    bridgeRuntime: normalizedBridgeRuntime && Object.keys(normalizedBridgeRuntime).length > 0 ? normalizedBridgeRuntime : null,
+    taskActions: buildBridgeDaemonTaskActions({
+      serverId: normalizedBridgeRuntime?.serverId,
+      projectId: cleanString(run?.projectId),
+      nodeId: cleanString(attempt?.treeNodeId || attempt?.nodeId),
+      runId: cleanString(run?.id),
+    }),
     summary: summaryText,
     manifest,
   };

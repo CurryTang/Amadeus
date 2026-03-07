@@ -1,6 +1,7 @@
 import {
   buildRunCompareSummary,
   buildRunContractSummary,
+  buildRunBridgeSummary,
   buildRunDetailContext,
   buildRunExecutionSummary,
   buildRunDetailOutput,
@@ -29,6 +30,7 @@ function VibeRunDetailModal({
   const execution = buildRunExecutionSummary(run);
   const followUpSummary = buildRunFollowUpSummary(run, runReport || {});
   const snapshotSummary = buildRunSnapshotSummary(run, runReport || {});
+  const bridgeSummary = buildRunBridgeSummary(run, runReport || {});
   const compareSummary = buildRunCompareSummary(runCompare || {});
   const contractSummary = buildRunContractSummary(run, runReport || {});
   const prompt = buildRunDetailPrompt(run);
@@ -137,6 +139,23 @@ function VibeRunDetailModal({
                   <div key={row.label} className={row.label.includes('Path') || row.label.includes('Resources') ? 'vibe-run-detail-grid-span' : undefined}>
                     <dt>{row.label}</dt>
                     <dd>{row.label.includes('Path') ? <code>{row.value}</code> : row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+
+          {bridgeSummary.length > 0 && (
+            <section className="vibe-run-detail-section">
+              <div className="vibe-card-head">
+                <h4>Bridge</h4>
+                <span className="vibe-card-note">client daemon workflow</span>
+              </div>
+              <dl className="vibe-run-detail-grid">
+                {bridgeSummary.map((row) => (
+                  <div key={row.label} className={row.label.includes('Tasks') ? 'vibe-run-detail-grid-span' : undefined}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
                   </div>
                 ))}
               </dl>

@@ -8,6 +8,7 @@ import {
   buildRunContractSummary,
   buildRunExecutionSummary,
   buildRunFollowUpSummary,
+  buildRunBridgeSummary,
   buildRunSnapshotSummary,
   deriveRunCompareTargetId,
   buildRunDetailPrompt,
@@ -160,6 +161,38 @@ test('buildRunSnapshotSummary exposes workspace and environment snapshot rows wh
     { label: 'Env Backend', value: 'container' },
     { label: 'Runtime Class', value: 'container-fast' },
     { label: 'Env Resources', value: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m' },
+  ]);
+});
+
+test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task status', () => {
+  const summary = buildRunBridgeSummary(BASE_RUN, {
+    bridgeRuntime: {
+      executionTarget: 'client-daemon',
+      serverId: 'srv_client_1',
+      supportsLocalBridgeWorkflow: false,
+      missingBridgeTaskTypes: ['bridge.submitRunNote'],
+    },
+    taskActions: {
+      fetchRunReport: {
+        transport: 'daemon-task',
+        serverId: 'srv_client_1',
+        taskType: 'bridge.fetchRunReport',
+      },
+      submitRunNote: {
+        transport: 'daemon-task',
+        serverId: 'srv_client_1',
+        taskType: 'bridge.submitRunNote',
+      },
+    },
+  });
+
+  assert.deepEqual(summary, [
+    { label: 'Bridge Runtime', value: 'client-daemon' },
+    { label: 'Bridge Server', value: 'srv_client_1' },
+    { label: 'Bridge Transport', value: 'daemon-task available' },
+    { label: 'Missing Bridge Tasks', value: 'bridge.submitRunNote' },
+    { label: 'Bridge Report Task', value: 'bridge.fetchRunReport' },
+    { label: 'Bridge Note Task', value: 'bridge.submitRunNote' },
   ]);
 });
 
