@@ -69,6 +69,18 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       ? formatDeliverableCount(deliverableArtifactIds.length)
       : 'No deliverable artifacts yet',
   });
+  if (cleanString(effectiveRunReport?.summary) || cleanString(effectiveRunReport?.highlights?.summaryArtifactId)) {
+    rows.push({
+      label: 'Summary',
+      value: 'Present',
+    });
+  }
+  if (cleanString(effectiveRunReport?.highlights?.finalOutputArtifactId)) {
+    rows.push({
+      label: 'Final Output',
+      value: 'Present',
+    });
+  }
   const contractStatus = formatContractOk(effectiveRunReport?.contract?.ok ?? runReport?.contract?.ok ?? bridgeReport?.contract?.ok);
   if (contractStatus) {
     rows.push({

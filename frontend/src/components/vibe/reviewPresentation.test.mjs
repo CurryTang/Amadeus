@@ -28,6 +28,8 @@ test('buildNodeReviewSummary highlights pending gate, checkpoints, and evidence 
     { label: 'Gate', value: 'Awaiting manual approval' },
     { label: 'Checkpoints', value: '1 pending · 1 resolved' },
     { label: 'Evidence', value: '2 deliverable artifacts' },
+    { label: 'Summary', value: 'Present' },
+    { label: 'Final Output', value: 'Present' },
   ]);
 });
 
@@ -191,6 +193,8 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
       },
       highlights: {
         deliverableArtifactIds: ['art_summary'],
+        summaryArtifactId: 'art_summary',
+        finalOutputArtifactId: 'art_final',
       },
       observability: {
         statuses: {
@@ -206,6 +210,8 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
 
   assert.deepEqual(rows, [
     { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Summary', value: 'Present' },
+    { label: 'Final Output', value: 'Present' },
     { label: 'Contract', value: 'Validation failed' },
     { label: 'Execution', value: 'remote' },
     { label: 'Runtime', value: 'container/container-fast' },
@@ -246,8 +252,10 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
           { id: 'cp_pending', status: 'PENDING' },
           { id: 'cp_done', status: 'APPROVED' },
         ],
+        summary: 'Bridge-side summary',
         highlights: {
           deliverableArtifactIds: ['art_summary'],
+          finalOutputArtifactId: 'art_final',
         },
         observability: {
           statuses: {
@@ -265,6 +273,8 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
   assert.deepEqual(rows, [
     { label: 'Checkpoints', value: '1 pending · 1 resolved' },
     { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Summary', value: 'Present' },
+    { label: 'Final Output', value: 'Present' },
     { label: 'Contract', value: 'Validated' },
     { label: 'Execution', value: 'remote' },
     { label: 'Runtime', value: 'container/container-guarded' },
