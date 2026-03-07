@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildObservedSessionCards,
+  getObservedSessionMaterializationLabel,
   getObservedSessionNodeLabel,
   getObservedSessionProviderLabel,
 } from './observedSessionPresentation.js';
@@ -27,6 +28,7 @@ test('buildObservedSessionCards sorts most recently updated sessions first', () 
       status: 'RUNNING',
       detachedNodeId: 'observed_obs_new',
       detachedNodeTitle: 'Implement observed session sync',
+      materialization: 'created',
     },
   ]);
 
@@ -35,9 +37,11 @@ test('buildObservedSessionCards sorts most recently updated sessions first', () 
   assert.equal(cards[0].providerLabel, 'Codex');
   assert.equal(cards[0].observedLabel, 'Observed');
   assert.equal(cards[0].nodeLabel, 'Node: Implement observed session sync');
+  assert.equal(cards[0].materializationLabel, 'Detached node created');
   assert.equal(cards[1].id, 'obs_old');
   assert.equal(cards[1].providerLabel, 'Claude');
   assert.equal(cards[1].nodeLabel, 'Unlinked');
+  assert.equal(cards[1].materializationLabel, 'Unlinked');
 });
 
 test('getObservedSessionProviderLabel normalizes provider names', () => {
@@ -56,4 +60,11 @@ test('getObservedSessionNodeLabel exposes detached-node state', () => {
   );
   assert.equal(getObservedSessionNodeLabel({ detachedNodeId: 'observed_obs_1' }), 'Node: observed_obs_1');
   assert.equal(getObservedSessionNodeLabel({ detachedNodeId: '' }), 'Unlinked');
+});
+
+test('getObservedSessionMaterializationLabel distinguishes created, updated, and linked nodes', () => {
+  assert.equal(getObservedSessionMaterializationLabel({ detachedNodeId: '', materialization: 'none' }), 'Unlinked');
+  assert.equal(getObservedSessionMaterializationLabel({ detachedNodeId: 'observed_obs_1', materialization: 'created' }), 'Detached node created');
+  assert.equal(getObservedSessionMaterializationLabel({ detachedNodeId: 'observed_obs_1', materialization: 'updated' }), 'Detached node updated');
+  assert.equal(getObservedSessionMaterializationLabel({ detachedNodeId: 'observed_obs_1', materialization: 'existing' }), 'Detached node linked');
 });

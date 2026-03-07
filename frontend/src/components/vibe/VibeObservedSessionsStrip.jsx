@@ -38,6 +38,7 @@ function VibeObservedSessionsStrip({
               )}
               <div className="vibe-observed-session-meta">
                 <span>{card.nodeLabel}</span>
+                <span>{card.materializationLabel}</span>
                 <span>{card.timestamp}</span>
               </div>
               <div className="vibe-observed-session-actions">

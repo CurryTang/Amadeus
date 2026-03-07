@@ -29,6 +29,15 @@ function getObservedSessionNodeLabel(item = {}) {
   return detachedNodeTitle ? `Node: ${detachedNodeTitle}` : `Node: ${detachedNodeId}`;
 }
 
+function getObservedSessionMaterializationLabel(item = {}) {
+  const detachedNodeId = cleanString(item?.detachedNodeId);
+  if (!detachedNodeId) return 'Unlinked';
+  const materialization = cleanString(item?.materialization).toLowerCase();
+  if (materialization === 'created') return 'Detached node created';
+  if (materialization === 'updated') return 'Detached node updated';
+  return 'Detached node linked';
+}
+
 function buildObservedSessionCards(items = []) {
   if (!Array.isArray(items)) return [];
   return [...items]
@@ -40,6 +49,7 @@ function buildObservedSessionCards(items = []) {
       providerLabel: getObservedSessionProviderLabel(item),
       observedLabel: 'Observed',
       nodeLabel: getObservedSessionNodeLabel(item),
+      materializationLabel: getObservedSessionMaterializationLabel(item),
       status: cleanString(item?.status).toUpperCase() || 'UNKNOWN',
       timestamp: formatTimestamp(item?.updatedAt),
       detachedNodeId: cleanString(item?.detachedNodeId),
@@ -49,6 +59,7 @@ function buildObservedSessionCards(items = []) {
 
 export {
   buildObservedSessionCards,
+  getObservedSessionMaterializationLabel,
   getObservedSessionNodeLabel,
   getObservedSessionProviderLabel,
 };
