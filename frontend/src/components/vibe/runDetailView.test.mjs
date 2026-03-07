@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildRunDetailContext,
   buildRunExecutionSummary,
+  buildRunSnapshotSummary,
   buildRunDetailPrompt,
   buildRunDetailOutput,
 } from './runDetailView.js';
@@ -115,4 +116,38 @@ test('buildRunExecutionSummary prefers normalized execution view and formats res
     runtimeClass: 'container-fast',
     resourcesLabel: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m',
   });
+});
+
+test('buildRunSnapshotSummary exposes workspace and environment snapshot rows when present', () => {
+  const summary = buildRunSnapshotSummary({
+    execution: {
+      backend: 'container',
+      runtimeClass: 'container-fast',
+    },
+  }, {
+    workspaceSnapshot: {
+      path: '/tmp/researchops-runs/run_123',
+      sourceServerId: 'srv_remote_1',
+      runSpecArtifactId: 'art_spec',
+    },
+    envSnapshot: {
+      backend: 'container',
+      runtimeClass: 'container-fast',
+      resources: {
+        cpu: 4,
+        gpu: 1,
+        ramGb: 24,
+        timeoutMin: 30,
+      },
+    },
+  });
+
+  assert.deepEqual(summary, [
+    { label: 'Workspace Path', value: '/tmp/researchops-runs/run_123' },
+    { label: 'Workspace Source', value: 'srv_remote_1' },
+    { label: 'Run Spec', value: 'art_spec' },
+    { label: 'Env Backend', value: 'container' },
+    { label: 'Runtime Class', value: 'container-fast' },
+    { label: 'Env Resources', value: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m' },
+  ]);
 });

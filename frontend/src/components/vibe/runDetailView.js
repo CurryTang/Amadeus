@@ -67,6 +67,52 @@ function buildRunExecutionSummary(run = {}) {
   };
 }
 
+function buildRunSnapshotSummary(run = {}, runReport = {}) {
+  const workspaceSnapshot = runReport?.workspaceSnapshot && typeof runReport.workspaceSnapshot === 'object'
+    ? runReport.workspaceSnapshot
+    : {};
+  const envSnapshot = runReport?.envSnapshot && typeof runReport.envSnapshot === 'object'
+    ? runReport.envSnapshot
+    : {};
+  const envResources = envSnapshot?.resources && typeof envSnapshot.resources === 'object'
+    ? envSnapshot.resources
+    : {};
+  const envResourceBits = [
+    ['cpu', cleanNumber(envResources.cpu)],
+    ['gpu', cleanNumber(envResources.gpu)],
+    ['ram', cleanNumber(envResources.ramGb)],
+    ['timeout', cleanNumber(envResources.timeoutMin)],
+  ].filter(([, value]) => value !== null);
+
+  const rows = [];
+  if (cleanString(workspaceSnapshot.path)) {
+    rows.push({ label: 'Workspace Path', value: cleanString(workspaceSnapshot.path) });
+  }
+  if (cleanString(workspaceSnapshot.sourceServerId)) {
+    rows.push({ label: 'Workspace Source', value: cleanString(workspaceSnapshot.sourceServerId) });
+  }
+  if (cleanString(workspaceSnapshot.runSpecArtifactId)) {
+    rows.push({ label: 'Run Spec', value: cleanString(workspaceSnapshot.runSpecArtifactId) });
+  }
+  if (cleanString(envSnapshot.backend)) {
+    rows.push({ label: 'Env Backend', value: cleanString(envSnapshot.backend) });
+  }
+  if (cleanString(envSnapshot.runtimeClass)) {
+    rows.push({ label: 'Runtime Class', value: cleanString(envSnapshot.runtimeClass) });
+  }
+  if (envResourceBits.length > 0) {
+    rows.push({
+      label: 'Env Resources',
+      value: envResourceBits.map(([label, value]) => {
+        if (label === 'ram') return `ram ${value}GB`;
+        if (label === 'timeout') return `timeout ${value}m`;
+        return `${label} ${value}`;
+      }).join(' · '),
+    });
+  }
+  return rows;
+}
+
 function buildRunDetailPrompt(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
   const promptText = cleanString(metadata.prompt);
@@ -112,6 +158,7 @@ function buildRunDetailOutput(run = {}, runReport = {}) {
 export {
   buildRunDetailContext,
   buildRunExecutionSummary,
+  buildRunSnapshotSummary,
   buildRunDetailOutput,
   buildRunDetailPrompt,
 };

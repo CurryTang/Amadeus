@@ -10,14 +10,27 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
     run: {
       id: 'run_123',
       projectId: 'proj_1',
+      serverId: 'srv_remote_1',
       provider: 'codex',
       runType: 'EXPERIMENT',
       status: 'SUCCEEDED',
+      mode: 'headless',
       metadata: {
         treeNodeId: 'baseline_root',
         treeNodeTitle: 'Baseline Root',
         runSource: 'run-step',
         runWorkspacePath: '/tmp/researchops-runs/run_123',
+        cwdSourceServerId: 'srv_remote_1',
+        jobSpec: {
+          backend: 'container',
+          runtimeClass: 'container-fast',
+          resources: {
+            cpu: 4,
+            gpu: 1,
+            ramGb: 24,
+            timeoutMin: 30,
+          },
+        },
       },
     },
     steps: [],
@@ -25,6 +38,7 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
       { id: 'art_summary', kind: 'run_summary_md' },
       { id: 'art_final', kind: 'agent_final_json' },
       { id: 'art_report', kind: 'deliverable_report' },
+      { id: 'art_spec', kind: 'run_spec_snapshot' },
     ],
     checkpoints: [],
     summaryText: 'Execution complete.',
@@ -36,6 +50,21 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
   assert.equal(payload.attempt.nodeId, 'baseline_root');
   assert.equal(payload.attempt.treeNodeTitle, 'Baseline Root');
   assert.deepEqual(payload.highlights.deliverableArtifactIds, ['art_summary', 'art_final', 'art_report']);
+  assert.deepEqual(payload.workspaceSnapshot, {
+    path: '/tmp/researchops-runs/run_123',
+    sourceServerId: 'srv_remote_1',
+    runSpecArtifactId: 'art_spec',
+  });
+  assert.deepEqual(payload.envSnapshot, {
+    backend: 'container',
+    runtimeClass: 'container-fast',
+    resources: {
+      cpu: 4,
+      gpu: 1,
+      ramGb: 24,
+      timeoutMin: 30,
+    },
+  });
   assert.equal('bundle' in payload, false);
   assert.equal('reviewQueue' in payload, false);
 });
