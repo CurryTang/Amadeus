@@ -5,6 +5,10 @@ const router = express.Router();
 const multer = require('multer');
 const knowledgeGroupsService = require('../../services/knowledge-groups.service');
 const knowledgeAssetsService = require('../../services/researchops/knowledge-assets.service');
+const {
+  buildKnowledgeGroupListPayload,
+  buildKnowledgeGroupPayload,
+} = require('../../services/researchops/knowledge-group-payload.service');
 const { parseLimit, parseOffset, getUserId, sanitizeError, parseMaybeJson } = require('./shared');
 
 const knowledgeAssetUpload = multer({
@@ -14,12 +18,15 @@ const knowledgeAssetUpload = multer({
 
 router.get('/knowledge-groups', async (req, res) => {
   try {
+    const limit = parseLimit(req.query.limit, 20, 200);
+    const offset = parseOffset(req.query.offset, 0, 100000);
+    const q = String(req.query.q || '').trim();
     const result = await knowledgeGroupsService.listKnowledgeGroups(getUserId(req), {
-      limit: parseLimit(req.query.limit, 20, 200),
-      offset: parseOffset(req.query.offset, 0, 100000),
-      q: String(req.query.q || '').trim(),
+      limit,
+      offset,
+      q,
     });
-    return res.json(result);
+    return res.json(buildKnowledgeGroupListPayload({ items: result.items, limit, offset, q }));
   } catch (error) {
     console.error('[ResearchOps] listKnowledgeGroups failed:', error);
     return res.status(500).json({ error: 'Failed to list knowledge groups' });
@@ -29,7 +36,7 @@ router.get('/knowledge-groups', async (req, res) => {
 router.post('/knowledge-groups', async (req, res) => {
   try {
     const group = await knowledgeGroupsService.createKnowledgeGroup(getUserId(req), req.body || {});
-    return res.status(201).json({ group });
+    return res.status(201).json(buildKnowledgeGroupPayload({ group }));
   } catch (error) {
     console.error('[ResearchOps] createKnowledgeGroup failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to create knowledge group') });
@@ -44,7 +51,7 @@ router.patch('/knowledge-groups/:groupId', async (req, res) => {
       req.body || {}
     );
     if (!group) return res.status(404).json({ error: 'Knowledge group not found' });
-    return res.json({ group });
+    return res.json(buildKnowledgeGroupPayload({ group }));
   } catch (error) {
     console.error('[ResearchOps] updateKnowledgeGroup failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update knowledge group') });

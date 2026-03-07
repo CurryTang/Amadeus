@@ -81,6 +81,11 @@ const {
   buildProjectPayload,
   buildProjectListPayload,
 } = require('../../services/researchops/project-location.service');
+const {
+  buildKnowledgeGroupListPayload,
+  buildKnowledgeGroupPayload,
+  buildProjectKnowledgeGroupsPayload,
+} = require('../../services/researchops/knowledge-group-payload.service');
 const { requestDaemonRpc } = require('../../services/researchops/daemon-rpc.service');
 const {
   buildSshArgs: buildSharedSshArgs,
@@ -4620,8 +4625,14 @@ router.put('/projects/:projectId/knowledge-groups', async (req, res) => {
     const project = await researchOpsStore.setProjectKnowledgeGroups(getUserId(req), projectId, validIds);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    return res.json({
+    const payload = buildProjectKnowledgeGroupsPayload({
+      projectId,
+      groupIds: validIds,
+      items: groups,
       project,
+    });
+    return res.json({
+      ...payload,
       knowledgeGroups: groups,
     });
   } catch (error) {
@@ -4644,11 +4655,11 @@ router.get('/projects/:projectId/knowledge-groups', async (req, res) => {
       });
       items = groupsResult.items;
     }
-    return res.json({
+    return res.json(buildProjectKnowledgeGroupsPayload({
       projectId: project.id,
       groupIds,
       items,
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] listProjectKnowledgeGroups failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch project knowledge groups') });
@@ -4658,12 +4669,15 @@ router.get('/projects/:projectId/knowledge-groups', async (req, res) => {
 // Knowledge groups
 router.get('/knowledge-groups', async (req, res) => {
   try {
+    const limit = parseLimit(req.query.limit, 20, 200);
+    const offset = parseOffset(req.query.offset, 0, 100000);
+    const q = String(req.query.q || '').trim();
     const result = await knowledgeGroupsService.listKnowledgeGroups(getUserId(req), {
-      limit: parseLimit(req.query.limit, 20, 200),
-      offset: parseOffset(req.query.offset, 0, 100000),
-      q: String(req.query.q || '').trim(),
+      limit,
+      offset,
+      q,
     });
-    return res.json(result);
+    return res.json(buildKnowledgeGroupListPayload({ items: result.items, limit, offset, q }));
   } catch (error) {
     console.error('[ResearchOps] listKnowledgeGroups failed:', error);
     return res.status(500).json({ error: 'Failed to list knowledge groups' });
@@ -4673,7 +4687,7 @@ router.get('/knowledge-groups', async (req, res) => {
 router.post('/knowledge-groups', async (req, res) => {
   try {
     const group = await knowledgeGroupsService.createKnowledgeGroup(getUserId(req), req.body || {});
-    return res.status(201).json({ group });
+    return res.status(201).json(buildKnowledgeGroupPayload({ group }));
   } catch (error) {
     console.error('[ResearchOps] createKnowledgeGroup failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to create knowledge group') });
@@ -4688,7 +4702,7 @@ router.patch('/knowledge-groups/:groupId', async (req, res) => {
       req.body || {}
     );
     if (!group) return res.status(404).json({ error: 'Knowledge group not found' });
-    return res.json({ group });
+    return res.json(buildKnowledgeGroupPayload({ group }));
   } catch (error) {
     console.error('[ResearchOps] updateKnowledgeGroup failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update knowledge group') });
