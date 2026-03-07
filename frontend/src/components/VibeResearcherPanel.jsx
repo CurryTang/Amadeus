@@ -25,6 +25,7 @@ import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
+import { buildTreeRunAllMessage } from './vibe/treeRunAllPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
 import { linkClientWorkspace } from '../hooks/useClientWorkspaceRegistry';
 
@@ -2660,7 +2661,7 @@ function VibeResearcherPanel({
     const fromNodeId = String(options?.fromNodeId || selectedNodeId || '').trim();
     setSubmitting(true);
     try {
-      await axios.post(
+      const response = await axios.post(
         `${apiUrl}/researchops/projects/${projectId}/tree/run-all`,
         {
           fromNodeId: fromNodeId || undefined,
@@ -2668,6 +2669,8 @@ function VibeResearcherPanel({
         },
         { headers }
       );
+      setTreeError('');
+      setTreeActionMessage(buildTreeRunAllMessage(response.data || {}));
       await Promise.all([
         loadAll({ silent: true }),
         loadTreeWorkspace(projectId, { silent: true }),
@@ -2676,6 +2679,7 @@ function VibeResearcherPanel({
     } catch (err) {
       const code = err?.response?.data?.code;
       const message = err?.response?.data?.error || err?.message || 'Failed to run all steps';
+      setTreeActionMessage('');
       setTreeError(code ? `${code}: ${message}` : message);
     } finally {
       setSubmitting(false);
