@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildClientDeviceOption,
   buildBootstrapRuntimeCommands,
+  buildBootstrapRuntimeEnvFiles,
+  buildClientDeviceOption,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
 } from './daemonPresentation.js';
@@ -87,6 +88,40 @@ test('buildBootstrapRuntimeCommands returns labeled rust prototype commands', ()
       key: 'rust-unix',
       label: 'Rust daemon (Unix socket)',
       command: 'npm run researchops:rust-daemon-serve-unix',
+    },
+  ]);
+});
+
+test('buildBootstrapRuntimeEnvFiles returns downloadable rust env files', () => {
+  const items = buildBootstrapRuntimeEnvFiles({
+    runtimeOptions: {
+      rustDaemonPrototype: {
+        envFiles: {
+          http: {
+            filename: '.env.researchops-rust-daemon.http',
+            content: 'RESEARCHOPS_RUST_DAEMON_TRANSPORT=http',
+          },
+          unix: {
+            filename: '.env.researchops-rust-daemon.unix',
+            content: 'RESEARCHOPS_RUST_DAEMON_TRANSPORT=unix',
+          },
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(items, [
+    {
+      key: 'rust-env-http',
+      label: 'Rust env (HTTP)',
+      filename: '.env.researchops-rust-daemon.http',
+      content: 'RESEARCHOPS_RUST_DAEMON_TRANSPORT=http',
+    },
+    {
+      key: 'rust-env-unix',
+      label: 'Rust env (Unix socket)',
+      filename: '.env.researchops-rust-daemon.unix',
+      content: 'RESEARCHOPS_RUST_DAEMON_TRANSPORT=unix',
     },
   ]);
 });

@@ -163,5 +163,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - The client connect panel now surfaces those Rust prototype runtime commands as copyable alternatives next to the existing Node daemon install flow
   - Rust prototype bootstrap now also has its own shell entrypoint (`backend/scripts/researchops-bootstrap-rust-daemon.sh`), so the admin bootstrap surface no longer points users at raw npm commands only
   - Rust prototype launch arguments are now centralized in a shared launcher service plus `backend/scripts/researchops-rust-daemon.js`, so HTTP versus Unix transport selection is no longer duplicated across package scripts and bootstrap shell logic
+  - Rust prototype bootstrap payloads now also expose downloadable `.env` variants for both HTTP and Unix transports, and the connect panel lets users download them directly
   - Run detail now surfaces a compact observability summary (`steps`, `artifacts`, `checkpoints`, `summary`, `final output`, `deliverables`) directly from the normalized `RunReport`, so current evidence triage no longer requires mentally stitching together multiple sections
   - A Node-side verifier now checks that the Rust prototype task catalog stays aligned with the JS daemon catalog, so the new Rust bridge/runtime prototype cannot silently drift away from the current `v0` task contract

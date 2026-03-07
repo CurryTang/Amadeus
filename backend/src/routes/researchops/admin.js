@@ -194,6 +194,21 @@ function shellQuote(value = '') {
   return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
 }
 
+function buildRustDaemonEnvFileContent({
+  apiBaseUrl = '',
+  transport = 'http',
+  unixSocket = '/tmp/researchops-local-daemon.sock',
+  httpAddr = '127.0.0.1:7788',
+} = {}) {
+  return [
+    `RESEARCHOPS_API_BASE_URL=${String(apiBaseUrl || '').trim()}`,
+    'RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=true',
+    `RESEARCHOPS_RUST_DAEMON_TRANSPORT=${transport === 'unix' ? 'unix' : 'http'}`,
+    `RESEARCHOPS_RUST_DAEMON_HTTP_ADDR=${String(httpAddr || '127.0.0.1:7788').trim()}`,
+    `RESEARCHOPS_RUST_DAEMON_UNIX_SOCKET=${String(unixSocket || '/tmp/researchops-local-daemon.sock').trim()}`,
+  ].join('\n');
+}
+
 function resolveResearchOpsApiBaseUrl(req) {
   const configured = String(
     process.env.RESEARCHOPS_API_BASE_URL
@@ -258,6 +273,22 @@ function buildDaemonBootstrapPayload({
     env: {
       RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
       RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS: 'true',
+    },
+    envFiles: {
+      http: {
+        filename: '.env.researchops-rust-daemon.http',
+        content: buildRustDaemonEnvFileContent({
+          apiBaseUrl: normalizedApiBaseUrl,
+          transport: 'http',
+        }),
+      },
+      unix: {
+        filename: '.env.researchops-rust-daemon.unix',
+        content: buildRustDaemonEnvFileContent({
+          apiBaseUrl: normalizedApiBaseUrl,
+          transport: 'unix',
+        }),
+      },
     },
   };
 

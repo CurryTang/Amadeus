@@ -25,6 +25,7 @@ import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { getContextPackViewForRun } from './vibe/contextPackApiResponse';
 import {
   buildBootstrapRuntimeCommands,
+  buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
@@ -1585,6 +1586,10 @@ function VibeResearcherPanel({
     () => buildBootstrapRuntimeCommands(clientBootstrapData),
     [clientBootstrapData],
   );
+  const clientBootstrapRuntimeEnvFiles = useMemo(
+    () => buildBootstrapRuntimeEnvFiles(clientBootstrapData),
+    [clientBootstrapData],
+  );
 
   const ensureClientBootstrapHostname = useCallback(() => {
     if (clientBootstrapRequestedHostname.trim()) return clientBootstrapRequestedHostname.trim();
@@ -1702,6 +1707,23 @@ function VibeResearcherPanel({
     window.URL.revokeObjectURL(url);
     setClientBootstrapMessage('Bootstrap file downloaded.');
   }, [clientBootstrapData]);
+
+  const handleDownloadRuntimeEnvFile = useCallback((item) => {
+    if (!item || typeof item !== 'object') return;
+    const filename = String(item.filename || '').trim();
+    const content = String(item.content || '').trim();
+    if (!filename || !content) return;
+    const blob = new Blob([`${content}\n`], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+    setClientBootstrapMessage(`${item.label || filename} downloaded.`);
+  }, []);
 
   const resetProjectDraft = useCallback(() => {
     setProjectName('');
@@ -5787,6 +5809,25 @@ function VibeResearcherPanel({
                                     onClick={() => handleCopyRuntimeCommand(item.command, item.label)}
                                   >
                                     Copy {item.label}
+                                  </button>
+                                </div>
+                              ))}
+                            </>
+                          )}
+                          {clientBootstrapRuntimeEnvFiles.length > 0 && (
+                            <>
+                              <p className="vibe-empty">
+                                Optional: download a Rust daemon env file for the transport you want to test.
+                              </p>
+                              {clientBootstrapRuntimeEnvFiles.map((item) => (
+                                <div key={item.key} className="vibe-inline-actions">
+                                  <code className="vibe-inline-code">{item.filename}</code>
+                                  <button
+                                    type="button"
+                                    className="vibe-secondary-btn"
+                                    onClick={() => handleDownloadRuntimeEnvFile(item)}
+                                  >
+                                    Download {item.label}
                                   </button>
                                 </div>
                               ))}

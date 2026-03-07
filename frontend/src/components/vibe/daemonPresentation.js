@@ -69,8 +69,41 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
   return items;
 }
 
+function buildBootstrapRuntimeEnvFiles(bootstrap = null) {
+  const runtimeOptions = bootstrap && typeof bootstrap === 'object' ? bootstrap.runtimeOptions : null;
+  const rustPrototype = runtimeOptions && typeof runtimeOptions === 'object'
+    ? runtimeOptions.rustDaemonPrototype
+    : null;
+  const envFiles = rustPrototype && typeof rustPrototype === 'object' ? rustPrototype.envFiles : null;
+  const items = [];
+  const httpFile = envFiles && typeof envFiles === 'object' ? envFiles.http : null;
+  const unixFile = envFiles && typeof envFiles === 'object' ? envFiles.unix : null;
+  const httpFilename = cleanString(httpFile?.filename);
+  const httpContent = cleanString(httpFile?.content);
+  const unixFilename = cleanString(unixFile?.filename);
+  const unixContent = cleanString(unixFile?.content);
+  if (httpFilename && httpContent) {
+    items.push({
+      key: 'rust-env-http',
+      label: 'Rust env (HTTP)',
+      filename: httpFilename,
+      content: httpContent,
+    });
+  }
+  if (unixFilename && unixContent) {
+    items.push({
+      key: 'rust-env-unix',
+      label: 'Rust env (Unix socket)',
+      filename: unixFilename,
+      content: unixContent,
+    });
+  }
+  return items;
+}
+
 export {
   buildBootstrapRuntimeCommands,
+  buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
