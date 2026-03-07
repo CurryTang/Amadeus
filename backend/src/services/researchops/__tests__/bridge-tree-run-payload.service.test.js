@@ -56,6 +56,14 @@ test('buildBridgeTreeRunPayload preserves preflight preview without fabricating 
       runPayloadPreview: {
         runType: 'EXPERIMENT',
         serverId: 'srv_remote_1',
+        outputContract: {
+          requiredArtifacts: ['metrics'],
+        },
+        metadata: {
+          jobSpec: {
+            backend: 'container',
+          },
+        },
       },
     },
   });
@@ -64,6 +72,16 @@ test('buildBridgeTreeRunPayload preserves preflight preview without fabricating 
   assert.deepEqual(payload.runPayloadPreview, {
     runType: 'EXPERIMENT',
     serverId: 'srv_remote_1',
+    outputContract: {
+      requiredArtifacts: ['metrics'],
+    },
+    metadata: {
+      jobSpec: {
+        backend: 'container',
+      },
+    },
   });
+  assert.equal(payload.runPreview.execution.backend, 'container');
+  assert.deepEqual(payload.runPreview.contract.requiredArtifacts, ['metrics']);
   assert.equal('run' in payload, false);
 });

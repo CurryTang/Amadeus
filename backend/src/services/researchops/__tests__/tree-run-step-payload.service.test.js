@@ -61,3 +61,41 @@ test('buildTreeRunStepPayload keeps non-run modes unchanged', () => {
   assert.equal(payload.nodeId, 'node_search');
   assert.equal('attempt' in payload, false);
 });
+
+test('buildTreeRunStepPayload adds normalized runPreview for preflight mode', () => {
+  const payload = buildTreeRunStepPayload({
+    projectId: 'proj_1',
+    nodeId: 'baseline_root',
+    result: {
+      mode: 'preflight',
+      runPayloadPreview: {
+        runType: 'EXPERIMENT',
+        serverId: 'srv_remote_1',
+        mode: 'headless',
+        outputContract: {
+          requiredArtifacts: ['metrics'],
+          summaryRequired: true,
+        },
+        metadata: {
+          jobSpec: {
+            backend: 'container',
+            runtimeClass: 'container-fast',
+          },
+          workspaceSnapshot: {
+            path: '/tmp/researchops-runs/run_preview',
+          },
+          localSnapshot: {
+            kind: 'workspace_patch',
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(payload.runPreview.runType, 'EXPERIMENT');
+  assert.equal(payload.runPreview.execution.backend, 'container');
+  assert.equal(payload.runPreview.execution.runtimeClass, 'container-fast');
+  assert.equal(payload.runPreview.contract.summaryRequired, true);
+  assert.equal(payload.runPreview.workspaceSnapshot.path, '/tmp/researchops-runs/run_preview');
+  assert.equal(payload.runPreview.workspaceSnapshot.localSnapshot.kind, 'workspace_patch');
+});

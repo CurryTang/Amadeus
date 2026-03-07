@@ -1,5 +1,6 @@
 'use strict';
 
+const { buildRunPreviewView } = require('./run-preview-view.service');
 const { buildRunPayload } = require('./run-payload.service');
 
 function buildBridgeTreeRunPayload({
@@ -21,6 +22,9 @@ function buildBridgeTreeRunPayload({
     payload.execution = runPayload.execution;
     payload.followUp = runPayload.followUp;
     payload.contract = runPayload.contract;
+  }
+  if (payload.runPayloadPreview && typeof payload.runPayloadPreview === 'object') {
+    payload.runPreview = buildRunPreviewView(payload.runPayloadPreview);
   }
   return payload;
 }
