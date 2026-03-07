@@ -112,6 +112,7 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     cleanString(execution.runtimeClass),
   ].filter(Boolean).join('/');
   const executionIsolation = formatIsolationTier(executionRuntimeProfile.isolationTier);
+  const executionRuntimeWarning = cleanString(executionRuntimeProfile.compatibilityWarning);
   if (executionLocation) {
     rows.push({
       label: 'Execution',
@@ -128,6 +129,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     rows.push({
       label: 'Isolation',
       value: executionIsolation,
+    });
+  }
+  if (executionRuntimeWarning) {
+    rows.push({
+      label: 'Runtime Warning',
+      value: executionRuntimeWarning,
     });
   }
 

@@ -79,6 +79,7 @@ test('buildRecentRunCards surfaces execution and snapshot labels from normalized
         runtimeClass: 'container-fast',
         runtimeProfile: {
           isolationTier: 'guarded',
+          compatibilityWarning: 'Container Fast is not advertised for Local Host.',
         },
       },
       workspaceSnapshot: {
@@ -104,10 +105,12 @@ test('buildRecentRunCards surfaces execution and snapshot labels from normalized
   assert.equal(cards[0].executionLabel, 'Remote');
   assert.equal(cards[0].executionRuntimeLabel, 'container/container-fast');
   assert.equal(cards[0].executionIsolationLabel, 'Guarded isolation');
+  assert.equal(cards[0].runtimeWarningLabel, 'Container Fast is not advertised for Local Host.');
   assert.equal(cards[0].snapshotLabel, 'Snapshot-backed');
   assert.equal(cards[1].executionLabel, '');
   assert.equal(cards[1].executionRuntimeLabel, '');
   assert.equal(cards[1].executionIsolationLabel, '');
+  assert.equal(cards[1].runtimeWarningLabel, '');
   assert.equal(cards[1].snapshotLabel, '');
 });
 

@@ -27,6 +27,7 @@ export function buildRunCardMetaLabels(card = {}) {
     card?.executionLabel,
     card?.executionRuntimeLabel,
     card?.executionIsolationLabel,
+    card?.runtimeWarningLabel,
     card?.transportLabel,
     card?.snapshotLabel,
     card?.contractLabel,

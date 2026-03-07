@@ -192,6 +192,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
         runtimeClass: 'container-fast',
         runtimeProfile: {
           isolationTier: 'standard',
+          compatibilityWarning: 'Container Fast is not advertised for Local Host.',
         },
       },
       resolvedTransport: 'daemon-task',
@@ -228,6 +229,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     { label: 'Execution', value: 'remote' },
     { label: 'Runtime', value: 'container/container-fast' },
     { label: 'Isolation', value: 'Standard isolation' },
+    { label: 'Runtime Warning', value: 'Container Fast is not advertised for Local Host.' },
     { label: 'Readiness', value: 'Needs attention' },
     { label: 'Warnings', value: '2 warnings' },
     { label: 'Sinks', value: 'wandb, tensorboard' },

@@ -59,6 +59,14 @@ function getExecutionIsolationLabel(run = {}) {
   return '';
 }
 
+function getRuntimeWarningLabel(run = {}) {
+  const execution = run?.execution && typeof run.execution === 'object' ? run.execution : {};
+  const runtimeProfile = execution?.runtimeProfile && typeof execution.runtimeProfile === 'object'
+    ? execution.runtimeProfile
+    : {};
+  return cleanString(runtimeProfile.compatibilityWarning);
+}
+
 function getSnapshotLabel(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
   const workspaceSnapshot = run?.workspaceSnapshot && typeof run.workspaceSnapshot === 'object'
@@ -140,6 +148,7 @@ function buildRecentRunCards(runs = []) {
         executionLabel: getExecutionLabel(run),
         executionRuntimeLabel: getExecutionRuntimeLabel(run),
         executionIsolationLabel: getExecutionIsolationLabel(run),
+        runtimeWarningLabel: getRuntimeWarningLabel(run),
         snapshotLabel: getSnapshotLabel(run),
         contractLabel: getContractLabel(run),
         readinessLabel: getReadinessLabel(run),
