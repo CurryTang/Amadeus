@@ -263,6 +263,7 @@ test('buildRecentRunReviewSummary groups active and attention states for activit
     remoteExecutionCount: 2,
     snapshotBackedCount: 2,
     instrumentedCount: 2,
+    instrumentedProviders: ['tensorboard', 'wandb'],
     status: 'needs_attention',
   });
 });

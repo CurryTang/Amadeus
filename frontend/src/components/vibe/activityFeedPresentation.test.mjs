@@ -69,6 +69,7 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
       remoteExecutionCount: 1,
       snapshotBackedCount: 1,
       instrumentedCount: 1,
+      instrumentedProviders: ['wandb'],
       status: 'needs_attention',
     },
   });
@@ -84,6 +85,7 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
     remoteExecutionCount: 1,
     snapshotBackedCount: 1,
     instrumentedCount: 1,
+    instrumentedProviders: ['wandb'],
     status: 'needs_attention',
   });
 });

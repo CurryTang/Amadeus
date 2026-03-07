@@ -25,6 +25,7 @@ test('buildRunReviewSummary groups active, completed, and attention runs', () =>
     remoteExecutionCount: 2,
     snapshotBackedCount: 2,
     instrumentedCount: 2,
+    instrumentedProviders: ['tensorboard', 'wandb'],
     status: 'needs_attention',
   });
 });
