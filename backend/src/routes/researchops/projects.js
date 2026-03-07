@@ -41,6 +41,10 @@ const {
   buildTreeRunAllPayload,
 } = require('../../services/researchops/tree-run-all-payload.service');
 const { buildBridgeTreeRunPayload } = require('../../services/researchops/bridge-tree-run-payload.service');
+const {
+  readBridgeContextOptions,
+  readBridgeRunOptions,
+} = require('../../services/researchops/bridge-route-options.service');
 const { buildTreeRunStepPayload } = require('../../services/researchops/tree-run-step-payload.service');
 const {
   buildObservedSessionItemPayload,
@@ -6599,16 +6603,14 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     const projectId = String(req.params.projectId || '').trim();
     const nodeId = String(req.params.nodeId || '').trim();
     if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
-    const force = parseBoolean(req.body?.force, false);
-    const preflightOnly = parseBoolean(req.body?.preflightOnly, false);
-    const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
-    const clarifyMessages = Array.isArray(req.body?.clarifyMessages) ? req.body.clarifyMessages : [];
-    const workspaceSnapshot = req.body?.workspaceSnapshot && typeof req.body.workspaceSnapshot === 'object'
-      ? req.body.workspaceSnapshot
-      : null;
-    const localSnapshot = req.body?.localSnapshot && typeof req.body.localSnapshot === 'object'
-      ? req.body.localSnapshot
-      : null;
+    const {
+      force,
+      preflightOnly,
+      searchTrialCount,
+      clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
+    } = readBridgeRunOptions(req.body);
 
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
@@ -6650,16 +6652,14 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
     const projectId = String(req.params.projectId || '').trim();
     const nodeId = String(req.params.nodeId || '').trim();
     if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
-    const force = parseBoolean(req.body?.force, false);
-    const preflightOnly = parseBoolean(req.body?.preflightOnly, false);
-    const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
-    const clarifyMessages = Array.isArray(req.body?.clarifyMessages) ? req.body.clarifyMessages : [];
-    const workspaceSnapshot = req.body?.workspaceSnapshot && typeof req.body.workspaceSnapshot === 'object'
-      ? req.body.workspaceSnapshot
-      : null;
-    const localSnapshot = req.body?.localSnapshot && typeof req.body.localSnapshot === 'object'
-      ? req.body.localSnapshot
-      : null;
+    const {
+      force,
+      preflightOnly,
+      searchTrialCount,
+      clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
+    } = readBridgeRunOptions(req.body);
 
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
@@ -6922,8 +6922,7 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
     const userId = getUserId(req);
     const projectId = String(req.params.projectId || '').trim();
     const nodeId = String(req.params.nodeId || '').trim();
-    const includeContextPack = parseBoolean(req.query.includeContextPack, false);
-    const includeReport = parseBoolean(req.query.includeReport, false);
+    const { includeContextPack, includeReport } = readBridgeContextOptions(req.query);
     if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
 
     const { project, server } = await resolveProjectContext(userId, projectId);
