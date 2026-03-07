@@ -175,6 +175,21 @@ fn query_flag(query: Option<&str>, key: &str) -> bool {
     matches!(query_value(query, key), Some("true" | "1" | "yes" | "on"))
 }
 
+fn payload_string<'a>(payload: Option<&'a serde_json::Value>, key: &str) -> Option<&'a str> {
+    payload.and_then(|value| value.get(key)).and_then(serde_json::Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn payload_bool(payload: Option<&serde_json::Value>, key: &str) -> bool {
+    payload
+        .and_then(|value| value.get(key))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn payload_object<'a>(payload: Option<&'a serde_json::Value>, key: &str) -> Option<&'a serde_json::Value> {
+    payload.and_then(|value| value.get(key)).filter(|value| value.is_object())
+}
+
 fn http_request_via_config(
     config: &DaemonConfig,
     method: &str,
@@ -218,6 +233,64 @@ fn http_request_via_config(
     stream.read_to_string(&mut response).context("read backend response")?;
     let (_, body) = response.split_once("\r\n\r\n").context("split backend response body")?;
     serde_json::from_str(body).context("decode backend response json")
+}
+
+fn build_task_proxy_request(
+    task_type: &str,
+    payload: Option<&serde_json::Value>,
+) -> Result<(&'static str, String, Option<serde_json::Value>)> {
+    if task_type == "bridge.fetchRunReport" {
+        let run_id = payload_string(payload, "runId").context("runId is required for bridge.fetchRunReport")?;
+        return Ok((
+            "GET",
+            format!("/api/researchops/runs/{run_id}/bridge-report"),
+            None,
+        ));
+    }
+    if task_type == "bridge.fetchContextPack" {
+        let run_id = payload_string(payload, "runId").context("runId is required for bridge.fetchContextPack")?;
+        return Ok((
+            "GET",
+            format!("/api/researchops/runs/{run_id}/context-pack"),
+            None,
+        ));
+    }
+    if task_type == "bridge.fetchNodeContext" {
+        let project_id = payload_string(payload, "projectId").context("projectId is required for bridge.fetchNodeContext")?;
+        let node_id = payload_string(payload, "nodeId").context("nodeId is required for bridge.fetchNodeContext")?;
+        let mut backend_path =
+            format!("/api/researchops/projects/{project_id}/tree/nodes/{node_id}/bridge-context");
+        let mut query_pairs = Vec::new();
+        if payload_bool(payload, "includeContextPack") {
+            query_pairs.push("includeContextPack=true");
+        }
+        if payload_bool(payload, "includeReport") {
+            query_pairs.push("includeReport=true");
+        }
+        if !query_pairs.is_empty() {
+            backend_path.push('?');
+            backend_path.push_str(&query_pairs.join("&"));
+        }
+        return Ok(("GET", backend_path, None));
+    }
+    if task_type == "bridge.submitRunNote" {
+        let run_id = payload_string(payload, "runId").context("runId is required for bridge.submitRunNote")?;
+        return Ok((
+            "POST",
+            format!("/api/researchops/runs/{run_id}/bridge-note"),
+            Some(payload.cloned().unwrap_or_else(|| serde_json::json!({}))),
+        ));
+    }
+    if task_type == "bridge.submitNodeRun" {
+        let project_id = payload_string(payload, "projectId").context("projectId is required for bridge.submitNodeRun")?;
+        let node_id = payload_string(payload, "nodeId").context("nodeId is required for bridge.submitNodeRun")?;
+        return Ok((
+            "POST",
+            format!("/api/researchops/projects/{project_id}/tree/nodes/{node_id}/bridge-run"),
+            Some(payload.cloned().unwrap_or_else(|| serde_json::json!({}))),
+        ));
+    }
+    anyhow::bail!("unsupported taskType: {task_type}")
 }
 
 #[derive(Debug, Clone)]
@@ -300,6 +373,12 @@ fn build_http_body(
             body,
         );
     }
+    if route == "/tasks/execute" && method.eq_ignore_ascii_case("POST") {
+        let task_type = payload_string(body, "taskType").context("taskType is required for /tasks/execute")?;
+        let task_payload = payload_object(body, "payload");
+        let (task_method, backend_path, backend_body) = build_task_proxy_request(task_type, task_payload)?;
+        return http_request_via_config(config, task_method, &backend_path, backend_body.as_ref());
+    }
 
     match route {
         "/health" => Ok(serde_json::json!({
@@ -334,7 +413,7 @@ fn respond_to_http_connection<T: Read + Write>(stream: &mut T, enable_bridge: bo
     let (route, _) = parse_request_target(&request_view.path);
     let status_line = if matches!(
         route,
-        "/health" | "/runtime" | "/task-catalog" | "/bridge-report" | "/context-pack" | "/node-context" | "/bridge-note" | "/node-run"
+        "/health" | "/runtime" | "/task-catalog" | "/bridge-report" | "/context-pack" | "/node-context" | "/bridge-note" | "/node-run" | "/tasks/execute"
     ) {
         "HTTP/1.1 200 OK"
     } else {

@@ -15,6 +15,7 @@ Current scope:
   - `/context-pack?runId=...`
   - `POST /node-run?projectId=...&nodeId=...`
   - `POST /bridge-note?runId=...`
+- expose `POST /tasks/execute` for task-catalog-aligned bridge execution
 
 It does not yet implement:
 
@@ -99,4 +100,7 @@ curl -X POST "http://127.0.0.1:7788/node-run?projectId=proj_1&nodeId=node_eval" 
 curl -X POST "http://127.0.0.1:7788/bridge-note?runId=run_123" \
   -H 'Content-Type: application/json' \
   -d '{"title":"Bridge note","content":"hello from rust"}'
+curl -X POST "http://127.0.0.1:7788/tasks/execute" \
+  -H 'Content-Type: application/json' \
+  -d '{"taskType":"bridge.fetchRunReport","payload":{"runId":"run_123"}}'
 ```
