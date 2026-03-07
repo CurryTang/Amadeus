@@ -26,6 +26,11 @@ const {
   buildBridgeNotePayload,
 } = require('../../services/researchops/bridge-note-payload.service');
 const { buildRunComparePayload } = require('../../services/researchops/run-compare-payload.service');
+const { fetchRunBridgeReportViaDaemon } = require('../../services/researchops/bridge-daemon-rpc.service');
+const {
+  assertBridgeDaemonTransportReady,
+  readBridgeTransportMode,
+} = require('../../services/researchops/bridge-transport.service');
 const { buildRunArtifactListPayload } = require('../../services/researchops/run-artifact-list-payload.service');
 const {
   buildRunCheckpointDecisionPayload,
@@ -740,6 +745,14 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
       run,
       store: researchOpsStore,
     });
+    if (readBridgeTransportMode(req.query.transport) === 'daemon-task') {
+      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
+      return res.json(await fetchRunBridgeReportViaDaemon({
+        userId,
+        serverId: daemonServerId,
+        runId,
+      }));
+    }
 
     const report = buildRunReportPayload({
       run,

@@ -62,6 +62,14 @@ const {
 } = require('../../services/researchops/tree-clarify-payload.service');
 const { buildBridgeTreeRunPayload } = require('../../services/researchops/bridge-tree-run-payload.service');
 const {
+  fetchNodeBridgeContextViaDaemon,
+  submitNodeBridgeRunViaDaemon,
+} = require('../../services/researchops/bridge-daemon-rpc.service');
+const {
+  assertBridgeDaemonTransportReady,
+  readBridgeTransportMode,
+} = require('../../services/researchops/bridge-transport.service');
+const {
   readBridgeContextOptions,
   readBridgeRunOptions,
 } = require('../../services/researchops/bridge-route-options.service');
@@ -6904,6 +6912,27 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
     if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+    const bridgeRuntime = await loadProjectBridgeRuntimeForProject({
+      userId,
+      project,
+      store: researchOpsStore,
+    });
+    if (readBridgeTransportMode(req.body?.transport) === 'daemon-task') {
+      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
+      const daemonResult = await submitNodeBridgeRunViaDaemon({
+        userId,
+        serverId: daemonServerId,
+        projectId: project.id,
+        nodeId,
+        force,
+        preflightOnly,
+        searchTrialCount,
+        clarifyMessages,
+        workspaceSnapshot,
+        localSnapshot,
+      });
+      return res.status(preflightOnly ? 200 : 202).json(daemonResult);
+    }
 
     const result = await executeTreeNodeRun({
       userId,
@@ -7177,6 +7206,17 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
       project,
       store: researchOpsStore,
     });
+    if (readBridgeTransportMode(req.query.transport) === 'daemon-task') {
+      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
+      return res.json(await fetchNodeBridgeContextViaDaemon({
+        userId,
+        serverId: daemonServerId,
+        projectId: project.id,
+        nodeId,
+        includeContextPack,
+        includeReport,
+      }));
+    }
     const [{ plan }, stateRead] = await Promise.all([
       treePlanService.readProjectPlan({ project, server }),
       treeStateService.readProjectState({ project, server }),
