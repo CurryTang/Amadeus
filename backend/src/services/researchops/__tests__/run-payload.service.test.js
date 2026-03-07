@@ -131,3 +131,56 @@ test('buildRunPayload exposes normalized output contract semantics', () => {
     missingFigures: [],
   });
 });
+
+test('buildRunPayload exposes normalized workspace and env snapshot semantics', () => {
+  const run = {
+    id: 'run_snapshot',
+    projectId: 'proj_1',
+    serverId: 'srv_remote_1',
+    provider: 'codex',
+    runType: 'AGENT',
+    status: 'SUCCEEDED',
+    metadata: {
+      cwdSourceServerId: 'srv_sync_1',
+      workspaceSnapshot: {
+        path: '/tmp/research-workspace',
+        sourceServerId: 'srv_snap_1',
+        runSpecArtifactId: 'artifact_run_spec',
+      },
+      localSnapshot: {
+        kind: 'git_diff',
+        note: 'dirty working tree',
+      },
+      jobSpec: {
+        backend: 'container',
+        runtimeClass: 'container-fast',
+        resources: {
+          cpu: 8,
+          ramGb: 32,
+        },
+      },
+    },
+  };
+
+  const payload = buildRunPayload({ run });
+
+  assert.deepEqual(payload.workspaceSnapshot, {
+    path: '/tmp/research-workspace',
+    sourceServerId: 'srv_snap_1',
+    runSpecArtifactId: 'artifact_run_spec',
+    localSnapshot: {
+      kind: 'git_diff',
+      note: 'dirty working tree',
+    },
+  });
+  assert.deepEqual(payload.envSnapshot, {
+    backend: 'container',
+    runtimeClass: 'container-fast',
+    resources: {
+      cpu: 8,
+      gpu: null,
+      ramGb: 32,
+      timeoutMin: null,
+    },
+  });
+});

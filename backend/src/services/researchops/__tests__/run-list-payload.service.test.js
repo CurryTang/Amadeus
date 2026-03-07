@@ -111,3 +111,57 @@ test('buildRunListPayload includes normalized output contract semantics on list 
     missingFigures: [],
   });
 });
+
+test('buildRunListPayload includes normalized workspace and env snapshot semantics on list items', () => {
+  const payload = buildRunListPayload({
+    page: {
+      items: [{
+        id: 'run_snapshot',
+        projectId: 'proj_1',
+        serverId: 'srv_remote_1',
+        provider: 'codex',
+        runType: 'AGENT',
+        status: 'SUCCEEDED',
+        metadata: {
+          cwdSourceServerId: 'srv_sync_1',
+          workspaceSnapshot: {
+            path: '/tmp/list-workspace',
+            runSpecArtifactId: 'artifact_list_spec',
+          },
+          localSnapshot: {
+            kind: 'tarball',
+          },
+          jobSpec: {
+            backend: 'container',
+            runtimeClass: 'container-fast',
+            resources: {
+              cpu: 4,
+              timeoutMin: 15,
+            },
+          },
+        },
+      }],
+      hasMore: false,
+    },
+    limit: 20,
+  });
+
+  assert.deepEqual(payload.items[0].workspaceSnapshot, {
+    path: '/tmp/list-workspace',
+    sourceServerId: 'srv_sync_1',
+    runSpecArtifactId: 'artifact_list_spec',
+    localSnapshot: {
+      kind: 'tarball',
+    },
+  });
+  assert.deepEqual(payload.items[0].envSnapshot, {
+    backend: 'container',
+    runtimeClass: 'container-fast',
+    resources: {
+      cpu: 4,
+      gpu: null,
+      ramGb: null,
+      timeoutMin: 15,
+    },
+  });
+});

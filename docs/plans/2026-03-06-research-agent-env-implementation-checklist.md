@@ -73,6 +73,7 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - `bridge-context` capability flags now explicitly report whether the latest bridge report includes workspace, local, and environment snapshot data
   - `bridge-report` now exposes deliverable counts plus lightweight `hasSummary` / `hasFinalOutput` flags for faster bridge-side result triage
   - `run`, `run-list`, and `run-report` payloads now expose a normalized `contract` view, and run detail surfaces required artifacts plus validation failures directly
+  - `run` and `run-list` payloads now also expose thin `workspaceSnapshot` and `envSnapshot` views, so current list/detail/triage flows can read normalized snapshot/runtime hints without first loading a full `RunReport`
   - `bridge-report` now also surfaces the normalized contract view and a direct `hasContractFailures` flag for bridge-side follow-up decisions
   - `bridge-context` capabilities now bubble up bridge-side contract failures directly, so local bridge clients can gate follow-up without reparsing the full report
   - `/runs/enqueue*` now normalizes top-level `outputContract` input before persistence, so required artifacts and summary rules follow the same contract semantics as read models
