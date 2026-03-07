@@ -69,3 +69,34 @@ test('buildRunPayload exposes explicit execution contract fields when metadata c
     timeoutMin: 30,
   });
 });
+
+test('buildRunPayload exposes follow-up semantics for continuation and compare-linked runs', () => {
+  const run = {
+    id: 'run_followup',
+    projectId: 'proj_1',
+    serverId: 'srv_remote_1',
+    provider: 'codex',
+    runType: 'AGENT',
+    status: 'SUCCEEDED',
+    contextRefs: {
+      continueRunIds: ['run_base', 'run_alt'],
+    },
+    metadata: {
+      parentRunId: 'run_base',
+      continuationOfRunId: 'run_base',
+      continuationPhase: 'analysis',
+      branchLabel: 'ablation-b',
+    },
+  };
+
+  const payload = buildRunPayload({ run });
+
+  assert.deepEqual(payload.followUp, {
+    parentRunId: 'run_base',
+    continuationOfRunId: 'run_base',
+    continuationPhase: 'analysis',
+    branchLabel: 'ablation-b',
+    relatedRunIds: ['run_base', 'run_alt'],
+    isContinuation: true,
+  });
+});

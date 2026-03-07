@@ -44,3 +44,37 @@ test('buildRunListPayload keeps list pagination while exposing attempt-shaped it
   assert.equal(payload.items[0].execution.location, 'local');
   assert.equal(payload.items[0].resultSnippet, 'Patched benchmark harness');
 });
+
+test('buildRunListPayload includes follow-up semantics on list items', () => {
+  const payload = buildRunListPayload({
+    page: {
+      items: [{
+        id: 'run_child',
+        projectId: 'proj_1',
+        serverId: 'local-default',
+        provider: 'codex',
+        runType: 'AGENT',
+        status: 'SUCCEEDED',
+        contextRefs: {
+          continueRunIds: ['run_parent', 'run_compare'],
+        },
+        metadata: {
+          parentRunId: 'run_parent',
+          continuationPhase: 'branch',
+          branchLabel: 'best-seed',
+        },
+      }],
+      hasMore: false,
+    },
+    limit: 20,
+  });
+
+  assert.deepEqual(payload.items[0].followUp, {
+    parentRunId: 'run_parent',
+    continuationOfRunId: null,
+    continuationPhase: 'branch',
+    branchLabel: 'best-seed',
+    relatedRunIds: ['run_parent', 'run_compare'],
+    isContinuation: true,
+  });
+});

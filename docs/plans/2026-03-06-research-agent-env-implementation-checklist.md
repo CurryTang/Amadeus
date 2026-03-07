@@ -47,8 +47,10 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Frontend verification passed: 20 tests, 0 failures
   - `Recent Runs` now defaults to node scope when matching runs exist and falls back to project scope otherwise
   - `RunReport` now exposes attempt-shaped read data plus deliverable artifact highlights
+  - `RunReport` now also exposes thin `workspaceSnapshot`, `envSnapshot`, and `followUp` views for current review/detail flows
   - Observed sessions now surface detached node titles without adding hard attach semantics
   - Interactive agent sessions now use normalized session/detail/message payloads and show active run context
   - Run detail now exposes normalized execution contract data (`location`, `mode`, `backend`, `runtimeClass`, `resources`)
+  - Run detail and run-tree payloads now surface continuation / related-run semantics without introducing a new bundle or review workflow
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility

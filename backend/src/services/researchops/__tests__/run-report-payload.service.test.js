@@ -19,6 +19,8 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
         treeNodeId: 'baseline_root',
         treeNodeTitle: 'Baseline Root',
         runSource: 'run-step',
+        parentRunId: 'run_parent',
+        continuationPhase: 'analysis',
         runWorkspacePath: '/tmp/researchops-runs/run_123',
         cwdSourceServerId: 'srv_remote_1',
         jobSpec: {
@@ -31,6 +33,9 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
             timeoutMin: 30,
           },
         },
+      },
+      contextRefs: {
+        continueRunIds: ['run_parent'],
       },
     },
     steps: [],
@@ -54,6 +59,14 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
     path: '/tmp/researchops-runs/run_123',
     sourceServerId: 'srv_remote_1',
     runSpecArtifactId: 'art_spec',
+  });
+  assert.deepEqual(payload.followUp, {
+    parentRunId: 'run_parent',
+    continuationOfRunId: null,
+    continuationPhase: 'analysis',
+    branchLabel: null,
+    relatedRunIds: ['run_parent'],
+    isContinuation: true,
   });
   assert.deepEqual(payload.envSnapshot, {
     backend: 'container',

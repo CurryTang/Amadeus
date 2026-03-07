@@ -2,6 +2,7 @@ import {
   buildRunDetailContext,
   buildRunExecutionSummary,
   buildRunDetailOutput,
+  buildRunFollowUpSummary,
   buildRunDetailPrompt,
   buildRunSnapshotSummary,
 } from './runDetailView.js';
@@ -19,6 +20,7 @@ function VibeRunDetailModal({
 
   const context = buildRunDetailContext(run, runReport || {});
   const execution = buildRunExecutionSummary(run);
+  const followUpSummary = buildRunFollowUpSummary(run, runReport || {});
   const snapshotSummary = buildRunSnapshotSummary(run, runReport || {});
   const prompt = buildRunDetailPrompt(run);
   const output = buildRunDetailOutput(run, runReport || {});
@@ -126,6 +128,23 @@ function VibeRunDetailModal({
                   <div key={row.label} className={row.label.includes('Path') || row.label.includes('Resources') ? 'vibe-run-detail-grid-span' : undefined}>
                     <dt>{row.label}</dt>
                     <dd>{row.label.includes('Path') ? <code>{row.value}</code> : row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+
+          {followUpSummary.length > 0 && (
+            <section className="vibe-run-detail-section">
+              <div className="vibe-card-head">
+                <h4>Follow-up</h4>
+                <span className="vibe-card-note">continuation + related runs</span>
+              </div>
+              <dl className="vibe-run-detail-grid">
+                {followUpSummary.map((row) => (
+                  <div key={row.label} className={row.label.includes('Runs') ? 'vibe-run-detail-grid-span' : undefined}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
                   </div>
                 ))}
               </dl>

@@ -113,6 +113,33 @@ function buildRunSnapshotSummary(run = {}, runReport = {}) {
   return rows;
 }
 
+function buildRunFollowUpSummary(run = {}, runReport = {}) {
+  const followUp = run?.followUp && typeof run.followUp === 'object'
+    ? run.followUp
+    : (runReport?.followUp && typeof runReport.followUp === 'object' ? runReport.followUp : {});
+  const relatedRunIds = Array.isArray(followUp.relatedRunIds)
+    ? followUp.relatedRunIds.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const rows = [];
+  const parentRunId = cleanString(followUp.parentRunId || run?.metadata?.parentRunId);
+  if (parentRunId) {
+    rows.push({ label: 'Parent Run', value: parentRunId });
+  }
+  if (followUp.isContinuation) {
+    rows.push({ label: 'Follow-up', value: 'Continuation' });
+  }
+  if (cleanString(followUp.continuationPhase)) {
+    rows.push({ label: 'Phase', value: cleanString(followUp.continuationPhase) });
+  }
+  if (cleanString(followUp.branchLabel)) {
+    rows.push({ label: 'Branch', value: cleanString(followUp.branchLabel) });
+  }
+  if (relatedRunIds.length > 0) {
+    rows.push({ label: 'Related Runs', value: relatedRunIds.join(', ') });
+  }
+  return rows;
+}
+
 function buildRunDetailPrompt(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
   const promptText = cleanString(metadata.prompt);
@@ -158,6 +185,7 @@ function buildRunDetailOutput(run = {}, runReport = {}) {
 export {
   buildRunDetailContext,
   buildRunExecutionSummary,
+  buildRunFollowUpSummary,
   buildRunSnapshotSummary,
   buildRunDetailOutput,
   buildRunDetailPrompt,

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildRunDetailContext,
   buildRunExecutionSummary,
+  buildRunFollowUpSummary,
   buildRunSnapshotSummary,
   buildRunDetailPrompt,
   buildRunDetailOutput,
@@ -149,5 +150,29 @@ test('buildRunSnapshotSummary exposes workspace and environment snapshot rows wh
     { label: 'Env Backend', value: 'container' },
     { label: 'Runtime Class', value: 'container-fast' },
     { label: 'Env Resources', value: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m' },
+  ]);
+});
+
+test('buildRunFollowUpSummary exposes continuation and related-run rows', () => {
+  const summary = buildRunFollowUpSummary({
+    metadata: {
+      parentRunId: 'run_base',
+    },
+    followUp: {
+      parentRunId: 'run_base',
+      continuationOfRunId: 'run_base',
+      continuationPhase: 'analysis',
+      branchLabel: 'ablation-b',
+      relatedRunIds: ['run_base', 'run_alt'],
+      isContinuation: true,
+    },
+  });
+
+  assert.deepEqual(summary, [
+    { label: 'Parent Run', value: 'run_base' },
+    { label: 'Follow-up', value: 'Continuation' },
+    { label: 'Phase', value: 'analysis' },
+    { label: 'Branch', value: 'ablation-b' },
+    { label: 'Related Runs', value: 'run_base, run_alt' },
   ]);
 });

@@ -2,6 +2,7 @@
 
 const { deriveRunWorkspacePath, findRunReportHighlights } = require('./run-report-view');
 const { buildAttemptViewFromRun } = require('./attempt-view.service');
+const { buildRunFollowUpView } = require('./follow-up-view.service');
 const { buildEnvSnapshotView, buildWorkspaceSnapshotView } = require('./snapshot-view.service');
 
 function cleanString(value) {
@@ -33,6 +34,7 @@ function buildRunReportPayload({
     },
     workspaceSnapshot: buildWorkspaceSnapshotView(run, list, runWorkspacePath),
     envSnapshot: buildEnvSnapshotView(run),
+    followUp: buildRunFollowUpView(run),
     highlights: findRunReportHighlights(list),
     summary: summaryText,
     manifest,

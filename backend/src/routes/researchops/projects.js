@@ -30,6 +30,7 @@ const {
 } = require('../../services/researchops/agent-session-message-payload.service');
 const { buildContextPackPayload } = require('../../services/researchops/context-pack-payload.service');
 const { buildQueuedRunActionPayload } = require('../../services/researchops/queued-run-action-payload.service');
+const { buildRunTreePayload } = require('../../services/researchops/run-tree-payload.service');
 const {
   buildQueuedTreeRunAllItem,
   buildTreeRunAllPayload,
@@ -4841,7 +4842,7 @@ router.get('/projects/:projectId/run-tree', async (req, res) => {
       }
     }
 
-    return res.json({ tree: roots, total: runs.length });
+    return res.json(buildRunTreePayload({ roots, total: runs.length }));
   } catch (error) {
     console.error('[ResearchOps] run-tree failed:', error);
     return res.status(500).json({ error: sanitizeError(error, 'Failed to build run tree') });
