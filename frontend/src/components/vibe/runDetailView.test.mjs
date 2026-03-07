@@ -165,6 +165,35 @@ test('buildRunSnapshotSummary exposes workspace and environment snapshot rows wh
   ]);
 });
 
+test('buildRunSnapshotSummary falls back to normalized run snapshot views when report snapshots are absent', () => {
+  const summary = buildRunSnapshotSummary({
+    workspaceSnapshot: {
+      path: '/tmp/run-only-workspace',
+      sourceServerId: 'srv_run',
+      localSnapshot: {
+        kind: 'git_diff',
+      },
+    },
+    envSnapshot: {
+      backend: 'container',
+      runtimeClass: 'container-fast',
+      resources: {
+        cpu: 2,
+        timeoutMin: 10,
+      },
+    },
+  }, {});
+
+  assert.deepEqual(summary, [
+    { label: 'Workspace Path', value: '/tmp/run-only-workspace' },
+    { label: 'Workspace Source', value: 'srv_run' },
+    { label: 'Local Snapshot', value: 'git_diff' },
+    { label: 'Env Backend', value: 'container' },
+    { label: 'Runtime Class', value: 'container-fast' },
+    { label: 'Env Resources', value: 'cpu 2 · timeout 10m' },
+  ]);
+});
+
 test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task status', () => {
   const summary = buildRunBridgeSummary(BASE_RUN, {
     resolvedTransport: 'daemon-task',
@@ -206,6 +235,24 @@ test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task s
     { label: 'Bridge Report Task', value: 'bridge.fetchRunReport' },
     { label: 'Bridge Note Task', value: 'bridge.submitRunNote' },
     { label: 'Snapshot Capture', value: 'bridge.captureWorkspaceSnapshot' },
+  ]);
+});
+
+test('buildRunBridgeSummary falls back to run-level resolved transport when report bridge data is sparse', () => {
+  const summary = buildRunBridgeSummary({
+    resolvedTransport: 'rust-daemon',
+  }, {
+    bridgeRuntime: {
+      executionTarget: 'client-daemon',
+      preferredTransport: 'daemon-task',
+    },
+  });
+
+  assert.deepEqual(summary, [
+    { label: 'Bridge Runtime', value: 'client-daemon' },
+    { label: 'Preferred Transport', value: 'daemon-task' },
+    { label: 'Resolved Transport', value: 'rust-daemon' },
+    { label: 'Bridge Transport', value: 'daemon-task available' },
   ]);
 });
 

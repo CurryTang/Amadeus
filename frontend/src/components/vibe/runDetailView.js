@@ -85,10 +85,10 @@ function buildRunExecutionSummary(run = {}) {
 function buildRunSnapshotSummary(run = {}, runReport = {}) {
   const workspaceSnapshot = runReport?.workspaceSnapshot && typeof runReport.workspaceSnapshot === 'object'
     ? runReport.workspaceSnapshot
-    : {};
+    : (run?.workspaceSnapshot && typeof run.workspaceSnapshot === 'object' ? run.workspaceSnapshot : {});
   const envSnapshot = runReport?.envSnapshot && typeof runReport.envSnapshot === 'object'
     ? runReport.envSnapshot
-    : {};
+    : (run?.envSnapshot && typeof run.envSnapshot === 'object' ? run.envSnapshot : {});
   const envResources = envSnapshot?.resources && typeof envSnapshot.resources === 'object'
     ? envSnapshot.resources
     : {};
@@ -181,7 +181,7 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
     ? bridgeRuntime.availableTransports.map((item) => cleanString(item)).filter(Boolean)
     : [];
   const preferredTransport = cleanString(bridgeRuntime.preferredTransport);
-  const resolvedTransport = cleanString(runReport?.resolvedTransport);
+  const resolvedTransport = cleanString(runReport?.resolvedTransport || run?.resolvedTransport);
   if (!runtimeTarget && !serverId && missingBridgeTaskTypes.length === 0 && !taskActions.fetchRunReport && !taskActions.submitRunNote) {
     return rows;
   }
