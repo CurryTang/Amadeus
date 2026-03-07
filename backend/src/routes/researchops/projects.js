@@ -26,6 +26,10 @@ const {
   buildTreeRunAllPayload,
 } = require('../../services/researchops/tree-run-all-payload.service');
 const { buildTreeRunStepPayload } = require('../../services/researchops/tree-run-step-payload.service');
+const {
+  buildObservedSessionItemPayload,
+  buildObservedSessionListPayload,
+} = require('../../services/researchops/observed-session-payload.service');
 const projectInsightsProxy = require('../../services/project-insights-proxy.service');
 const projectInsightsService = require('../../services/project-insights.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
@@ -5228,12 +5232,12 @@ async function listObservedSessionsForProject({
     server,
     ...(Array.isArray(remoteSessions?.items) ? { sessions: remoteSessions.items } : {}),
   });
-  return {
+  return buildObservedSessionListPayload({
     projectId: project.id,
     items: Array.isArray(result?.items) ? result.items : [],
     wrotePlan: Boolean(result?.wrotePlan),
     refreshedAt: new Date().toISOString(),
-  };
+  });
 }
 
 async function getObservedSessionForProject({
@@ -5259,7 +5263,7 @@ async function getObservedSessionForProject({
     throw error;
   }
   return {
-    ...result,
+    ...buildObservedSessionListPayload(result),
     item,
   };
 }
@@ -5285,12 +5289,12 @@ async function refreshObservedSessionForProject({
     sessionId,
     ...(remoteSession?.item ? { session: remoteSession.item } : {}),
   });
-  return {
+  return buildObservedSessionItemPayload({
     projectId: project.id,
     item: result?.item || null,
     wrotePlan: Boolean(result?.wrotePlan),
     refreshedAt: new Date().toISOString(),
-  };
+  });
 }
 
 function buildFallbackRootNode(project = {}, fallbackMessage = '') {
