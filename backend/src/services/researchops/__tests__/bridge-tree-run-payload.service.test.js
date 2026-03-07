@@ -66,6 +66,40 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
   assert.equal(payload.bridgeRuntime.capabilities.canSubmitNodeRun, true);
   assert.equal(payload.bridgeRuntime.capabilities.canFetchRunReport, true);
   assert.equal(payload.bridgeRuntime.capabilities.canSubmitRunNote, true);
+  assert.deepEqual(payload.taskActions.fetchNodeContext, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchNodeContext',
+    payload: {
+      projectId: 'proj_1',
+      nodeId: 'node_eval',
+    },
+  });
+  assert.deepEqual(payload.taskActions.submitNodeRun, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.submitNodeRun',
+    payload: {
+      projectId: 'proj_1',
+      nodeId: 'node_eval',
+    },
+  });
+  assert.deepEqual(payload.taskActions.fetchRunReport, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchRunReport',
+    payload: {
+      runId: 'run_123',
+    },
+  });
+  assert.deepEqual(payload.taskActions.submitRunNote, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.submitRunNote',
+    payload: {
+      runId: 'run_123',
+    },
+  });
   assert.deepEqual(payload.contextPack, {
     generatedAt: '2026-03-06T12:00:00.000Z',
   });
