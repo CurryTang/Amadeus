@@ -6,6 +6,10 @@ import {
   getAgentSessionsFromApiResponse,
 } from './vibe/agentSessionApiResponse.js';
 import {
+  getAgentSessionMessageActionFromApiResponse,
+  getAgentSessionMessagesFromApiResponse,
+} from './vibe/agentSessionMessageApiResponse.js';
+import {
   buildAgentSessionHeaderSummary,
   buildAgentSessionListItem,
 } from './vibe/agentSessionPresentation.js';
@@ -172,9 +176,8 @@ function InteractiveAgentBashModal({
       ]);
       const detailPayload = getAgentSessionDetailFromApiResponse(sessionResp.data);
       const sessionPayload = detailPayload.session;
-      const activeRunPayload = detailPayload.activeRun;
       setSessionDetail(detailPayload);
-      setMessages(Array.isArray(msgResp.data?.items) ? msgResp.data.items : []);
+      setMessages(getAgentSessionMessagesFromApiResponse(msgResp.data));
       if (sessionPayload) syncComposerFromSession(sessionPayload);
       return detailPayload;
     } catch (error) {
@@ -311,12 +314,20 @@ function InteractiveAgentBashModal({
         formData.append('images', item.file, item.filename);
       });
 
-      await axios.post(`${apiUrl}/researchops/agent-sessions/${sid}/messages`, formData, {
+      const resp = await axios.post(`${apiUrl}/researchops/agent-sessions/${sid}/messages`, formData, {
         headers: {
           ...authHeaders(),
           'Content-Type': 'multipart/form-data',
         },
       });
+      const actionPayload = getAgentSessionMessageActionFromApiResponse(resp.data);
+      if (actionPayload.session || actionPayload.run || actionPayload.attempt) {
+        setSessionDetail((prev) => ({
+          session: actionPayload.session || prev?.session || null,
+          activeRun: actionPayload.run || prev?.activeRun || null,
+          activeAttempt: actionPayload.attempt || prev?.activeAttempt || null,
+        }));
+      }
 
       setContent('');
       clearComposerImages();

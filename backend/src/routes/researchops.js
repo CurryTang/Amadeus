@@ -39,6 +39,10 @@ const {
   buildAgentSessionListPayload,
   buildAgentSessionPayload,
 } = require('../services/researchops/agent-session-payload.service');
+const {
+  buildAgentSessionMessageActionPayload,
+  buildAgentSessionMessagesPayload,
+} = require('../services/researchops/agent-session-message-payload.service');
 const { buildContextPackPayload } = require('../services/researchops/context-pack-payload.service');
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
 const { buildRunPayload } = require('../services/researchops/run-payload.service');
@@ -3877,7 +3881,7 @@ router.get('/agent-sessions/:sid/messages', async (req, res) => {
       afterSequence,
       limit,
     });
-    return res.json(result);
+    return res.json(buildAgentSessionMessagesPayload(result));
   } catch (error) {
     console.error('[ResearchOps] listSessionMessages failed:', error);
     return res.status(500).json({ error: 'Failed to list messages' });
@@ -3930,7 +3934,7 @@ router.post(
         reasoningEffort: String(req.body?.reasoningEffort || '').trim(),
         serverId: String(req.body?.serverId || '').trim(),
       });
-      return res.json(result);
+      return res.json(buildAgentSessionMessageActionPayload(result));
     } catch (error) {
       console.error('[ResearchOps] sendUserMessage failed:', error);
       if (error.code === 'SESSION_NOT_FOUND') return res.status(404).json({ error: 'Session not found' });
