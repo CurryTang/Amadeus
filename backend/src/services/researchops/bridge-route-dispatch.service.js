@@ -3,7 +3,7 @@
 const {
   assertBridgeDaemonTransportReady,
   assertRustDaemonTransportReady,
-  readBridgeTransportMode,
+  resolveBridgeTransportMode,
 } = require('./bridge-transport.service');
 
 async function dispatchBridgeTransport({
@@ -14,7 +14,7 @@ async function dispatchBridgeTransport({
   viaHttp = null,
   env = process.env,
 } = {}) {
-  const mode = readBridgeTransportMode(transport);
+  const mode = resolveBridgeTransportMode({ transport, bridgeRuntime, env });
   if (mode === 'daemon-task') {
     const serverId = assertBridgeDaemonTransportReady(bridgeRuntime);
     return viaDaemon({ serverId });

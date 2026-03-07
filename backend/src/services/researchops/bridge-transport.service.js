@@ -13,6 +13,16 @@ function readBridgeTransportMode(value = '') {
   return 'http';
 }
 
+function resolveBridgeTransportMode({
+  transport = '',
+  bridgeRuntime = null,
+  env = process.env,
+} = {}) {
+  const raw = cleanString(transport);
+  if (raw) return readBridgeTransportMode(raw);
+  return selectPreferredBridgeTransport({ bridgeRuntime, env });
+}
+
 function listBridgeTransportModes({ bridgeRuntime = null, env = process.env } = {}) {
   const modes = ['http'];
   const serverId = cleanString(bridgeRuntime?.serverId);
@@ -73,6 +83,7 @@ module.exports = {
   buildBridgeTransportEnum,
   listBridgeTransportModes,
   readBridgeTransportMode,
+  resolveBridgeTransportMode,
   selectPreferredBridgeTransport,
   assertBridgeDaemonTransportReady,
 };
