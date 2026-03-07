@@ -87,6 +87,12 @@ function getSinkProvidersLabel(run = {}) {
   return providers.join(', ');
 }
 
+function getTransportLabel(run = {}) {
+  const resolvedTransport = cleanString(run?.resolvedTransport);
+  if (!resolvedTransport) return '';
+  return `via ${resolvedTransport}`;
+}
+
 function buildRecentRunCards(runs = []) {
   if (!Array.isArray(runs)) return [];
   return [...runs]
@@ -114,6 +120,7 @@ function buildRecentRunCards(runs = []) {
         readinessLabel: getReadinessLabel(run),
         warningsLabel: getWarningsLabel(run),
         sinkProvidersLabel: getSinkProvidersLabel(run),
+        transportLabel: getTransportLabel(run),
         timestamp: formatTimestamp(run?.createdAt),
         raw: run,
       };

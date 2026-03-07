@@ -17,6 +17,7 @@ function buildRunPayload({ run = null } = {}) {
     workspaceSnapshot: buildWorkspaceSnapshotView(run || {}),
     envSnapshot: buildEnvSnapshotView(run || {}),
     observability: buildThinRunObservabilityView(run || {}),
+    resolvedTransport: run?.resolvedTransport || run?.metadata?.resolvedTransport || null,
   };
 }
 

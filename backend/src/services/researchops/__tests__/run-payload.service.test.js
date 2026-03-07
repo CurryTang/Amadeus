@@ -222,3 +222,19 @@ test('buildRunPayload exposes thin normalized observability when run already car
     warnings: ['contract validation failed', 'wandb timeout'],
   });
 });
+
+test('buildRunPayload preserves resolved bridge transport when present on the run', () => {
+  const run = {
+    id: 'run_transport',
+    projectId: 'proj_1',
+    serverId: 'srv_remote_1',
+    provider: 'codex',
+    runType: 'AGENT',
+    status: 'SUCCEEDED',
+    resolvedTransport: 'daemon-task',
+  };
+
+  const payload = buildRunPayload({ run });
+
+  assert.equal(payload.resolvedTransport, 'daemon-task');
+});

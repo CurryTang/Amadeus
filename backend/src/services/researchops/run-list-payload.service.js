@@ -33,6 +33,7 @@ function buildRunListItem(run = {}) {
     workspaceSnapshot: buildWorkspaceSnapshotView(run),
     envSnapshot: buildEnvSnapshotView(run),
     observability: buildThinRunObservabilityView(run),
+    resolvedTransport: run?.resolvedTransport || run?.metadata?.resolvedTransport || null,
     resultSnippet: deriveResultSnippet(run),
   };
 }

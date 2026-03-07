@@ -207,3 +207,23 @@ test('buildRunListPayload includes thin normalized observability semantics on li
     warnings: ['late metrics upload'],
   });
 });
+
+test('buildRunListPayload preserves resolved bridge transport on list items', () => {
+  const payload = buildRunListPayload({
+    page: {
+      items: [{
+        id: 'run_transport',
+        projectId: 'proj_1',
+        serverId: 'srv_remote_1',
+        provider: 'codex',
+        runType: 'AGENT',
+        status: 'SUCCEEDED',
+        resolvedTransport: 'rust-daemon',
+      }],
+      hasMore: false,
+    },
+    limit: 20,
+  });
+
+  assert.equal(payload.items[0].resolvedTransport, 'rust-daemon');
+});

@@ -206,6 +206,23 @@ test('buildRecentRunCards surfaces observability sink providers from normalized 
   assert.equal(cards[1].sinkProvidersLabel, '');
 });
 
+test('buildRecentRunCards surfaces resolved bridge transport labels from normalized run views', () => {
+  const cards = buildRecentRunCards([
+    {
+      id: 'run_transport',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T11:00:00.000Z',
+      metadata: {
+        prompt: 'Inspect bridge transport',
+      },
+      resolvedTransport: 'daemon-task',
+    },
+  ]);
+
+  assert.equal(cards[0].transportLabel, 'via daemon-task');
+});
+
 test('getRunSourceLabel falls back to linked entities when sourceType is absent', () => {
   assert.equal(getRunSourceLabel({ metadata: { treeNodeId: 'node_a' } }), 'Tree');
   assert.equal(getRunSourceLabel({ metadata: { todoId: 'todo_a' } }), 'TODO');
