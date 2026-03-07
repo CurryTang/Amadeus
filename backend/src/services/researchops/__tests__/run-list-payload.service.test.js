@@ -165,3 +165,45 @@ test('buildRunListPayload includes normalized workspace and env snapshot semanti
     },
   });
 });
+
+test('buildRunListPayload includes thin normalized observability semantics on list items', () => {
+  const payload = buildRunListPayload({
+    page: {
+      items: [{
+        id: 'run_obs',
+        projectId: 'proj_1',
+        serverId: 'srv_remote_1',
+        provider: 'codex',
+        runType: 'AGENT',
+        status: 'SUCCEEDED',
+        observability: {
+          counts: {
+            warnings: 1,
+            sinks: 1,
+          },
+          statuses: {
+            readiness: 'ready',
+            contract: 'validated',
+          },
+          sinkProviders: ['wandb'],
+          warnings: ['late metrics upload'],
+        },
+      }],
+      hasMore: false,
+    },
+    limit: 20,
+  });
+
+  assert.deepEqual(payload.items[0].observability, {
+    counts: {
+      warnings: 1,
+      sinks: 1,
+    },
+    statuses: {
+      readiness: 'ready',
+      contract: 'validated',
+    },
+    sinkProviders: ['wandb'],
+    warnings: ['late metrics upload'],
+  });
+});

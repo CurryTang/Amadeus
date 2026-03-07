@@ -184,3 +184,41 @@ test('buildRunPayload exposes normalized workspace and env snapshot semantics', 
     },
   });
 });
+
+test('buildRunPayload exposes thin normalized observability when run already carries summary data', () => {
+  const run = {
+    id: 'run_obs',
+    projectId: 'proj_1',
+    serverId: 'srv_remote_1',
+    provider: 'codex',
+    runType: 'AGENT',
+    status: 'SUCCEEDED',
+    observability: {
+      counts: {
+        warnings: 2,
+        sinks: 1,
+      },
+      statuses: {
+        readiness: 'needs_attention',
+        contract: 'failing',
+      },
+      sinkProviders: ['wandb'],
+      warnings: ['contract validation failed', 'wandb timeout'],
+    },
+  };
+
+  const payload = buildRunPayload({ run });
+
+  assert.deepEqual(payload.observability, {
+    counts: {
+      warnings: 2,
+      sinks: 1,
+    },
+    statuses: {
+      readiness: 'needs_attention',
+      contract: 'failing',
+    },
+    sinkProviders: ['wandb'],
+    warnings: ['contract validation failed', 'wandb timeout'],
+  });
+});

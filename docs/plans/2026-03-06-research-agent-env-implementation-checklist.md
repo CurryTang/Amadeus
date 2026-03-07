@@ -74,6 +74,7 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - `bridge-report` now exposes deliverable counts plus lightweight `hasSummary` / `hasFinalOutput` flags for faster bridge-side result triage
   - `run`, `run-list`, and `run-report` payloads now expose a normalized `contract` view, and run detail surfaces required artifacts plus validation failures directly
   - `run` and `run-list` payloads now also expose thin `workspaceSnapshot` and `envSnapshot` views, so current list/detail/triage flows can read normalized snapshot/runtime hints without first loading a full `RunReport`
+  - `run` and `run-list` payloads now also expose a thin normalized `observability` view when summary data already exists on the run record, so current strips/cards can consume readiness and warning signals without waiting for a full report fetch
   - Run detail snapshot and bridge/runtime summaries now fall back to thin run-level `workspaceSnapshot` / `envSnapshot` / `resolvedTransport` views when a full `RunReport` is not yet loaded, so current detail flows no longer silently lose runtime context during partial loads
   - `bridge-report` now also surfaces the normalized contract view and a direct `hasContractFailures` flag for bridge-side follow-up decisions
   - `bridge-context` capabilities now bubble up bridge-side contract failures directly, so local bridge clients can gate follow-up without reparsing the full report
