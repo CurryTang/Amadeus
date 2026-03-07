@@ -231,7 +231,7 @@ function VibeNodeWorkbench({
           <button
             type="button"
             className="vibe-secondary-btn"
-            onClick={() => onLoadSearch?.(node.id)}
+            onClick={() => onLoadSearch?.(node.id, { refresh: true, announce: true })}
             disabled={searchLoading}
           >
             {searchLoading ? 'Loading...' : 'Refresh Search'}

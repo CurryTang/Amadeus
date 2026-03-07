@@ -31,6 +31,7 @@ import { buildTreeNodeActionMessage } from './vibe/treeNodeActionPresentation';
 import { buildTreeQueueActionMessage } from './vibe/treeQueueActionPresentation';
 import { buildTreeRunAllMessage } from './vibe/treeRunAllPresentation';
 import { buildTreeRunStepMessage } from './vibe/treeRunStepPresentation';
+import { buildSearchActionMessage } from './vibe/searchActionPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
 import { linkClientWorkspace } from '../hooks/useClientWorkspaceRegistry';
 
@@ -2801,7 +2802,7 @@ function VibeResearcherPanel({
     }
   }, [apiUrl, headers, loadTreeWorkspace, selectedProjectId]);
 
-  const handleLoadSearchNode = useCallback(async (nodeId, { refresh = true } = {}) => {
+  const handleLoadSearchNode = useCallback(async (nodeId, { refresh = true, announce = false } = {}) => {
     const projectId = String(selectedProjectId || '').trim();
     const safeNodeId = String(nodeId || '').trim();
     if (!projectId || !safeNodeId) return;
@@ -2815,8 +2816,18 @@ function VibeResearcherPanel({
         }
       );
       setSearchData(response.data?.search || null);
+      if (announce) {
+        setTreeError('');
+        setTreeActionMessage(buildSearchActionMessage('refresh', {
+          nodeId: safeNodeId,
+          search: response.data?.search || null,
+        }));
+      }
       return response.data?.search || null;
     } catch (err) {
+      if (announce) {
+        setTreeActionMessage('');
+      }
       setTreeError(err?.response?.data?.error || err?.message || 'Failed to load search node');
       return null;
     } finally {
