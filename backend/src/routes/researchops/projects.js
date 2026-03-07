@@ -81,6 +81,7 @@ const {
   buildProjectPayload,
   buildProjectListPayload,
 } = require('../../services/researchops/project-location.service');
+const { buildProjectPathCheckPayload } = require('../../services/researchops/project-path-check-payload.service');
 const {
   buildKnowledgeGroupDeletePayload,
   buildKnowledgeGroupListPayload,
@@ -3463,7 +3464,7 @@ router.post('/projects/path-check', async (req, res) => {
         result = await checkLocalPath(projectPath);
       }
 
-      return res.json({
+      return res.json(buildProjectPathCheckPayload({
         locationType,
         serverId: 'local-default',
         projectPath: result.normalizedPath,
@@ -3474,7 +3475,7 @@ router.post('/projects/path-check', async (req, res) => {
         message: result.exists
           ? (result.isDirectory ? 'Path exists and is a directory.' : 'Path exists but is not a directory.')
           : `Path does not exist on ${usingProxy ? 'local executor' : 'backend host'}. It will be created with mkdir -p on project creation.`,
-      });
+      }));
     }
 
     if (locationType === 'client') {
@@ -3483,7 +3484,7 @@ router.post('/projects/path-check', async (req, res) => {
         getClientDevice: async (clientDeviceId) => getClientDeviceById(getUserId(req), clientDeviceId),
         requestDaemonRpc,
       });
-      return res.json(result);
+      return res.json(buildProjectPathCheckPayload(result));
     }
 
     if (locationType !== 'ssh') {
@@ -3498,7 +3499,7 @@ router.post('/projects/path-check', async (req, res) => {
     }
     enforceSshProjectPathPolicy(server, projectPath);
     const result = await checkSshPath(server, projectPath);
-    return res.json({
+    return res.json(buildProjectPathCheckPayload({
       locationType,
       serverId: String(server.id),
       projectPath: result.normalizedPath,
@@ -3508,7 +3509,7 @@ router.post('/projects/path-check', async (req, res) => {
       message: result.exists
         ? (result.isDirectory ? 'Remote path exists and is a directory.' : 'Remote path exists but is not a directory.')
         : 'Remote path does not exist. It will be created with mkdir -p on project creation.',
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] path-check failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to check project path') });
