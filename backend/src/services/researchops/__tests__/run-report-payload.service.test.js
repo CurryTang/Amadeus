@@ -58,6 +58,8 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
   assert.equal(payload.attempt.id, 'run_123');
   assert.equal(payload.attempt.nodeId, 'baseline_root');
   assert.equal(payload.attempt.treeNodeTitle, 'Baseline Root');
+  assert.equal(payload.execution.backend, 'container');
+  assert.equal(payload.execution.runtimeClass, 'container-fast');
   assert.deepEqual(payload.highlights.deliverableArtifactIds, ['art_summary', 'art_final', 'art_report']);
   assert.deepEqual(payload.workspaceSnapshot, {
     path: '/tmp/researchops-runs/run_123',
@@ -86,8 +88,66 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
       timeoutMin: 30,
     },
   });
+  assert.deepEqual(payload.contract, {
+    requiredArtifacts: [],
+    tables: [],
+    figures: [],
+    metricKeys: [],
+    summaryRequired: false,
+    ok: null,
+    missingTables: [],
+    missingFigures: [],
+  });
   assert.equal('bundle' in payload, false);
   assert.equal('reviewQueue' in payload, false);
+});
+
+test('buildRunReportPayload exposes output contract validation when run contract and manifest validation exist', () => {
+  const payload = buildRunReportPayload({
+    run: {
+      id: 'run_contract',
+      projectId: 'proj_1',
+      serverId: 'srv_remote_1',
+      provider: 'codex',
+      runType: 'EXPERIMENT',
+      status: 'SUCCEEDED',
+      outputContract: {
+        requiredArtifacts: ['metrics', 'table'],
+        tables: ['accuracy_summary'],
+        figures: ['loss_curve'],
+        metricKeys: ['accuracy'],
+        summaryRequired: true,
+      },
+      metadata: {
+        jobSpec: {
+          backend: 'container',
+          runtimeClass: 'container-fast',
+        },
+      },
+    },
+    steps: [],
+    artifacts: [],
+    checkpoints: [],
+    summaryText: null,
+    manifest: {
+      contractValidation: {
+        ok: false,
+        missingTables: ['accuracy_summary'],
+        missingFigures: [],
+      },
+    },
+  });
+
+  assert.deepEqual(payload.contract, {
+    requiredArtifacts: ['metrics', 'table'],
+    tables: ['accuracy_summary'],
+    figures: ['loss_curve'],
+    metricKeys: ['accuracy'],
+    summaryRequired: true,
+    ok: false,
+    missingTables: ['accuracy_summary'],
+    missingFigures: [],
+  });
 });
 
 test('buildRunReportPayload derives a remote workspace path when metadata is missing it', () => {

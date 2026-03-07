@@ -78,3 +78,36 @@ test('buildRunListPayload includes follow-up semantics on list items', () => {
     isContinuation: true,
   });
 });
+
+test('buildRunListPayload includes normalized output contract semantics on list items', () => {
+  const payload = buildRunListPayload({
+    page: {
+      items: [{
+        id: 'run_contract',
+        projectId: 'proj_1',
+        serverId: 'srv_remote_1',
+        provider: 'codex',
+        runType: 'AGENT',
+        status: 'SUCCEEDED',
+        outputContract: {
+          requiredArtifacts: ['metrics', 'table'],
+          metricKeys: ['accuracy'],
+          summaryRequired: true,
+        },
+      }],
+      hasMore: false,
+    },
+    limit: 20,
+  });
+
+  assert.deepEqual(payload.items[0].contract, {
+    requiredArtifacts: ['metrics', 'table'],
+    tables: [],
+    figures: [],
+    metricKeys: ['accuracy'],
+    summaryRequired: true,
+    ok: null,
+    missingTables: [],
+    missingFigures: [],
+  });
+});

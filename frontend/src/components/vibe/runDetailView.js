@@ -232,6 +232,59 @@ function buildRunCompareOptions(run = {}, runReport = {}, visibleRuns = []) {
   return [...optionById.values()];
 }
 
+function buildRunContractSummary(run = {}, runReport = {}) {
+  const contract = runReport?.contract && typeof runReport.contract === 'object'
+    ? runReport.contract
+    : {};
+  const rows = [];
+  const requiredArtifacts = Array.isArray(contract.requiredArtifacts)
+    ? contract.requiredArtifacts.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const tables = Array.isArray(contract.tables)
+    ? contract.tables.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const figures = Array.isArray(contract.figures)
+    ? contract.figures.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const metricKeys = Array.isArray(contract.metricKeys)
+    ? contract.metricKeys.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const missingTables = Array.isArray(contract.missingTables)
+    ? contract.missingTables.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const missingFigures = Array.isArray(contract.missingFigures)
+    ? contract.missingFigures.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+
+  if (requiredArtifacts.length > 0) {
+    rows.push({ label: 'Required Artifacts', value: requiredArtifacts.join(', ') });
+  }
+  if (tables.length > 0) {
+    rows.push({ label: 'Tables', value: tables.join(', ') });
+  }
+  if (figures.length > 0) {
+    rows.push({ label: 'Figures', value: figures.join(', ') });
+  }
+  if (metricKeys.length > 0) {
+    rows.push({ label: 'Metric Keys', value: metricKeys.join(', ') });
+  }
+  if (contract.summaryRequired) {
+    rows.push({ label: 'Summary', value: 'Required' });
+  }
+  if (contract.ok === true) {
+    rows.push({ label: 'Contract Check', value: 'Validated' });
+  } else if (contract.ok === false) {
+    rows.push({ label: 'Contract Check', value: 'Validation failed' });
+  }
+  if (missingTables.length > 0) {
+    rows.push({ label: 'Missing Tables', value: missingTables.join(', ') });
+  }
+  if (missingFigures.length > 0) {
+    rows.push({ label: 'Missing Figures', value: missingFigures.join(', ') });
+  }
+  return rows;
+}
+
 function buildRunDetailPrompt(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
   const promptText = cleanString(metadata.prompt);
@@ -277,6 +330,7 @@ function buildRunDetailOutput(run = {}, runReport = {}) {
 export {
   buildRunCompareOptions,
   buildRunCompareSummary,
+  buildRunContractSummary,
   buildRunDetailContext,
   buildRunExecutionSummary,
   buildRunFollowUpSummary,

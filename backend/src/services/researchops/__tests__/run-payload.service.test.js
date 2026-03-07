@@ -100,3 +100,34 @@ test('buildRunPayload exposes follow-up semantics for continuation and compare-l
     isContinuation: true,
   });
 });
+
+test('buildRunPayload exposes normalized output contract semantics', () => {
+  const run = {
+    id: 'run_contract',
+    projectId: 'proj_1',
+    serverId: 'srv_remote_1',
+    provider: 'codex',
+    runType: 'EXPERIMENT',
+    status: 'QUEUED',
+    outputContract: {
+      requiredArtifacts: ['metrics', 'table', 'figure'],
+      tables: ['accuracy_summary'],
+      figures: ['loss_curve'],
+      metricKeys: ['accuracy', 'loss'],
+      summaryRequired: true,
+    },
+  };
+
+  const payload = buildRunPayload({ run });
+
+  assert.deepEqual(payload.contract, {
+    requiredArtifacts: ['metrics', 'table', 'figure'],
+    tables: ['accuracy_summary'],
+    figures: ['loss_curve'],
+    metricKeys: ['accuracy', 'loss'],
+    summaryRequired: true,
+    ok: null,
+    missingTables: [],
+    missingFigures: [],
+  });
+});

@@ -3,6 +3,7 @@
 const { buildAttemptViewFromRun } = require('./attempt-view.service');
 const { buildRunExecutionView } = require('./execution-view.service');
 const { buildRunFollowUpView } = require('./follow-up-view.service');
+const { buildRunOutputContractView } = require('./output-contract-view.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -26,6 +27,7 @@ function buildRunListItem(run = {}) {
     attempt: buildAttemptViewFromRun(run),
     execution: buildRunExecutionView(run),
     followUp: buildRunFollowUpView(run),
+    contract: buildRunOutputContractView(run),
     resultSnippet: deriveResultSnippet(run),
   };
 }

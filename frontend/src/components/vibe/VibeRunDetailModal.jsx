@@ -1,5 +1,6 @@
 import {
   buildRunCompareSummary,
+  buildRunContractSummary,
   buildRunDetailContext,
   buildRunExecutionSummary,
   buildRunDetailOutput,
@@ -29,6 +30,7 @@ function VibeRunDetailModal({
   const followUpSummary = buildRunFollowUpSummary(run, runReport || {});
   const snapshotSummary = buildRunSnapshotSummary(run, runReport || {});
   const compareSummary = buildRunCompareSummary(runCompare || {});
+  const contractSummary = buildRunContractSummary(run, runReport || {});
   const prompt = buildRunDetailPrompt(run);
   const output = buildRunDetailOutput(run, runReport || {});
   const artifacts = Array.isArray(runReport?.artifacts) ? runReport.artifacts : [];
@@ -223,6 +225,23 @@ function VibeRunDetailModal({
                   )}
                 </>
               )}
+            </section>
+          )}
+
+          {contractSummary.length > 0 && (
+            <section className="vibe-run-detail-section">
+              <div className="vibe-card-head">
+                <h4>Contract</h4>
+                <span className="vibe-card-note">output contract + validation</span>
+              </div>
+              <dl className="vibe-run-detail-grid">
+                {contractSummary.map((row) => (
+                  <div key={row.label} className={row.label.includes('Artifacts') || row.label.includes('Tables') || row.label.includes('Figures') ? 'vibe-run-detail-grid-span' : undefined}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
             </section>
           )}
 

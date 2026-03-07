@@ -5,6 +5,7 @@ import {
   buildRunCompareOptions,
   buildRunDetailContext,
   buildRunCompareSummary,
+  buildRunContractSummary,
   buildRunExecutionSummary,
   buildRunFollowUpSummary,
   buildRunSnapshotSummary,
@@ -272,5 +273,34 @@ test('buildRunCompareOptions lists related runs with visible titles and stable i
   assert.deepEqual(options, [
     { value: 'run_alt', label: 'Compare ablation branch' },
     { value: 'run_parent', label: 'python eval.py' },
+  ]);
+});
+
+test('buildRunContractSummary exposes required artifacts and missing validations', () => {
+  const rows = buildRunContractSummary({
+    outputContract: {
+      requiredArtifacts: ['metrics', 'table'],
+    },
+  }, {
+    contract: {
+      requiredArtifacts: ['metrics', 'table'],
+      tables: ['accuracy_summary'],
+      figures: ['loss_curve'],
+      metricKeys: ['accuracy'],
+      summaryRequired: true,
+      ok: false,
+      missingTables: ['accuracy_summary'],
+      missingFigures: [],
+    },
+  });
+
+  assert.deepEqual(rows, [
+    { label: 'Required Artifacts', value: 'metrics, table' },
+    { label: 'Tables', value: 'accuracy_summary' },
+    { label: 'Figures', value: 'loss_curve' },
+    { label: 'Metric Keys', value: 'accuracy' },
+    { label: 'Summary', value: 'Required' },
+    { label: 'Contract Check', value: 'Validation failed' },
+    { label: 'Missing Tables', value: 'accuracy_summary' },
   ]);
 });
