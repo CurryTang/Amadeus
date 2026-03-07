@@ -82,6 +82,10 @@ const {
   buildDaemonListPayload,
 } = require('../services/researchops/daemon-payload.service');
 const {
+  buildAgentCapacityPayload,
+  buildRunnerRunningPayload,
+} = require('../services/researchops/runner-status-payload.service');
+const {
   buildProjectPayload,
   buildProjectListPayload,
 } = require('../services/researchops/project-location.service');
@@ -6181,7 +6185,9 @@ router.get('/scheduler/dispatcher/status', (req, res) => {
 });
 
 router.get('/runner/running', (req, res) => {
-  res.json({ items: researchOpsRunner.getRunningState() });
+  res.json(buildRunnerRunningPayload({
+    items: researchOpsRunner.getRunningState(),
+  }));
 });
 
 // Daemons
@@ -6427,11 +6433,11 @@ router.get('/cluster/agent-capacity', async (req, res) => {
       availableSessions: 0,
     });
 
-    return res.json({
+    return res.json(buildAgentCapacityPayload({
       totals,
       providers,
       refreshedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] cluster agent-capacity failed:', error);
     return res.status(500).json({ error: 'Failed to load agent capacity' });
