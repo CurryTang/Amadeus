@@ -27,6 +27,27 @@ function buildResearchOpsHealthPayload({
           runtime: rustDaemon.runtime && typeof rustDaemon.runtime === 'object'
             ? { ...rustDaemon.runtime }
             : null,
+          taskCatalog: rustDaemon.taskCatalog && typeof rustDaemon.taskCatalog === 'object'
+            ? {
+                ...rustDaemon.taskCatalog,
+                tasks: Array.isArray(rustDaemon.taskCatalog.tasks)
+                  ? rustDaemon.taskCatalog.tasks.map((item) => ({ ...item }))
+                  : [],
+              }
+            : null,
+          catalogParity: rustDaemon.catalogParity && typeof rustDaemon.catalogParity === 'object'
+            ? {
+                status: cleanString(rustDaemon.catalogParity.status) || 'unknown',
+                expectedVersion: cleanString(rustDaemon.catalogParity.expectedVersion) || null,
+                actualVersion: cleanString(rustDaemon.catalogParity.actualVersion) || null,
+                missingTaskTypes: Array.isArray(rustDaemon.catalogParity.missingTaskTypes)
+                  ? rustDaemon.catalogParity.missingTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+                  : [],
+                extraTaskTypes: Array.isArray(rustDaemon.catalogParity.extraTaskTypes)
+                  ? rustDaemon.catalogParity.extraTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+                  : [],
+              }
+            : null,
           error: cleanString(rustDaemon.error) || null,
         }
       : null,

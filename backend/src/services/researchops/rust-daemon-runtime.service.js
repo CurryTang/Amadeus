@@ -1,6 +1,10 @@
 'use strict';
 
 const http = require('node:http');
+const {
+  DAEMON_TASK_CATALOG_VERSION,
+  listDaemonTaskDescriptors,
+} = require('./daemon-task-descriptor.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -79,6 +83,59 @@ function requestJson({ transport, endpoint, socketPath, requestPath = '/runtime'
   });
 }
 
+function buildExpectedTaskCatalog() {
+  return {
+    version: DAEMON_TASK_CATALOG_VERSION,
+    taskTypes: listDaemonTaskDescriptors()
+      .map((item) => cleanString(item?.taskType || item?.task_type))
+      .filter(Boolean)
+      .sort(),
+  };
+}
+
+function normalizeTaskCatalog(taskCatalog = null) {
+  const source = taskCatalog && typeof taskCatalog === 'object' ? taskCatalog : {};
+  return {
+    version: cleanString(source.version),
+    tasks: (Array.isArray(source.tasks) ? source.tasks : [])
+      .map((item) => {
+        const taskType = cleanString(item?.task_type || item?.taskType);
+        return taskType ? { ...(item && typeof item === 'object' ? item : {}), task_type: taskType } : null;
+      })
+      .filter(Boolean),
+  };
+}
+
+function compareRustTaskCatalog(taskCatalog = null) {
+  const normalized = normalizeTaskCatalog(taskCatalog);
+  if (!normalized.version || normalized.tasks.length === 0) {
+    return {
+      status: 'unknown',
+      expectedVersion: DAEMON_TASK_CATALOG_VERSION,
+      actualVersion: normalized.version || null,
+      missingTaskTypes: [],
+      extraTaskTypes: [],
+    };
+  }
+  const expected = buildExpectedTaskCatalog();
+  const actualTaskTypes = normalized.tasks
+    .map((item) => cleanString(item?.task_type))
+    .filter(Boolean)
+    .sort();
+  const actualSet = new Set(actualTaskTypes);
+  const expectedSet = new Set(expected.taskTypes);
+  const missingTaskTypes = expected.taskTypes.filter((item) => !actualSet.has(item));
+  const extraTaskTypes = actualTaskTypes.filter((item) => !expectedSet.has(item));
+  const versionMatches = normalized.version === expected.version;
+  return {
+    status: versionMatches && missingTaskTypes.length === 0 && extraTaskTypes.length === 0 ? 'aligned' : 'mismatch',
+    expectedVersion: expected.version,
+    actualVersion: normalized.version,
+    missingTaskTypes,
+    extraTaskTypes,
+  };
+}
+
 async function probeRustDaemonRuntime({
   env = process.env,
   timeoutMs = 1500,
@@ -97,13 +154,23 @@ async function probeRustDaemonRuntime({
   }
 
   try {
-    const runtime = await requestJson({
-      transport: config.transport,
-      endpoint: config.endpoint,
-      socketPath: config.socketPath,
-      requestPath: '/runtime',
-      timeoutMs,
-    });
+    const [runtime, taskCatalog] = await Promise.all([
+      requestJson({
+        transport: config.transport,
+        endpoint: config.endpoint,
+        socketPath: config.socketPath,
+        requestPath: '/runtime',
+        timeoutMs,
+      }),
+      requestJson({
+        transport: config.transport,
+        endpoint: config.endpoint,
+        socketPath: config.socketPath,
+        requestPath: '/task-catalog',
+        timeoutMs,
+      }).catch(() => null),
+    ]);
+    const normalizedTaskCatalog = normalizeTaskCatalog(taskCatalog);
     return {
       enabled: true,
       status: 'ok',
@@ -111,6 +178,10 @@ async function probeRustDaemonRuntime({
       endpoint: config.endpoint,
       socketPath: config.socketPath,
       runtime,
+      taskCatalog: normalizedTaskCatalog.version || normalizedTaskCatalog.tasks.length > 0
+        ? normalizedTaskCatalog
+        : null,
+      catalogParity: compareRustTaskCatalog(taskCatalog),
       error: null,
     };
   } catch (error) {
@@ -121,12 +192,22 @@ async function probeRustDaemonRuntime({
       endpoint: config.endpoint,
       socketPath: config.socketPath,
       runtime: null,
+      taskCatalog: null,
+      catalogParity: {
+        status: 'unknown',
+        expectedVersion: DAEMON_TASK_CATALOG_VERSION,
+        actualVersion: null,
+        missingTaskTypes: [],
+        extraTaskTypes: [],
+      },
       error: cleanString(error?.message) || 'Failed to probe rust daemon runtime',
     };
   }
 }
 
 module.exports = {
+  compareRustTaskCatalog,
+  normalizeTaskCatalog,
   probeRustDaemonRuntime,
   readRustDaemonConfig,
 };

@@ -18,6 +18,15 @@ test('buildResearchOpsHealthPayload preserves health roots and adds a stable sta
       runtime: {
         task_catalog_version: 'v0',
       },
+      taskCatalog: {
+        version: 'v0',
+        tasks: [{ task_type: 'project.checkPath' }],
+      },
+      catalogParity: {
+        status: 'mismatch',
+        missingTaskTypes: ['project.ensureGit'],
+        extraTaskTypes: [],
+      },
     },
   });
 
@@ -29,6 +38,9 @@ test('buildResearchOpsHealthPayload preserves health roots and adds a stable sta
   assert.equal(payload.rustDaemon.transport, 'http');
   assert.equal(payload.rustDaemon.endpoint, 'http://127.0.0.1:7788');
   assert.equal(payload.rustDaemon.runtime.task_catalog_version, 'v0');
+  assert.equal(payload.rustDaemon.taskCatalog.version, 'v0');
+  assert.equal(payload.rustDaemon.catalogParity.status, 'mismatch');
+  assert.deepEqual(payload.rustDaemon.catalogParity.missingTaskTypes, ['project.ensureGit']);
   assert.deepEqual(payload.actions.health, {
     method: 'GET',
     path: '/api/researchops/health',

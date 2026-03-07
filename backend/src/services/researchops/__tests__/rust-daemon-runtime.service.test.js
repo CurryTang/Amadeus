@@ -56,8 +56,30 @@ test('probeRustDaemonRuntime returns disabled when no rust daemon env is configu
 test('probeRustDaemonRuntime reads runtime summary over http', async () => {
   const server = http.createServer((req, res) => {
     assert.equal(req.method, 'GET');
-    assert.equal(req.url, '/runtime');
-    const body = buildRuntimeBody();
+    if (req.url === '/runtime') {
+      const body = buildRuntimeBody();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Connection: 'close',
+      });
+      res.end(body);
+      return;
+    }
+    assert.equal(req.url, '/task-catalog');
+    const body = JSON.stringify({
+      version: 'v0',
+      tasks: [
+        { task_type: 'project.checkPath' },
+        { task_type: 'project.ensurePath' },
+        { task_type: 'project.ensureGit' },
+        { task_type: 'bridge.fetchNodeContext' },
+        { task_type: 'bridge.fetchContextPack' },
+        { task_type: 'bridge.submitNodeRun' },
+        { task_type: 'bridge.fetchRunReport' },
+        { task_type: 'bridge.submitRunNote' },
+      ],
+    });
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body),
@@ -81,6 +103,10 @@ test('probeRustDaemonRuntime reads runtime summary over http', async () => {
     assert.equal(result.transport, 'http');
     assert.equal(result.runtime.task_catalog_version, 'v0');
     assert.deepEqual(result.runtime.supported_task_types, ['project.checkPath', 'bridge.fetchRunReport']);
+    assert.equal(result.taskCatalog.version, 'v0');
+    assert.equal(result.catalogParity.status, 'aligned');
+    assert.deepEqual(result.catalogParity.missingTaskTypes, []);
+    assert.deepEqual(result.catalogParity.extraTaskTypes, []);
   } finally {
     await close(server);
   }
@@ -90,8 +116,23 @@ test('probeRustDaemonRuntime reads runtime summary over unix socket', async () =
   const socketPath = path.join(os.tmpdir(), `researchops-rust-runtime-${Date.now()}-${process.pid}.sock`);
   const server = http.createServer((req, res) => {
     assert.equal(req.method, 'GET');
-    assert.equal(req.url, '/runtime');
-    const body = buildRuntimeBody();
+    if (req.url === '/runtime') {
+      const body = buildRuntimeBody();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Connection: 'close',
+      });
+      res.end(body);
+      return;
+    }
+    assert.equal(req.url, '/task-catalog');
+    const body = JSON.stringify({
+      version: 'v0',
+      tasks: [
+        { task_type: 'project.checkPath' },
+      ],
+    });
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body),
@@ -114,6 +155,16 @@ test('probeRustDaemonRuntime reads runtime summary over unix socket', async () =
     assert.equal(result.transport, 'unix');
     assert.equal(result.runtime.task_catalog_version, 'v0');
     assert.equal(result.socketPath, socketPath);
+    assert.equal(result.catalogParity.status, 'mismatch');
+    assert.deepEqual(result.catalogParity.missingTaskTypes, [
+      'bridge.fetchContextPack',
+      'bridge.fetchNodeContext',
+      'bridge.fetchRunReport',
+      'bridge.submitNodeRun',
+      'bridge.submitRunNote',
+      'project.ensureGit',
+      'project.ensurePath',
+    ]);
   } finally {
     await close(server);
     fs.rmSync(socketPath, { force: true });

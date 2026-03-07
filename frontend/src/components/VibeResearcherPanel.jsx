@@ -27,6 +27,7 @@ import {
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
+  buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
 } from './vibe/daemonPresentation';
@@ -1580,6 +1581,10 @@ function VibeResearcherPanel({
   );
   const rustDaemonStatusNote = useMemo(
     () => buildRustDaemonStatusNote(researchOpsHealth),
+    [researchOpsHealth],
+  );
+  const rustDaemonStatusRows = useMemo(
+    () => buildRustDaemonStatusRows(researchOpsHealth),
     [researchOpsHealth],
   );
   const clientBootstrapRuntimeCommands = useMemo(
@@ -5736,6 +5741,15 @@ function VibeResearcherPanel({
                         <p className="vibe-empty">
                           {rustDaemonStatusNote}
                         </p>
+                      )}
+                      {rustDaemonStatusRows.length > 0 && (
+                        <div className="vibe-client-browser-box">
+                          {rustDaemonStatusRows.map((row) => (
+                            <p key={row.label} className="vibe-empty">
+                              <strong>{row.label}:</strong> {row.value}
+                            </p>
+                          ))}
+                        </div>
                       )}
                       {clientBootstrapOpen && (
                         <div className="vibe-client-browser-box">

@@ -30,10 +30,19 @@ function buildRustDaemonStatusNote(health = null) {
   const transport = cleanString(rustDaemon.transport) || 'unknown';
   if (cleanString(rustDaemon.status).toLowerCase() === 'ok') {
     const runtime = rustDaemon.runtime && typeof rustDaemon.runtime === 'object' ? rustDaemon.runtime : {};
+    const catalogParity = rustDaemon.catalogParity && typeof rustDaemon.catalogParity === 'object'
+      ? rustDaemon.catalogParity
+      : null;
     const parts = [];
     const catalogVersion = cleanString(runtime.task_catalog_version);
     if (catalogVersion) parts.push(`catalog ${catalogVersion}`);
     if (runtime.supports_local_bridge_workflow === true) parts.push('bridge ready');
+    if (cleanString(catalogParity?.status).toLowerCase() === 'mismatch') {
+      const missing = Array.isArray(catalogParity?.missingTaskTypes)
+        ? catalogParity.missingTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+        : [];
+      parts.push(`catalog drift${missing.length ? `: ${missing.join(', ')}` : ''}`);
+    }
     return `Rust daemon ready via ${transport}${parts.length ? ` (${parts.join(' · ')})` : ''}.`;
   }
   if (cleanString(rustDaemon.status).toLowerCase() === 'error') {
@@ -41,6 +50,44 @@ function buildRustDaemonStatusNote(health = null) {
     return `Rust daemon probe failed via ${transport}: ${message}.`;
   }
   return `Rust daemon status: ${cleanString(rustDaemon.status) || 'unknown'}.`;
+}
+
+function buildRustDaemonStatusRows(health = null) {
+  const rustDaemon = health && typeof health === 'object' ? health.rustDaemon : null;
+  if (!rustDaemon || typeof rustDaemon !== 'object' || rustDaemon.enabled !== true) return [];
+  const rows = [];
+  const transport = cleanString(rustDaemon.transport);
+  const endpoint = cleanString(rustDaemon.endpoint);
+  const socketPath = cleanString(rustDaemon.socketPath);
+  const taskCatalog = rustDaemon.taskCatalog && typeof rustDaemon.taskCatalog === 'object'
+    ? rustDaemon.taskCatalog
+    : null;
+  const catalogParity = rustDaemon.catalogParity && typeof rustDaemon.catalogParity === 'object'
+    ? rustDaemon.catalogParity
+    : null;
+  const taskCount = Array.isArray(taskCatalog?.tasks) ? taskCatalog.tasks.length : 0;
+  const version = cleanString(taskCatalog?.version);
+  const missingTaskTypes = Array.isArray(catalogParity?.missingTaskTypes)
+    ? catalogParity.missingTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const extraTaskTypes = Array.isArray(catalogParity?.extraTaskTypes)
+    ? catalogParity.extraTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+
+  if (transport) rows.push({ label: 'Rust Transport', value: transport });
+  if (endpoint) rows.push({ label: 'Rust Endpoint', value: endpoint });
+  if (socketPath) rows.push({ label: 'Rust Socket', value: socketPath });
+  if (version) rows.push({ label: 'Rust Task Catalog', value: `${version} (${taskCount} tasks)` });
+  if (cleanString(catalogParity?.status)) {
+    rows.push({ label: 'Rust Catalog Parity', value: cleanString(catalogParity.status) });
+  }
+  if (missingTaskTypes.length > 0) {
+    rows.push({ label: 'Rust Missing Tasks', value: missingTaskTypes.join(', ') });
+  }
+  if (extraTaskTypes.length > 0) {
+    rows.push({ label: 'Rust Extra Tasks', value: extraTaskTypes.join(', ') });
+  }
+  return rows;
 }
 
 function buildBootstrapRuntimeCommands(bootstrap = null) {
@@ -105,6 +152,7 @@ export {
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
+  buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
 };
