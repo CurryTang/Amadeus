@@ -74,5 +74,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Plan/dashboard enqueue paths now also reuse the shared enqueue normalizer, so those side entrances no longer bypass execution and contract normalization
   - Tree execution payloads (`run-step`, `run-all`, `bridge-run`) now expose the same `execution/followUp/contract` run views as `/runs/*`, instead of only attempt metadata
   - Tree preflight responses now also include a normalized `runPreview` view, so runtime/contract/snapshot hints are readable before actual enqueue
+  - Tree preflight success messages now summarize runtime class/backend and required artifact counts, so those normalized previews are visible in the current UI without a new panel
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility
