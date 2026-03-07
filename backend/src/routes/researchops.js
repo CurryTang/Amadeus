@@ -114,6 +114,7 @@ const {
   buildGeneratedPlanPayload,
   buildEnqueuedPlanPayload,
 } = require('../services/researchops/plan-payload.service');
+const { buildKbSearchPayload } = require('../services/researchops/kb-search-payload.service');
 const {
   buildSchedulerLeasePayload,
   buildSchedulerRecoveryPayload,
@@ -6384,7 +6385,7 @@ router.post('/kb/search', async (req, res) => {
         },
         12000
       );
-      return res.json(result);
+      return res.json(buildKbSearchPayload({ query, topK, result }));
     } catch (error) {
       console.error('[ResearchOps] KB proxy failed:', error);
       return res.status(502).json({ error: sanitizeError(error, 'KB service unavailable') });
@@ -6423,10 +6424,14 @@ router.post('/kb/search', async (req, res) => {
         text: project.description || '',
       }));
 
-    return res.json({
-      source: 'fallback-metadata',
-      items: [...ideaHits, ...projectHits],
-    });
+    return res.json(buildKbSearchPayload({
+      query,
+      topK,
+      result: {
+        source: 'fallback-metadata',
+        items: [...ideaHits, ...projectHits],
+      },
+    }));
   } catch (error) {
     console.error('[ResearchOps] KB fallback failed:', error);
     return res.status(500).json({ error: 'Failed to perform fallback KB search' });
