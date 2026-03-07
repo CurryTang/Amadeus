@@ -72,6 +72,12 @@ function buildRuntimeOverviewSummaryRows(summary = null) {
   if (source.rustManagedDesired === true || source.rustManagedDesired === false) {
     rows.push({ label: 'Rust Desired', value: source.rustManagedDesired ? 'running' : 'stopped' });
   }
+  if (cleanString(source.recommendedBackend) && cleanString(source.recommendedRuntimeClass)) {
+    rows.push({
+      label: 'Recommended Runtime',
+      value: `${cleanString(source.recommendedBackend)} / ${cleanString(source.recommendedRuntimeClass)}`,
+    });
+  }
   if (runningCount !== null) rows.push({ label: 'Running Jobs', value: String(runningCount) });
   if (runtimeCatalogVersion && backendCount !== null && runtimeClassCount !== null) {
     rows.push({
@@ -108,6 +114,12 @@ function buildUnifiedControlSurfaceRows({
     rows.push({ label: 'Runtime Drift', value: 'managed desired, runtime down' });
   } else if (runtime.rustManagedRunning === true) {
     rows.push({ label: 'Runtime Drift', value: 'managed runtime ready' });
+  }
+  if (cleanString(runtime.recommendedBackend) && cleanString(runtime.recommendedRuntimeClass)) {
+    rows.push({
+      label: 'Recommended Runtime',
+      value: `${cleanString(runtime.recommendedBackend)} / ${cleanString(runtime.recommendedRuntimeClass)}`,
+    });
   }
   if (Number.isFinite(Number(review.remoteExecutionCount)) && Number(review.remoteExecutionCount) > 0) {
     rows.push({ label: 'Remote Runs', value: String(Number(review.remoteExecutionCount)) });

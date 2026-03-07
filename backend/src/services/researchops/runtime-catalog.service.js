@@ -153,10 +153,34 @@ function buildExecutionRuntimeCatalog() {
   };
 }
 
+function buildRecommendedExecutionRuntime({ runtimeSummary = null } = {}) {
+  const summary = runtimeSummary && typeof runtimeSummary === 'object' ? runtimeSummary : {};
+  if (summary.rustManagedRunning === true) {
+    return {
+      backend: 'container',
+      runtimeClass: 'container-guarded',
+      reason: 'Managed Rust bridge runtime is online for guarded execution.',
+    };
+  }
+  if (Number(summary.bridgeReadyClients || 0) > 0) {
+    return {
+      backend: 'container',
+      runtimeClass: 'container-fast',
+      reason: 'Bridge-ready client runtimes are available for container execution.',
+    };
+  }
+  return {
+    backend: 'local',
+    runtimeClass: 'wasm-lite',
+    reason: 'No managed bridge runtime is online; prefer the local lightweight runtime.',
+  };
+}
+
 module.exports = {
   EXECUTION_RUNTIME_CATALOG_VERSION,
   buildExecutionRuntimeCatalog,
   buildExecutionRuntimeProfile,
+  buildRecommendedExecutionRuntime,
   getBackendDescriptor,
   getRuntimeClassDescriptor,
   normalizeExecutionBackend,

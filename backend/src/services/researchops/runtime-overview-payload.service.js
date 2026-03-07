@@ -1,6 +1,9 @@
 'use strict';
 
-const { buildExecutionRuntimeCatalog } = require('./runtime-catalog.service');
+const {
+  buildExecutionRuntimeCatalog,
+  buildRecommendedExecutionRuntime,
+} = require('./runtime-catalog.service');
 
 function buildRuntimeOverviewSummary({ daemons = null, rustDaemon = null, runner = null } = {}) {
   const runtimeCatalog = buildExecutionRuntimeCatalog();
@@ -9,7 +12,7 @@ function buildRuntimeOverviewSummary({ daemons = null, rustDaemon = null, runner
   const bridgeReadyClients = daemonItems.filter((item) => item?.capabilities?.supportsLocalBridgeWorkflow === true).length;
   const snapshotReadyClients = daemonItems.filter((item) => item?.capabilities?.supportsWorkspaceSnapshotCapture === true).length;
   const runningCount = Array.isArray(runner?.items) ? runner.items.length : 0;
-  return {
+  const summary = {
     onlineClients,
     bridgeReadyClients,
     snapshotReadyClients,
@@ -21,6 +24,13 @@ function buildRuntimeOverviewSummary({ daemons = null, rustDaemon = null, runner
     runtimeCatalogVersion: runtimeCatalog.version,
     backendCount: runtimeCatalog.backends.length,
     runtimeClassCount: runtimeCatalog.runtimeClasses.length,
+  };
+  const recommendation = buildRecommendedExecutionRuntime({ runtimeSummary: summary });
+  return {
+    ...summary,
+    recommendedBackend: recommendation.backend,
+    recommendedRuntimeClass: recommendation.runtimeClass,
+    recommendationReason: recommendation.reason,
   };
 }
 

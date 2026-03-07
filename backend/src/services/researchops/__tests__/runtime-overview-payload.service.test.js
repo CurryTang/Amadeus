@@ -71,6 +71,9 @@ test('buildRuntimeOverviewPayload aggregates daemon, rust, and runner views with
     runtimeCatalogVersion: 'v0',
     backendCount: 4,
     runtimeClassCount: 4,
+    recommendedBackend: 'container',
+    recommendedRuntimeClass: 'container-guarded',
+    recommendationReason: 'Managed Rust bridge runtime is online for guarded execution.',
   });
   assert.deepEqual(payload.actions.overview, {
     method: 'GET',

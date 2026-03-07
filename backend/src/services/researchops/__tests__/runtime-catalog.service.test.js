@@ -7,6 +7,7 @@ const {
   EXECUTION_RUNTIME_CATALOG_VERSION,
   buildExecutionRuntimeCatalog,
   buildExecutionRuntimeProfile,
+  buildRecommendedExecutionRuntime,
   normalizeExecutionBackend,
   normalizeRuntimeClass,
 } = require('../runtime-catalog.service');
@@ -104,4 +105,33 @@ test('buildExecutionRuntimeCatalog exposes the current backend and runtime-class
     'container-guarded',
     'microvm-strong',
   ]);
+});
+
+test('buildRecommendedExecutionRuntime prefers guarded container runtime when managed rust runtime is available', () => {
+  assert.deepEqual(buildRecommendedExecutionRuntime({
+    runtimeSummary: {
+      rustManagedRunning: true,
+      rustSnapshotReady: true,
+      bridgeReadyClients: 1,
+      onlineClients: 2,
+    },
+  }), {
+    backend: 'container',
+    runtimeClass: 'container-guarded',
+    reason: 'Managed Rust bridge runtime is online for guarded execution.',
+  });
+});
+
+test('buildRecommendedExecutionRuntime falls back to fast container runtime when bridge-ready clients exist', () => {
+  assert.deepEqual(buildRecommendedExecutionRuntime({
+    runtimeSummary: {
+      rustManagedRunning: false,
+      bridgeReadyClients: 2,
+      onlineClients: 2,
+    },
+  }), {
+    backend: 'container',
+    runtimeClass: 'container-fast',
+    reason: 'Bridge-ready client runtimes are available for container execution.',
+  });
 });
