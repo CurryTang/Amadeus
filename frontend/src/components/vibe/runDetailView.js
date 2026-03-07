@@ -346,6 +346,13 @@ function buildRunCompareSummary(comparePayload = {}) {
   const observability = other?.report?.observability && typeof other.report.observability === 'object'
     ? other.report.observability
     : {};
+  const execution = other?.execution && typeof other.execution === 'object' ? other.execution : {};
+  const workspaceSnapshot = other?.report?.workspaceSnapshot && typeof other.report.workspaceSnapshot === 'object'
+    ? other.report.workspaceSnapshot
+    : {};
+  const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
+    ? workspaceSnapshot.localSnapshot
+    : {};
   const relatedRunIds = Array.isArray(relation.relatedRunIds)
     ? relation.relatedRunIds.map((item) => cleanString(item)).filter(Boolean)
     : [];
@@ -366,6 +373,8 @@ function buildRunCompareSummary(comparePayload = {}) {
     otherWarnings: Math.max(Number(observability?.counts?.warnings) || 0, 0) > 0
       ? `${Math.max(Number(observability?.counts?.warnings) || 0, 0)} warnings`
       : '',
+    otherExecutionLocation: cleanString(execution.location),
+    otherSnapshotBacked: Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)),
     sharedParentRunsLabel: sharedParentRunIds.join(', '),
     relatedRunsLabel: relatedRunIds.join(', '),
     deliverableCount: deliverableArtifactIds.length,

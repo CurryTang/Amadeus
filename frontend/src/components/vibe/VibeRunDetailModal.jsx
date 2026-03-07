@@ -243,6 +243,18 @@ function VibeRunDetailModal({
                         <dd>{compareSummary.otherReadiness}</dd>
                       </div>
                     )}
+                    {compareSummary.otherExecutionLocation && (
+                      <div>
+                        <dt>Execution</dt>
+                        <dd>{compareSummary.otherExecutionLocation}</dd>
+                      </div>
+                    )}
+                    {compareSummary.otherSnapshotBacked && (
+                      <div>
+                        <dt>Snapshot Backed</dt>
+                        <dd>Yes</dd>
+                      </div>
+                    )}
                     {compareSummary.otherWarnings && (
                       <div>
                         <dt>Warnings</dt>

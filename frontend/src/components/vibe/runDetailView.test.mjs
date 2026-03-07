@@ -333,9 +333,17 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
             warnings: 2,
           },
         },
+        workspaceSnapshot: {
+          localSnapshot: {
+            kind: 'workspace_patch',
+          },
+        },
         highlights: {
           deliverableArtifactIds: ['art_summary'],
         },
+      },
+      execution: {
+        location: 'remote',
       },
     },
     relation: {
@@ -352,6 +360,8 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherSummary: 'Ablation branch regressed on accuracy.',
     otherReadiness: 'Needs attention',
     otherWarnings: '2 warnings',
+    otherExecutionLocation: 'remote',
+    otherSnapshotBacked: true,
     sharedParentRunsLabel: 'run_seed',
     relatedRunsLabel: 'run_seed, run_other',
     deliverableCount: 1,
