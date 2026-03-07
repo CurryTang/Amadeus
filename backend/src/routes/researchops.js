@@ -52,6 +52,7 @@ const {
   buildIdeaListPayload,
   buildIdeaPayload,
 } = require('../services/researchops/idea-payload.service');
+const { buildSkillListPayload } = require('../services/researchops/skill-payload.service');
 const {
   buildObservedSessionListPayload,
 } = require('../services/researchops/observed-session-payload.service');
@@ -3188,7 +3189,7 @@ router.get('/dashboard', async (req, res) => {
       ideas,
       queue,
       runs,
-      skills,
+      skills: buildSkillListPayload({ items: skills }).items,
       refreshedAt: new Date().toISOString(),
     });
   } catch (error) {
@@ -6234,7 +6235,7 @@ router.get('/cluster/agent-capacity', async (req, res) => {
 router.get('/skills', async (req, res) => {
   try {
     const items = await researchOpsStore.listSkills(getUserId(req));
-    res.json({ items });
+    res.json(buildSkillListPayload({ items }));
   } catch (error) {
     console.error('[ResearchOps] listSkills failed:', error);
     res.status(500).json({ error: 'Failed to list skills' });

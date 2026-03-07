@@ -101,3 +101,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Run checkpoint list and decision responses now use a normalized checkpoint payload with filters, checkpoint action descriptors, and list follow-up actions, so the run evidence family no longer leaves checkpoints on ad-hoc raw response shapes
   - Scheduler queue responses now use a normalized queue payload built from enriched run-list items, and dashboard queue aggregation now reuses the same normalizer instead of mixing raw queued-run shapes
   - Idea list/detail/create/update responses now use normalized idea payloads with compatible top-level idea items plus follow-up action descriptors, and dashboard idea aggregation now reuses the same normalizer
+  - Skill list responses now use a normalized payload with content-edit action descriptors, and dashboard skill aggregation now reuses the same normalizer instead of raw merged skill items
