@@ -65,6 +65,10 @@ const {
   fetchNodeBridgeContextViaDaemon,
   submitNodeBridgeRunViaDaemon,
 } = require('../../services/researchops/bridge-daemon-rpc.service');
+const {
+  fetchNodeBridgeContextViaRustDaemon,
+  submitNodeBridgeRunViaRustDaemon,
+} = require('../../services/researchops/rust-daemon-bridge.service');
 const { dispatchBridgeTransport } = require('../../services/researchops/bridge-route-dispatch.service');
 const {
   readBridgeContextOptions,
@@ -6929,6 +6933,16 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
         workspaceSnapshot,
         localSnapshot,
       }),
+      viaRust: async () => submitNodeBridgeRunViaRustDaemon({
+        projectId: project.id,
+        nodeId,
+        force,
+        preflightOnly,
+        searchTrialCount,
+        clarifyMessages,
+        workspaceSnapshot,
+        localSnapshot,
+      }),
       viaHttp: async () => {
         const result = await executeTreeNodeRun({
           userId,
@@ -7211,6 +7225,12 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
       viaDaemon: ({ serverId }) => fetchNodeBridgeContextViaDaemon({
         userId,
         serverId,
+        projectId: project.id,
+        nodeId,
+        includeContextPack,
+        includeReport,
+      }),
+      viaRust: async () => fetchNodeBridgeContextViaRustDaemon({
         projectId: project.id,
         nodeId,
         includeContextPack,

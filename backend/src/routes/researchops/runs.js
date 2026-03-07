@@ -31,6 +31,11 @@ const {
   fetchRunContextPackViaDaemon,
   submitRunBridgeNoteViaDaemon,
 } = require('../../services/researchops/bridge-daemon-rpc.service');
+const {
+  fetchRunBridgeReportViaRustDaemon,
+  fetchRunContextPackViaRustDaemon,
+  submitRunBridgeNoteViaRustDaemon,
+} = require('../../services/researchops/rust-daemon-bridge.service');
 const { dispatchBridgeTransport } = require('../../services/researchops/bridge-route-dispatch.service');
 const { buildRunArtifactListPayload } = require('../../services/researchops/run-artifact-list-payload.service');
 const {
@@ -765,6 +770,9 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
         serverId,
         runId,
       }),
+      viaRust: async () => fetchRunBridgeReportViaRustDaemon({
+        runId,
+      }),
       viaHttp: async () => {
         const report = buildRunReportPayload({
           run,
@@ -852,6 +860,12 @@ router.post('/runs/:runId/bridge-note', async (req, res) => {
         content,
         noteType: req.body?.noteType,
       }),
+      viaRust: async () => submitRunBridgeNoteViaRustDaemon({
+        runId,
+        title: req.body?.title,
+        content,
+        noteType: req.body?.noteType,
+      }),
       viaHttp: async () => {
         const artifact = await researchOpsStore.createRunArtifact(
           userId,
@@ -916,6 +930,9 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
       viaDaemon: ({ serverId }) => fetchRunContextPackViaDaemon({
         userId,
         serverId,
+        runId,
+      }),
+      viaRust: async () => fetchRunContextPackViaRustDaemon({
         runId,
       }),
       viaHttp: async () => {

@@ -148,6 +148,13 @@ const {
   submitNodeBridgeRunViaDaemon,
   submitRunBridgeNoteViaDaemon,
 } = require('../services/researchops/bridge-daemon-rpc.service');
+const {
+  fetchNodeBridgeContextViaRustDaemon,
+  fetchRunContextPackViaRustDaemon,
+  fetchRunBridgeReportViaRustDaemon,
+  submitNodeBridgeRunViaRustDaemon,
+  submitRunBridgeNoteViaRustDaemon,
+} = require('../services/researchops/rust-daemon-bridge.service');
 const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const { dispatchBridgeTransport } = require('../services/researchops/bridge-route-dispatch.service');
 const { buildRunComparePayload } = require('../services/researchops/run-compare-payload.service');
@@ -6069,6 +6076,9 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
         serverId,
         runId,
       }),
+      viaRust: async () => fetchRunBridgeReportViaRustDaemon({
+        runId,
+      }),
       viaHttp: async () => {
         const report = buildRunReportPayload({
           run,
@@ -6151,6 +6161,12 @@ router.post('/runs/:runId/bridge-note', async (req, res) => {
       viaDaemon: ({ serverId }) => submitRunBridgeNoteViaDaemon({
         userId,
         serverId,
+        runId,
+        title: req.body?.title,
+        content,
+        noteType: req.body?.noteType,
+      }),
+      viaRust: async () => submitRunBridgeNoteViaRustDaemon({
         runId,
         title: req.body?.title,
         content,
@@ -7678,6 +7694,16 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
         workspaceSnapshot,
         localSnapshot,
       }),
+      viaRust: async () => submitNodeBridgeRunViaRustDaemon({
+        projectId: project.id,
+        nodeId,
+        force,
+        preflightOnly,
+        searchTrialCount,
+        clarifyMessages,
+        workspaceSnapshot,
+        localSnapshot,
+      }),
       viaHttp: async () => {
         const result = await executeTreeNodeRun({
           userId,
@@ -7966,6 +7992,12 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
         includeContextPack,
         includeReport,
       }),
+      viaRust: async () => fetchNodeBridgeContextViaRustDaemon({
+        projectId: project.id,
+        nodeId,
+        includeContextPack,
+        includeReport,
+      }),
       viaHttp: async () => {
         const [{ plan }, stateRead] = await Promise.all([
           treePlanService.readProjectPlan({ project, server }),
@@ -8105,6 +8137,9 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
       viaDaemon: ({ serverId }) => fetchRunContextPackViaDaemon({
         userId,
         serverId,
+        runId,
+      }),
+      viaRust: async () => fetchRunContextPackViaRustDaemon({
         runId,
       }),
       viaHttp: async () => {

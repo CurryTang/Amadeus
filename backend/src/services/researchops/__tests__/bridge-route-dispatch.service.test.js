@@ -47,6 +47,31 @@ test('dispatchBridgeTransport falls back to http transport by default', async ()
   assert.deepEqual(calls, [{ mode: 'http' }]);
 });
 
+test('dispatchBridgeTransport routes rust-daemon transport through the rust executor', async () => {
+  const calls = [];
+  const result = await dispatchBridgeTransport({
+    transport: 'rust-daemon',
+    env: {
+      RESEARCHOPS_RUST_DAEMON_URL: 'http://127.0.0.1:7788',
+    },
+    viaDaemon: async () => {
+      calls.push({ mode: 'daemon' });
+      return { ok: false };
+    },
+    viaRust: async ({ rustConfig }) => {
+      calls.push({ mode: 'rust', transport: rustConfig.transport });
+      return { ok: true, transport: rustConfig.transport };
+    },
+    viaHttp: async () => {
+      calls.push({ mode: 'http' });
+      return { ok: false };
+    },
+  });
+
+  assert.deepEqual(result, { ok: true, transport: 'http' });
+  assert.deepEqual(calls, [{ mode: 'rust', transport: 'http' }]);
+});
+
 test('dispatchBridgeTransport rejects daemon-task transport when bridge runtime is not ready', async () => {
   await assert.rejects(() => dispatchBridgeTransport({
     transport: 'daemon-task',

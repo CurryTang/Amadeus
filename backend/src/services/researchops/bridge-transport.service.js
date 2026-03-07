@@ -1,5 +1,7 @@
 'use strict';
 
+const { readRustDaemonConfig } = require('./rust-daemon-runtime.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -7,6 +9,7 @@ function cleanString(value) {
 function readBridgeTransportMode(value = '') {
   const normalized = cleanString(value).toLowerCase();
   if (normalized === 'daemon-task') return 'daemon-task';
+  if (normalized === 'rust-daemon') return 'rust-daemon';
   return 'http';
 }
 
@@ -30,7 +33,18 @@ function assertBridgeDaemonTransportReady(bridgeRuntime = null) {
   return serverId;
 }
 
+function assertRustDaemonTransportReady(env = process.env) {
+  const config = readRustDaemonConfig(env);
+  if (!config.enabled) {
+    const error = new Error('Rust daemon transport is not configured');
+    error.code = 'RUST_DAEMON_UNAVAILABLE';
+    throw error;
+  }
+  return config;
+}
+
 module.exports = {
+  assertRustDaemonTransportReady,
   readBridgeTransportMode,
   assertBridgeDaemonTransportReady,
 };
