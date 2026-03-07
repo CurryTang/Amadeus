@@ -196,6 +196,11 @@ function daemonSupportsTaskTypes(daemon = null, taskTypes = []) {
   return required.every((taskType) => advertised.includes(taskType));
 }
 
+function missingDaemonTaskTypes(daemon = null, taskTypes = []) {
+  return normalizeDaemonTaskTypes(taskTypes)
+    .filter((taskType) => !daemonSupportsTaskTypes(daemon, [taskType]));
+}
+
 function buildDaemonTaskDescriptor(taskType = '') {
   const key = String(taskType || '').trim();
   return cloneDescriptor(TASK_DESCRIPTOR_MAP[key]);
@@ -213,6 +218,7 @@ module.exports = {
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
   daemonSupportsTaskTypes,
+  missingDaemonTaskTypes,
   normalizeDaemonTaskTypes,
   buildDaemonTaskDescriptor,
   listDaemonTaskDescriptors,

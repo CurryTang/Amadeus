@@ -95,7 +95,11 @@ const {
   buildProjectPayload,
   buildProjectListPayload,
 } = require('../../services/researchops/project-location.service');
-const { daemonSupportsTaskTypes } = require('../../services/researchops/daemon-task-descriptor.service');
+const {
+  OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  daemonSupportsTaskTypes,
+  missingDaemonTaskTypes,
+} = require('../../services/researchops/daemon-task-descriptor.service');
 const { buildProjectPathCheckPayload } = require('../../services/researchops/project-path-check-payload.service');
 const {
   buildKnowledgeGroupDeletePayload,
@@ -1326,8 +1330,11 @@ async function buildProjectPathCheckResponse(input = {}, deps = {}) {
     const supportedTaskTypes = Array.isArray(device?.supportedTaskTypes) && device.supportedTaskTypes.length > 0
       ? device.supportedTaskTypes.map((item) => cleanString(item)).filter(Boolean)
       : ['project.checkPath', 'project.ensurePath', 'project.ensureGit'];
-    const missingBootstrapTaskTypes = ['project.ensurePath', 'project.ensureGit']
-      .filter((taskType) => !daemonSupportsTaskTypes(device, [taskType]));
+    const missingBootstrapTaskTypes = missingDaemonTaskTypes(device, [
+      'project.ensurePath',
+      'project.ensureGit',
+    ]);
+    const missingBridgeTaskTypes = missingDaemonTaskTypes(device, OPTIONAL_BRIDGE_DAEMON_TASK_TYPES);
     const remoteResult = rpc
       ? await rpc({
         userId: deps.userId,
@@ -1355,6 +1362,8 @@ async function buildProjectPathCheckResponse(input = {}, deps = {}) {
         supportedTaskTypes,
         canBootstrapProject: missingBootstrapTaskTypes.length === 0,
         missingBootstrapTaskTypes,
+        canUseLocalBridgeWorkflow: missingBridgeTaskTypes.length === 0,
+        missingBridgeTaskTypes,
       },
       actions: {
         ...bootstrapActions,

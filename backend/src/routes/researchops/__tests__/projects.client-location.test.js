@@ -33,6 +33,14 @@ test('builds client agent path-check response via daemon target', async () => {
     'project.ensureGit',
   ]);
   assert.deepEqual(result.capabilities.missingBootstrapTaskTypes, []);
+  assert.equal(result.capabilities.canUseLocalBridgeWorkflow, false);
+  assert.deepEqual(result.capabilities.missingBridgeTaskTypes, [
+    'bridge.fetchNodeContext',
+    'bridge.fetchContextPack',
+    'bridge.submitNodeRun',
+    'bridge.fetchRunReport',
+    'bridge.submitRunNote',
+  ]);
   assert.deepEqual(result.execution, {
     location: 'client',
     transport: 'daemon-rpc',
@@ -106,10 +114,50 @@ test('client agent path-check hides bootstrap actions when daemon cannot ensure 
 
   assert.equal(result.capabilities.canBootstrapProject, false);
   assert.deepEqual(result.capabilities.missingBootstrapTaskTypes, ['project.ensureGit']);
+  assert.equal(result.capabilities.canUseLocalBridgeWorkflow, false);
+  assert.deepEqual(result.capabilities.missingBridgeTaskTypes, [
+    'bridge.fetchNodeContext',
+    'bridge.fetchContextPack',
+    'bridge.submitNodeRun',
+    'bridge.fetchRunReport',
+    'bridge.submitRunNote',
+  ]);
   assert.deepEqual(result.actions.ensurePath, {
     transport: 'daemon-rpc',
     serverId: 'srv_client_1',
     taskType: 'project.ensurePath',
   });
   assert.equal(result.actions.ensureGit, undefined);
+});
+
+test('client agent path-check marks bridge workflow ready when daemon advertises bridge task family', async () => {
+  const result = await projectsRouter.buildProjectPathCheckResponse({
+    locationType: 'client',
+    clientMode: 'agent',
+    clientDeviceId: 'srv_client_1',
+    projectPath: '/Users/alice/my-project',
+  }, {
+    getClientDevice: async () => ({
+      id: 'srv_client_1',
+      status: 'ONLINE',
+      supportedTaskTypes: [
+        'project.checkPath',
+        'project.ensurePath',
+        'project.ensureGit',
+        'bridge.fetchNodeContext',
+        'bridge.fetchContextPack',
+        'bridge.submitNodeRun',
+        'bridge.fetchRunReport',
+        'bridge.submitRunNote',
+      ],
+    }),
+    requestDaemonRpc: async () => ({
+      normalizedPath: '/Users/alice/my-project',
+      exists: true,
+      isDirectory: true,
+    }),
+  });
+
+  assert.equal(result.capabilities.canUseLocalBridgeWorkflow, true);
+  assert.deepEqual(result.capabilities.missingBridgeTaskTypes, []);
 });
