@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildClientDeviceOption,
+  buildRustDaemonStatusNote,
   filterOnlineClientDevices,
 } from './daemonPresentation.js';
 
@@ -32,4 +33,33 @@ test('filterOnlineClientDevices keeps online devices only', () => {
   ]);
 
   assert.deepEqual(items.map((item) => item.id), ['srv_1']);
+});
+
+test('buildRustDaemonStatusNote summarizes an active rust daemon runtime', () => {
+  const note = buildRustDaemonStatusNote({
+    rustDaemon: {
+      enabled: true,
+      status: 'ok',
+      transport: 'unix',
+      runtime: {
+        task_catalog_version: 'v0',
+        supports_local_bridge_workflow: true,
+      },
+    },
+  });
+
+  assert.equal(note, 'Rust daemon ready via unix (catalog v0 · bridge ready).');
+});
+
+test('buildRustDaemonStatusNote reports rust daemon probe failures', () => {
+  const note = buildRustDaemonStatusNote({
+    rustDaemon: {
+      enabled: true,
+      status: 'error',
+      transport: 'http',
+      error: 'connection refused',
+    },
+  });
+
+  assert.equal(note, 'Rust daemon probe failed via http: connection refused.');
 });

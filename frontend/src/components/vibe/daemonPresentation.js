@@ -23,7 +23,28 @@ function buildClientDeviceOption(device = {}) {
   };
 }
 
+function buildRustDaemonStatusNote(health = null) {
+  const rustDaemon = health && typeof health === 'object' ? health.rustDaemon : null;
+  if (!rustDaemon || typeof rustDaemon !== 'object') return '';
+  if (rustDaemon.enabled !== true) return '';
+  const transport = cleanString(rustDaemon.transport) || 'unknown';
+  if (cleanString(rustDaemon.status).toLowerCase() === 'ok') {
+    const runtime = rustDaemon.runtime && typeof rustDaemon.runtime === 'object' ? rustDaemon.runtime : {};
+    const parts = [];
+    const catalogVersion = cleanString(runtime.task_catalog_version);
+    if (catalogVersion) parts.push(`catalog ${catalogVersion}`);
+    if (runtime.supports_local_bridge_workflow === true) parts.push('bridge ready');
+    return `Rust daemon ready via ${transport}${parts.length ? ` (${parts.join(' · ')})` : ''}.`;
+  }
+  if (cleanString(rustDaemon.status).toLowerCase() === 'error') {
+    const message = cleanString(rustDaemon.error) || 'unknown error';
+    return `Rust daemon probe failed via ${transport}: ${message}.`;
+  }
+  return `Rust daemon status: ${cleanString(rustDaemon.status) || 'unknown'}.`;
+}
+
 export {
   buildClientDeviceOption,
+  buildRustDaemonStatusNote,
   filterOnlineClientDevices,
 };

@@ -23,7 +23,7 @@ import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
 import { buildObservedSessionActionMessage } from './vibe/observedSessionActionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { getContextPackViewForRun } from './vibe/contextPackApiResponse';
-import { buildClientDeviceOption, filterOnlineClientDevices } from './vibe/daemonPresentation';
+import { buildClientDeviceOption, buildRustDaemonStatusNote, filterOnlineClientDevices } from './vibe/daemonPresentation';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
@@ -497,6 +497,7 @@ function VibeResearcherPanel({
   const [projectPath, setProjectPath] = useState('');
   const [pathCheckResult, setPathCheckResult] = useState(null);
   const [clientDevices, setClientDevices] = useState([]);
+  const [researchOpsHealth, setResearchOpsHealth] = useState(null);
   const [loadingClientDevices, setLoadingClientDevices] = useState(false);
   const [clientBootstrapOpen, setClientBootstrapOpen] = useState(false);
   const [clientBootstrapBusy, setClientBootstrapBusy] = useState(false);
@@ -1542,9 +1543,20 @@ function VibeResearcherPanel({
   const loadClientDevices = useCallback(async () => {
     setLoadingClientDevices(true);
     try {
-      const res = await axios.get(`${apiUrl}/researchops/daemons`, { headers });
-      const devices = Array.isArray(res.data?.items) ? res.data.items : [];
+      const [devicesResult, healthResult] = await Promise.allSettled([
+        axios.get(`${apiUrl}/researchops/daemons`, { headers }),
+        axios.get(`${apiUrl}/researchops/health`, { headers }),
+      ]);
+      if (devicesResult.status !== 'fulfilled') {
+        throw devicesResult.reason;
+      }
+      const devices = Array.isArray(devicesResult.value?.data?.items) ? devicesResult.value.data.items : [];
       setClientDevices(devices);
+      setResearchOpsHealth(
+        healthResult.status === 'fulfilled' && healthResult.value?.data && typeof healthResult.value.data === 'object'
+          ? healthResult.value.data
+          : null
+      );
       if (!projectClientDeviceId && devices.length > 0) {
         setProjectClientDeviceId(String(devices[0].id));
       }
@@ -1559,6 +1571,10 @@ function VibeResearcherPanel({
   const onlineClientDevices = useMemo(
     () => filterOnlineClientDevices(clientDevices),
     [clientDevices],
+  );
+  const rustDaemonStatusNote = useMemo(
+    () => buildRustDaemonStatusNote(researchOpsHealth),
+    [researchOpsHealth],
   );
 
   const ensureClientBootstrapHostname = useCallback(() => {
@@ -5671,6 +5687,11 @@ function VibeResearcherPanel({
                       <p className="vibe-empty">
                         Desktop agent mode supports full local execution, path creation, and git initialization on the client device.
                       </p>
+                      {rustDaemonStatusNote && (
+                        <p className="vibe-empty">
+                          {rustDaemonStatusNote}
+                        </p>
+                      )}
                       {clientBootstrapOpen && (
                         <div className="vibe-client-browser-box">
                           <p className="vibe-empty">
