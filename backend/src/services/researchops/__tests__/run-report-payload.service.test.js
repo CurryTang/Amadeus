@@ -39,3 +39,35 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
   assert.equal('bundle' in payload, false);
   assert.equal('reviewQueue' in payload, false);
 });
+
+test('buildRunReportPayload derives a remote workspace path when metadata is missing it', () => {
+  const payload = buildRunReportPayload({
+    run: {
+      id: 'run_remote',
+      projectId: 'proj_1',
+      provider: 'codex',
+      runType: 'EXPERIMENT',
+      status: 'SUCCEEDED',
+      metadata: {
+        treeNodeId: 'baseline_root',
+      },
+    },
+    steps: [
+      {
+        stepId: 'step_1',
+        metrics: {
+          execServerId: 'chatdse',
+        },
+      },
+    ],
+    artifacts: [],
+    checkpoints: [],
+    summaryText: null,
+    manifest: null,
+  });
+
+  assert.equal(payload.runWorkspacePath, '/tmp/researchops-runs/run_remote');
+  assert.deepEqual(payload.workspace, {
+    path: '/tmp/researchops-runs/run_remote',
+  });
+});

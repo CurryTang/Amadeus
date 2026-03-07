@@ -1,6 +1,6 @@
 'use strict';
 
-const { findRunReportHighlights } = require('./run-report-view');
+const { deriveRunWorkspacePath, findRunReportHighlights } = require('./run-report-view');
 const { buildAttemptViewFromRun } = require('./attempt-view.service');
 
 function cleanString(value) {
@@ -16,7 +16,9 @@ function buildRunReportPayload({
   manifest,
   mapArtifact = (item) => item,
 }) {
-  const runWorkspacePath = cleanString(run?.metadata?.runWorkspacePath);
+  const runWorkspacePath = cleanString(deriveRunWorkspacePath(run, {
+    stepResults: steps,
+  }));
   const list = Array.isArray(artifacts) ? artifacts : [];
   return {
     run,
