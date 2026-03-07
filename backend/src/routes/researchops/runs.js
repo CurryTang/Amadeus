@@ -41,6 +41,7 @@ const {
   buildRunEventMutationPayload,
 } = require('../../services/researchops/run-mutation-payload.service');
 const { buildHorizonCancelPayload } = require('../../services/researchops/horizon-payload.service');
+const { buildHorizonStatusPayload } = require('../../services/researchops/horizon-status-payload.service');
 const {
   buildSchedulerLeasePayload,
   buildSchedulerRecoveryPayload,
@@ -1054,7 +1055,7 @@ router.get('/runs/:runId/horizon-status', async (req, res) => {
       } catch (_) {}
     }
 
-    return res.json({
+    return res.json(buildHorizonStatusPayload({
       runId,
       status: statusJson.status || 'unknown',
       message: statusJson.message || '',
@@ -1062,10 +1063,10 @@ router.get('/runs/:runId/horizon-status', async (req, res) => {
       nextCheck: statusJson.nextCheck || null,
       wakeups: statusJson.wakeups || 0,
       tmuxAlive,
-      recentLog: recentLog.slice(-4000), // last 4KB of log
+      recentLog: recentLog.slice(-4000),
       session,
       serverId,
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] horizon-status failed:', error);
     return res.status(500).json({ error: 'Failed to fetch horizon status' });
