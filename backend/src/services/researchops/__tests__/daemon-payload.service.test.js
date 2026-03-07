@@ -83,6 +83,19 @@ test('buildDaemonListPayload normalizes each daemon item', () => {
   assert.equal(payload.items[0].execution.location, 'client');
 });
 
+test('buildDaemonListPayload keeps list metadata and discovery actions', () => {
+  const payload = buildDaemonListPayload({
+    items: [],
+    limit: 25,
+  });
+
+  assert.equal(payload.limit, 25);
+  assert.deepEqual(payload.actions.list, {
+    method: 'GET',
+    path: '/researchops/daemons',
+  });
+});
+
 test('buildDaemonHeartbeatPayload mirrors registration payload shape', () => {
   const payload = buildDaemonHeartbeatPayload({
     daemon: {

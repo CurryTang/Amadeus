@@ -52,6 +52,9 @@ const {
   buildObservedSessionListPayload,
 } = require('../services/researchops/observed-session-payload.service');
 const {
+  buildDaemonListPayload,
+} = require('../services/researchops/daemon-payload.service');
+const {
   buildProjectPayload,
 } = require('../services/researchops/project-location.service');
 const { buildNodeBridgeView } = require('../services/researchops/node-bridge-view.service');
@@ -5970,10 +5973,14 @@ router.post('/daemons/heartbeat', async (req, res) => {
 
 router.get('/daemons', async (req, res) => {
   try {
+    const limit = parseLimit(req.query.limit, 100, 300);
     const items = await researchOpsStore.listDaemons(getUserId(req), {
-      limit: parseLimit(req.query.limit, 100, 300),
+      limit,
     });
-    return res.json({ items });
+    return res.json(buildDaemonListPayload({
+      items,
+      limit,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listDaemons failed:', error);
     return res.status(500).json({ error: 'Failed to list daemons' });

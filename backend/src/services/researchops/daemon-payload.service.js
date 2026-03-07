@@ -97,11 +97,18 @@ function buildDaemonHeartbeatPayload({ daemon = null } = {}) {
   return buildDaemonRegistrationPayload({ daemon });
 }
 
-function buildDaemonListPayload({ items = [] } = {}) {
+function buildDaemonListPayload({ items = [], limit = null } = {}) {
   return {
+    limit: Number.isFinite(Number(limit)) ? Number(limit) : null,
     items: (Array.isArray(items) ? items : [])
       .map((item) => normalizeDaemon(item))
       .filter(Boolean),
+    actions: {
+      list: {
+        method: 'GET',
+        path: '/researchops/daemons',
+      },
+    },
   };
 }
 
