@@ -378,3 +378,118 @@ test('startClientDaemon advertises custom bridge handlers during registration', 
     global.fetch = originalFetch;
   }
 });
+
+test('startClientDaemon executes bridge tasks via backend request metadata when no custom handler exists', async () => {
+  const requests = [];
+  let claimCount = 0;
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    requests.push({
+      url: String(url),
+      method: options.method || 'GET',
+      body,
+    });
+
+    if (String(url).endsWith('/researchops/daemons/register')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ serverId: 'srv_client_bridge' }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/heartbeat')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/claim')) {
+      claimCount += 1;
+      if (claimCount === 1) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            task: {
+              id: 'task_bridge_fetch',
+              taskType: 'bridge.fetchRunReport',
+              payload: { runId: 'run_123' },
+              request: {
+                method: 'GET',
+                path: '/researchops/runs/run_123/bridge-report',
+              },
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 204,
+        headers: { get: () => '' },
+        text: async () => '',
+      };
+    }
+
+    if (String(url).endsWith('/researchops/runs/run_123/bridge-report')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ bridgeVersion: 'v0', runId: 'run_123' }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/task_bridge_fetch/complete')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const daemon = startClientDaemon({
+      apiBaseUrl: 'http://127.0.0.1:3000/api',
+      adminToken: 'token',
+      hostname: 'client-host',
+      heartbeatMs: 5000,
+      pollMs: 1,
+      logger: { log() {}, error() {} },
+    });
+
+    while (!requests.some((request) => request.url.endsWith('/researchops/daemons/tasks/task_bridge_fetch/complete'))) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    await daemon.stop();
+    await Promise.race([
+      daemon.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('daemon did not stop')), 800)),
+    ]);
+
+    assert.ok(requests.some((request) => request.url.endsWith('/researchops/runs/run_123/bridge-report')));
+
+    const completion = requests.find((request) => request.url.endsWith('/researchops/daemons/tasks/task_bridge_fetch/complete'));
+    assert.deepEqual(completion.body, {
+      ok: true,
+      result: {
+        bridgeVersion: 'v0',
+        runId: 'run_123',
+      },
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

@@ -30,6 +30,15 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function appendQuery(path, query = null) {
+  const source = cleanString(path);
+  const params = Object.entries(asObject(query))
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+  if (params.length === 0) return source;
+  return `${source}${source.includes('?') ? '&' : '?'}${params.join('&')}`;
+}
+
 function buildAdvertisedTaskTypes(handlers = {}) {
   return normalizeDaemonTaskTypes([
     ...BUILT_IN_DAEMON_TASK_TYPES,
@@ -70,10 +79,27 @@ async function defaultApiRequest(apiBaseUrl, adminToken, path, { method = 'GET',
   return null;
 }
 
+function createBridgeTaskExecutor(apiBaseUrl = '', adminToken = '') {
+  return async function executeBridgeTask(task) {
+    const request = asObject(task?.request);
+    const path = appendQuery(request.path, request.query);
+    if (!path) {
+      throw new Error(`Bridge daemon task ${String(task?.taskType || '').trim()} is missing request metadata`);
+    }
+    return defaultApiRequest(apiBaseUrl, adminToken, path, {
+      method: cleanString(request.method) || 'GET',
+      body: request.body && typeof request.body === 'object' ? request.body : undefined,
+    });
+  };
+}
+
 function createTaskExecutor(customHandlers = {}) {
-  return async function executeTask(task) {
+  return async function executeTask(task, context = {}) {
     const taskType = String(task?.taskType || '').trim();
     const projectPath = String(task?.payload?.projectPath || '').trim();
+    const bridgeExecutor = typeof context.executeBridgeTask === 'function'
+      ? context.executeBridgeTask
+      : null;
     if (typeof customHandlers[taskType] === 'function') {
       return customHandlers[taskType](task);
     }
@@ -85,6 +111,9 @@ function createTaskExecutor(customHandlers = {}) {
     }
     if (taskType === 'project.ensureGit') {
       return projectInsightsService.ensureLocalGitRepository(projectPath);
+    }
+    if (taskType.startsWith('bridge.') && bridgeExecutor) {
+      return bridgeExecutor(task);
     }
     throw new Error(`Unsupported daemon task type: ${taskType}`);
   };
@@ -108,6 +137,7 @@ function startClientDaemon({
   }
 
   const executeTask = createTaskExecutor(handlers);
+  const executeBridgeTask = createBridgeTaskExecutor(normalizedApiBaseUrl, adminToken);
   const supportedTaskTypes = buildAdvertisedTaskTypes(handlers);
   let stopped = false;
   let heartbeatTimer = null;
@@ -176,7 +206,7 @@ function startClientDaemon({
       }
 
       try {
-        const result = await executeTask(task);
+        const result = await executeTask(task, { executeBridgeTask });
         await apiRequest(
           daemonApiPaths.completeTaskTemplate.replace('{taskId}', encodeURIComponent(task.id)),
           {

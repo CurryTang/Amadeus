@@ -1,5 +1,6 @@
 'use strict';
 
+const { buildBridgeDaemonTaskRequest } = require('./bridge-daemon-task-request.service');
 const { buildDaemonTaskDescriptor } = require('./daemon-task-descriptor.service');
 
 function cleanString(value) {
@@ -27,6 +28,7 @@ function normalizeTask(task = null) {
     leasedAt: cleanString(source.leasedAt) || null,
     completedAt: cleanString(source.completedAt) || null,
     descriptor: buildDaemonTaskDescriptor(taskType),
+    request: buildBridgeDaemonTaskRequest(taskType, source.payload),
   };
 }
 
