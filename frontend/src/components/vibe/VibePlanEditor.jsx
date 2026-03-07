@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import yaml from 'js-yaml';
+import { buildPlanValidationIssues } from './planValidationPresentation.js';
 
 const MODES = ['view', 'edit', 'run'];
 const VIEWS = ['canvas', 'split', 'dsl'];
@@ -42,6 +43,10 @@ function VibePlanEditor({
     const warnings = Array.isArray(validation?.warnings) ? validation.warnings : [];
     return { errors, warnings };
   }, [validation]);
+  const validationIssues = useMemo(
+    () => buildPlanValidationIssues(validation, { limit: 4 }),
+    [validation]
+  );
 
   useEffect(() => {
     setDslText(safeDumpYaml(plan));
@@ -115,6 +120,19 @@ function VibePlanEditor({
             </span>
             <span>{validationSummary.warnings.length} warnings</span>
           </div>
+          {validationIssues.length > 0 && (
+            <div className="vibe-list">
+              {validationIssues.map((issue, index) => (
+                <div key={`${issue.severity}-${issue.code || index}`} className="vibe-list-item">
+                  <div className="vibe-list-main">
+                    <strong>{issue.code || issue.severity}</strong>
+                    <span>{issue.message}</span>
+                  </div>
+                  <code>{issue.severity}</code>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {onQuickBash && (
