@@ -76,6 +76,7 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
   const readiness = cleanString(observability?.statuses?.readiness).toLowerCase();
   const warningCount = Math.max(Number(observability?.counts?.warnings) || 0, 0);
   const sinkProviders = formatSinkProviders(observability?.sinkProviders);
+  const resolvedTransport = cleanString(effectiveRunReport?.resolvedTransport || bridgeReport?.resolvedTransport);
   if (readiness === 'ready') {
     rows.push({
       label: 'Readiness',
@@ -102,6 +103,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     rows.push({
       label: 'Sinks',
       value: sinkProviders,
+    });
+  }
+  if (resolvedTransport) {
+    rows.push({
+      label: 'Transport',
+      value: resolvedTransport,
     });
   }
 

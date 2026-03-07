@@ -175,6 +175,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     {},
     {},
     {
+      resolvedTransport: 'daemon-task',
       highlights: {
         deliverableArtifactIds: ['art_summary'],
       },
@@ -195,6 +196,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     { label: 'Readiness', value: 'Needs attention' },
     { label: 'Warnings', value: '2 warnings' },
     { label: 'Sinks', value: 'wandb, tensorboard' },
+    { label: 'Transport', value: 'daemon-task' },
   ]);
 });
 
@@ -205,6 +207,7 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     {},
     {},
     {
+      resolvedTransport: 'rust-daemon',
       bridgeRuntime: {
         supportsLocalBridgeWorkflow: true,
       },
@@ -234,6 +237,7 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     { label: 'Evidence', value: '1 deliverable artifact' },
     { label: 'Readiness', value: 'Ready' },
     { label: 'Sinks', value: 'wandb' },
+    { label: 'Transport', value: 'rust-daemon' },
     { label: 'Bridge', value: 'Local bridge ready' },
   ]);
 });
