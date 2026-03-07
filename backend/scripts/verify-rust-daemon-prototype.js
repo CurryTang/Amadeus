@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 'use strict';
 
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
+const http = require('node:http');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const net = require('node:net');
 
 const {
   BUILT_IN_DAEMON_TASK_TYPES,
@@ -49,7 +53,127 @@ function sortCatalogTasks(tasks = []) {
   return [...tasks].sort((left, right) => String(left.task_type).localeCompare(String(right.task_type)));
 }
 
-function main() {
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
+async function waitForDaemon(url, attempts = 40) {
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`daemon did not become ready: ${url}`);
+}
+
+async function createMockBackend() {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/api/researchops/runs/run_verify/bridge-report') {
+      const body = JSON.stringify({
+        bridgeVersion: 'v0',
+        runId: 'run_verify',
+        ok: true,
+      });
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Connection: 'close',
+      });
+      res.end(body);
+      return;
+    }
+    const body = JSON.stringify({ error: 'not_found', path: req.url });
+    res.writeHead(404, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+      Connection: 'close',
+    });
+    res.end(body);
+  });
+  await new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+  });
+  const address = server.address();
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+  };
+}
+
+async function verifyRustDaemonExecution() {
+  const backend = await createMockBackend();
+  const port = await findFreePort();
+  const cargoManifestPath = path.join(__dirname, '..', 'rust', 'researchops-local-daemon', 'Cargo.toml');
+  const daemon = spawn(
+    'cargo',
+    ['run', '--manifest-path', cargoManifestPath, '--quiet', '--', '--serve', `127.0.0.1:${port}`, '--max-requests', '12'],
+    {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        PATH: `${process.env.HOME}/.cargo/bin:${process.env.PATH}`,
+        RESEARCHOPS_API_BASE_URL: backend.baseUrl,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+
+  let stderr = '';
+  daemon.stderr.on('data', (chunk) => {
+    stderr += String(chunk);
+  });
+
+  try {
+    await waitForDaemon(`http://127.0.0.1:${port}/health`);
+
+    const proxyResponse = await fetch(`http://127.0.0.1:${port}/bridge-report?runId=run_verify`);
+    assert.equal(proxyResponse.status, 200, 'bridge-report proxy should succeed');
+    const proxyJson = await proxyResponse.json();
+    assert.equal(proxyJson.runId, 'run_verify');
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'researchops-rust-daemon-'));
+    const taskResponse = await fetch(`http://127.0.0.1:${port}/tasks/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        taskType: 'project.checkPath',
+        payload: {
+          projectPath: tempDir,
+        },
+      }),
+    });
+    assert.equal(taskResponse.status, 200, 'task execution endpoint should succeed');
+    const taskJson = await taskResponse.json();
+    assert.equal(taskJson.exists, true);
+    assert.equal(taskJson.isDirectory, true);
+  } finally {
+    daemon.kill('SIGTERM');
+    await new Promise((resolve) => daemon.once('exit', resolve));
+    await backend.close();
+  }
+
+  if (stderr.trim()) {
+    throw new Error(stderr.trim());
+  }
+}
+
+async function main() {
   const rustCatalog = readRustTaskCatalog();
   const jsCatalog = readJsTaskCatalog();
 
@@ -60,7 +184,14 @@ function main() {
     'rust task catalog drifted from JS daemon catalog',
   );
 
+  await verifyRustDaemonExecution();
+
   process.stdout.write('rust daemon prototype contract ok\n');
+  process.stdout.write('rust daemon prototype proxy ok\n');
+  process.stdout.write('rust daemon prototype task execution ok\n');
 }
 
-main();
+main().catch((error) => {
+  process.stderr.write(`${error.stack || error.message}\n`);
+  process.exitCode = 1;
+});
