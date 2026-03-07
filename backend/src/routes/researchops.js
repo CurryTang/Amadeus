@@ -52,6 +52,7 @@ const { buildQueuedRunActionPayload } = require('../services/researchops/queued-
 const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge-note-payload.service');
 const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const { buildRunComparePayload } = require('../services/researchops/run-compare-payload.service');
+const { buildRunArtifactListPayload } = require('../services/researchops/run-artifact-list-payload.service');
 const {
   readBridgeContextOptions,
   readBridgeRunOptions,
@@ -5547,11 +5548,16 @@ router.get('/runs/:runId/steps', async (req, res) => {
 router.get('/runs/:runId/artifacts', async (req, res) => {
   try {
     const runId = String(req.params.runId || '').trim();
+    const kind = String(req.query.kind || '').trim();
     const items = await researchOpsStore.listRunArtifacts(getUserId(req), req.params.runId, {
-      kind: String(req.query.kind || '').trim(),
+      kind,
       limit: parseLimit(req.query.limit, 200, 1000),
     });
-    return res.json({ items: items.map((item) => withArtifactDownloadUrl(item, runId)) });
+    return res.json(buildRunArtifactListPayload({
+      runId,
+      kind,
+      items: items.map((item) => withArtifactDownloadUrl(item, runId)),
+    }));
   } catch (error) {
     console.error('[ResearchOps] listRunArtifacts failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
