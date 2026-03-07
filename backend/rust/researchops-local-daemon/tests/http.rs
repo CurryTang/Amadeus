@@ -181,3 +181,157 @@ fn serve_one_http_request_proxies_context_pack_from_backend() {
     assert!(response.contains("\"mode\":\"routed\""));
     assert!(response.contains("\"selectedItems\":2"));
 }
+
+#[test]
+fn serve_one_http_request_proxies_node_bridge_context_from_backend() {
+    let backend_listener = TcpListener::bind("127.0.0.1:0").expect("bind backend listener");
+    let backend_addr = backend_listener.local_addr().expect("backend addr");
+    let backend_handle = thread::spawn(move || {
+        let (mut stream, _) = backend_listener.accept().expect("accept backend connection");
+        let mut request = String::new();
+        stream.read_to_string(&mut request).expect("read backend request");
+        assert!(
+            request.starts_with(
+                "GET /api/researchops/projects/proj_1/tree/nodes/node_eval/bridge-context?includeContextPack=true&includeReport=true HTTP/1.1"
+            )
+        );
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"projectId\":\"proj_1\",\"node\":{\"id\":\"node_eval\"},\"ok\":true}",
+            )
+            .expect("write backend response");
+    });
+
+    let daemon_listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let daemon_addr = daemon_listener.local_addr().expect("daemon addr");
+    let daemon_handle = thread::spawn(move || {
+        serve_one_http_request_with_config(
+            daemon_listener,
+            true,
+            DaemonConfig {
+                api_base_url: format!("http://{}", backend_addr),
+                admin_token: String::new(),
+            },
+        )
+        .expect("serve daemon node-context request");
+    });
+
+    let mut client = TcpStream::connect(daemon_addr).expect("connect daemon");
+    client
+        .write_all(
+            b"GET /node-context?projectId=proj_1&nodeId=node_eval&includeContextPack=true&includeReport=true HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    daemon_handle.join().expect("daemon thread");
+    backend_handle.join().expect("backend thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"projectId\":\"proj_1\""));
+    assert!(response.contains("\"id\":\"node_eval\""));
+}
+
+#[test]
+fn serve_one_http_request_proxies_bridge_note_post_to_backend() {
+    let backend_listener = TcpListener::bind("127.0.0.1:0").expect("bind backend listener");
+    let backend_addr = backend_listener.local_addr().expect("backend addr");
+    let backend_handle = thread::spawn(move || {
+        let (mut stream, _) = backend_listener.accept().expect("accept backend connection");
+        let mut request = String::new();
+        stream.read_to_string(&mut request).expect("read backend request");
+        assert!(request.starts_with("POST /api/researchops/runs/run_789/bridge-note HTTP/1.1"));
+        assert!(request.contains("Content-Type: application/json"));
+        assert!(request.contains("\"title\":\"Note\""));
+        assert!(request.contains("\"content\":\"hello from rust\""));
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 47\r\nConnection: close\r\n\r\n{\"ok\":true,\"runId\":\"run_789\",\"artifactId\":\"art_1\"}",
+            )
+            .expect("write backend response");
+    });
+
+    let daemon_listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let daemon_addr = daemon_listener.local_addr().expect("daemon addr");
+    let daemon_handle = thread::spawn(move || {
+        serve_one_http_request_with_config(
+            daemon_listener,
+            true,
+            DaemonConfig {
+                api_base_url: format!("http://{}", backend_addr),
+                admin_token: String::new(),
+            },
+        )
+        .expect("serve daemon bridge-note request");
+    });
+
+    let mut client = TcpStream::connect(daemon_addr).expect("connect daemon");
+    client
+        .write_all(
+            b"POST /bridge-note?runId=run_789 HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 44\r\nConnection: close\r\n\r\n{\"title\":\"Note\",\"content\":\"hello from rust\"}",
+        )
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    daemon_handle.join().expect("daemon thread");
+    backend_handle.join().expect("backend thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"runId\":\"run_789\""));
+    assert!(response.contains("\"artifactId\":\"art_1\""));
+}
+
+#[test]
+fn serve_one_http_request_proxies_bridge_run_post_to_backend() {
+    let backend_listener = TcpListener::bind("127.0.0.1:0").expect("bind backend listener");
+    let backend_addr = backend_listener.local_addr().expect("backend addr");
+    let backend_handle = thread::spawn(move || {
+        let (mut stream, _) = backend_listener.accept().expect("accept backend connection");
+        let mut request = String::new();
+        stream.read_to_string(&mut request).expect("read backend request");
+        assert!(request.starts_with("POST /api/researchops/projects/proj_1/tree/nodes/node_eval/bridge-run HTTP/1.1"));
+        assert!(request.contains("Content-Type: application/json"));
+        assert!(request.contains("\"force\":true"));
+        assert!(request.contains("\"localSnapshot\":{\"kind\":\"workspace_patch\"}"));
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 54\r\nConnection: close\r\n\r\n{\"mode\":\"run\",\"run\":{\"id\":\"run_999\"},\"attempt\":{\"id\":\"run_999\"}}",
+            )
+            .expect("write backend response");
+    });
+
+    let daemon_listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let daemon_addr = daemon_listener.local_addr().expect("daemon addr");
+    let daemon_handle = thread::spawn(move || {
+        serve_one_http_request_with_config(
+            daemon_listener,
+            true,
+            DaemonConfig {
+                api_base_url: format!("http://{}", backend_addr),
+                admin_token: String::new(),
+            },
+        )
+        .expect("serve daemon node-run request");
+    });
+
+    let mut client = TcpStream::connect(daemon_addr).expect("connect daemon");
+    client
+        .write_all(
+            b"POST /node-run?projectId=proj_1&nodeId=node_eval HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 57\r\nConnection: close\r\n\r\n{\"force\":true,\"localSnapshot\":{\"kind\":\"workspace_patch\"}}",
+        )
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    daemon_handle.join().expect("daemon thread");
+    backend_handle.join().expect("backend thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"mode\":\"run\""));
+    assert!(response.contains("\"run_999\""));
+}

@@ -171,7 +171,16 @@ fn query_value<'a>(query: Option<&'a str>, key: &str) -> Option<&'a str> {
         .find_map(|pair| pair.split_once('=').filter(|(name, _)| *name == key).map(|(_, value)| value))
 }
 
-fn http_request_via_config(config: &DaemonConfig, path: &str) -> Result<serde_json::Value> {
+fn query_flag(query: Option<&str>, key: &str) -> bool {
+    matches!(query_value(query, key), Some("true" | "1" | "yes" | "on"))
+}
+
+fn http_request_via_config(
+    config: &DaemonConfig,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<serde_json::Value> {
     let base = config.api_base_url.trim();
     if base.is_empty() {
         anyhow::bail!("api_base_url is required for backend proxy routes");
@@ -185,8 +194,21 @@ fn http_request_via_config(config: &DaemonConfig, path: &str) -> Result<serde_js
     } else {
         format!("Authorization: Bearer {}\r\n", config.admin_token.trim())
     };
+    let body_text = body
+        .map(serde_json::to_string)
+        .transpose()
+        .context("encode backend request body")?;
+    let content_headers = if let Some(ref payload) = body_text {
+        format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            payload.len()
+        )
+    } else {
+        String::new()
+    };
     let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {authority}\r\n{auth_header}Connection: close\r\n\r\n"
+        "{method} {path} HTTP/1.1\r\nHost: {authority}\r\n{auth_header}{content_headers}Connection: close\r\n\r\n{}",
+        body_text.as_deref().unwrap_or("")
     );
     stream.write_all(request.as_bytes()).context("write backend request")?;
     stream.flush().context("flush backend request")?;
@@ -198,17 +220,85 @@ fn http_request_via_config(config: &DaemonConfig, path: &str) -> Result<serde_js
     serde_json::from_str(body).context("decode backend response json")
 }
 
-fn build_http_body(path: &str, enable_bridge: bool, config: &DaemonConfig) -> Result<serde_json::Value> {
+#[derive(Debug, Clone)]
+struct HttpRequestView {
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+}
+
+fn parse_http_request(request: &str) -> Result<HttpRequestView> {
+    let mut lines = request.lines();
+    let first_line = lines.next().unwrap_or_default();
+    let mut parts = first_line.split_whitespace();
+    let method = parts.next().unwrap_or("GET").to_string();
+    let path = parts.next().unwrap_or("/").to_string();
+    let body = request
+        .split_once("\r\n\r\n")
+        .map(|(_, raw_body)| raw_body.trim())
+        .filter(|raw_body| !raw_body.is_empty())
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()
+        .context("decode incoming json body")?;
+    Ok(HttpRequestView { method, path, body })
+}
+
+fn build_http_body(
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+    enable_bridge: bool,
+    config: &DaemonConfig,
+) -> Result<serde_json::Value> {
     let (route, query) = parse_request_target(path);
     let run_id = query_value(query, "runId").map(str::trim).filter(|value| !value.is_empty());
+    let project_id = query_value(query, "projectId").map(str::trim).filter(|value| !value.is_empty());
+    let node_id = query_value(query, "nodeId").map(str::trim).filter(|value| !value.is_empty());
 
     if route == "/bridge-report" {
         let run_id = run_id.context("runId is required for /bridge-report")?;
-        return http_request_via_config(config, &format!("/api/researchops/runs/{run_id}/bridge-report"));
+        return http_request_via_config(config, "GET", &format!("/api/researchops/runs/{run_id}/bridge-report"), None);
     }
     if route == "/context-pack" {
         let run_id = run_id.context("runId is required for /context-pack")?;
-        return http_request_via_config(config, &format!("/api/researchops/runs/{run_id}/context-pack"));
+        return http_request_via_config(config, "GET", &format!("/api/researchops/runs/{run_id}/context-pack"), None);
+    }
+    if route == "/node-context" {
+        let project_id = project_id.context("projectId is required for /node-context")?;
+        let node_id = node_id.context("nodeId is required for /node-context")?;
+        let mut backend_path =
+            format!("/api/researchops/projects/{project_id}/tree/nodes/{node_id}/bridge-context");
+        let mut query_pairs = Vec::new();
+        if query_flag(query, "includeContextPack") {
+            query_pairs.push("includeContextPack=true");
+        }
+        if query_flag(query, "includeReport") {
+            query_pairs.push("includeReport=true");
+        }
+        if !query_pairs.is_empty() {
+            backend_path.push('?');
+            backend_path.push_str(&query_pairs.join("&"));
+        }
+        return http_request_via_config(config, "GET", &backend_path, None);
+    }
+    if route == "/bridge-note" && method.eq_ignore_ascii_case("POST") {
+        let run_id = run_id.context("runId is required for /bridge-note")?;
+        return http_request_via_config(
+            config,
+            "POST",
+            &format!("/api/researchops/runs/{run_id}/bridge-note"),
+            body,
+        );
+    }
+    if route == "/node-run" && method.eq_ignore_ascii_case("POST") {
+        let project_id = project_id.context("projectId is required for /node-run")?;
+        let node_id = node_id.context("nodeId is required for /node-run")?;
+        return http_request_via_config(
+            config,
+            "POST",
+            &format!("/api/researchops/projects/{project_id}/tree/nodes/{node_id}/bridge-run"),
+            body,
+        );
     }
 
     match route {
@@ -233,14 +323,19 @@ fn respond_to_http_connection<T: Read + Write>(stream: &mut T, enable_bridge: bo
     let mut buffer = [0_u8; 4096];
     let bytes_read = stream.read(&mut buffer).context("read http request")?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let path = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or("/");
-    let body = build_http_body(path, enable_bridge, config)?;
-    let (route, _) = parse_request_target(path);
-    let status_line = if matches!(route, "/health" | "/runtime" | "/task-catalog" | "/bridge-report" | "/context-pack") {
+    let request_view = parse_http_request(&request)?;
+    let body = build_http_body(
+        &request_view.method,
+        &request_view.path,
+        request_view.body.as_ref(),
+        enable_bridge,
+        config,
+    )?;
+    let (route, _) = parse_request_target(&request_view.path);
+    let status_line = if matches!(
+        route,
+        "/health" | "/runtime" | "/task-catalog" | "/bridge-report" | "/context-pack" | "/node-context" | "/bridge-note" | "/node-run"
+    ) {
         "HTTP/1.1 200 OK"
     } else {
         "HTTP/1.1 404 Not Found"

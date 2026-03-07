@@ -9,16 +9,18 @@ Current scope:
 - provide a typed task catalog view for built-in and bridge task families
 - expose a tiny CLI that prints the runtime summary as JSON
 - expose localhost HTTP and Unix socket prototypes for `/health`, `/runtime`, and `/task-catalog`
-- proxy thin backend read routes for bridge clients:
+- proxy thin backend bridge routes for local clients:
+  - `/node-context?projectId=...&nodeId=...`
   - `/bridge-report?runId=...`
   - `/context-pack?runId=...`
+  - `POST /node-run?projectId=...&nodeId=...`
+  - `POST /bridge-note?runId=...`
 
 It does not yet implement:
 
 - real task execution
 - snapshot syncing
-- artifact upload or event reporting
-- proxying POST bridge mutations such as `bridge-run` or `bridge-note`
+- artifact upload or event reporting beyond the current bridge-note flow
 
 Run it with:
 
@@ -88,6 +90,13 @@ export ADMIN_TOKEN=your-admin-token
 Then the daemon can proxy:
 
 ```bash
+curl "http://127.0.0.1:7788/node-context?projectId=proj_1&nodeId=node_eval&includeContextPack=true&includeReport=true"
 curl "http://127.0.0.1:7788/bridge-report?runId=run_123"
 curl "http://127.0.0.1:7788/context-pack?runId=run_123"
+curl -X POST "http://127.0.0.1:7788/node-run?projectId=proj_1&nodeId=node_eval" \
+  -H 'Content-Type: application/json' \
+  -d '{"force":true}'
+curl -X POST "http://127.0.0.1:7788/bridge-note?runId=run_123" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Bridge note","content":"hello from rust"}'
 ```
