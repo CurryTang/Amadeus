@@ -6,7 +6,25 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeObservedSessionItem(item = {}) {
+function buildObservedSessionActions(projectId = '', item = {}) {
+  const normalizedProjectId = cleanString(projectId);
+  const itemId = cleanString(item?.id) || cleanString(item?.sessionId);
+  if (!normalizedProjectId || !itemId) return {};
+  const encodedProjectId = encodeURIComponent(normalizedProjectId);
+  const encodedItemId = encodeURIComponent(itemId);
+  return {
+    detail: {
+      method: 'GET',
+      path: `/researchops/projects/${encodedProjectId}/observed-sessions/${encodedItemId}`,
+    },
+    refresh: {
+      method: 'POST',
+      path: `/researchops/projects/${encodedProjectId}/observed-sessions/${encodedItemId}/refresh`,
+    },
+  };
+}
+
+function normalizeObservedSessionItem(item = {}, { projectId = '' } = {}) {
   const detachedNodeId = cleanString(item?.detachedNodeId);
   return {
     ...(item && typeof item === 'object' ? item : {}),
@@ -18,6 +36,7 @@ function normalizeObservedSessionItem(item = {}) {
     detachedNodeId,
     detachedNodeTitle: cleanString(item?.detachedNodeTitle),
     materialization: cleanString(item?.materialization) || 'none',
+    actions: buildObservedSessionActions(projectId, item),
   };
 }
 
@@ -30,9 +49,15 @@ function buildObservedSessionListPayload({
 } = {}) {
   const payload = {
     projectId,
-    items: (Array.isArray(items) ? items : []).map((item) => normalizeObservedSessionItem(item)),
+    items: (Array.isArray(items) ? items : []).map((item) => normalizeObservedSessionItem(item, { projectId })),
     wrotePlan: Boolean(wrotePlan),
     refreshedAt: cleanString(refreshedAt) || new Date().toISOString(),
+    actions: projectId ? {
+      list: {
+        method: 'GET',
+        path: `/researchops/projects/${encodeURIComponent(projectId)}/observed-sessions`,
+      },
+    } : {},
   };
   if (typeof cached === 'boolean') {
     payload.cached = cached;
@@ -48,7 +73,7 @@ function buildObservedSessionItemPayload({
 } = {}) {
   return {
     projectId,
-    item: item && typeof item === 'object' ? normalizeObservedSessionItem(item) : null,
+    item: item && typeof item === 'object' ? normalizeObservedSessionItem(item, { projectId }) : null,
     wrotePlan: Boolean(wrotePlan),
     refreshedAt: cleanString(refreshedAt) || new Date().toISOString(),
   };
