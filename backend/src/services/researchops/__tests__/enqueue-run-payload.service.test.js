@@ -100,3 +100,25 @@ test('normalizeEnqueueRunPayload preserves thin local snapshot hints for bridge-
     note: 'local edits staged for remote execution',
   });
 });
+
+test('normalizeEnqueueRunPayload normalizes top-level output contract fields', () => {
+  const payload = normalizeEnqueueRunPayload({
+    projectId: 'proj_contract',
+    runType: 'EXPERIMENT',
+    outputContract: {
+      requiredArtifacts: ['metrics', 'table', '', 'metrics'],
+      tables: ['accuracy_summary', ''],
+      figures: ['loss_curve'],
+      metricKeys: ['accuracy', 'loss', 'accuracy'],
+      summaryRequired: 1,
+    },
+  });
+
+  assert.deepEqual(payload.outputContract, {
+    requiredArtifacts: ['metrics', 'table'],
+    tables: ['accuracy_summary'],
+    figures: ['loss_curve'],
+    metricKeys: ['accuracy', 'loss'],
+    summaryRequired: true,
+  });
+});

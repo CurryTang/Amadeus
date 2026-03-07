@@ -51,6 +51,39 @@ function hasAnyResource(resources = {}) {
   return Object.values(resources).some((value) => value !== null);
 }
 
+function normalizeTokenList(values = []) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((item) => cleanString(item))
+      .filter(Boolean)
+  )];
+}
+
+function normalizeOutputContract(input = {}) {
+  const source = readObject(input);
+  const requiredArtifacts = normalizeTokenList(source.requiredArtifacts);
+  const tables = normalizeTokenList(source.tables);
+  const figures = normalizeTokenList(source.figures);
+  const metricKeys = normalizeTokenList(source.metricKeys);
+  const summaryRequired = Boolean(source.summaryRequired);
+  if (
+    requiredArtifacts.length === 0
+    && tables.length === 0
+    && figures.length === 0
+    && metricKeys.length === 0
+    && !summaryRequired
+  ) {
+    return {};
+  }
+  return {
+    requiredArtifacts,
+    tables,
+    figures,
+    metricKeys,
+    summaryRequired,
+  };
+}
+
 function buildJobSpec(payload = {}) {
   const explicitJobSpec = readObject(payload.jobSpec);
   const explicitResources = normalizeResources(explicitJobSpec.resources || {});
@@ -81,10 +114,12 @@ function normalizeEnqueueRunPayload(input = {}) {
   const jobSpec = buildJobSpec(payload);
   const workspaceSnapshot = cleanSnapshotObject(payload.workspaceSnapshot);
   const localSnapshot = cleanLocalSnapshot(payload.localSnapshot);
+  const outputContract = normalizeOutputContract(payload.outputContract);
   return {
     ...payload,
     serverId: cleanString(payload.serverId) || 'local-default',
     mode: cleanString(payload.mode).toLowerCase() === 'interactive' ? 'interactive' : 'headless',
+    outputContract,
     metadata: {
       ...metadata,
       ...(jobSpec ? { jobSpec } : {}),
