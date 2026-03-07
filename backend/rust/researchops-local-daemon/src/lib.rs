@@ -8,6 +8,8 @@ use std::os::unix::net::UnixListener;
 use anyhow::{Context, Result};
 use serde::Serialize;
 
+pub mod container_executor;
+pub mod container_runtime;
 pub mod executor;
 
 pub const TASK_CATALOG_VERSION: &str = "v0";

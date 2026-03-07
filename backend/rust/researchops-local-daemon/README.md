@@ -23,12 +23,22 @@ Current scope:
   - `project.ensureGit`
 - execute a thin local snapshot helper through the same task endpoint:
   - `bridge.captureWorkspaceSnapshot`
+- plan container-backed execution through a Docker-compatible adapter:
+  - `container-fast` uses direct workspace mounts with network enabled
+  - `container-guarded` stages a workspace copy and disables network access
 
 It does not yet implement:
 
 - real task execution
 - snapshot syncing
 - artifact upload or event reporting beyond the current bridge-note flow
+
+Container executor v1 currently focuses on deterministic planning primitives:
+
+- Docker-compatible `run` command construction
+- workspace mount vs staged-copy preparation
+- timeout wrapping through `timeout <seconds> ...`
+- cancellation wiring through `docker stop --time 5 <container>`
 
 Run it with:
 
