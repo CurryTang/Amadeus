@@ -21,6 +21,7 @@ import { DEFAULT_LAUNCHER_SKILL, getLauncherPromptPrefix } from './vibe/launcher
 import { buildPayloadWithContinuation, addContinuationChip } from './vibe/launcherContinuation';
 import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
+import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
@@ -570,6 +571,7 @@ function VibeResearcherPanel({
   const [treeWorkspaceReady, setTreeWorkspaceReady] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState('');
+  const [treeActionMessage, setTreeActionMessage] = useState('');
   const [treeRootSummary, setTreeRootSummary] = useState(null);
   const [treeEnvironmentDetected, setTreeEnvironmentDetected] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState('');
@@ -1302,6 +1304,7 @@ function VibeResearcherPanel({
       setTreeValidation(response.data?.validation || null);
       setTreePlanImpact(response.data?.impact || null);
       setTreeError('');
+      setTreeActionMessage(buildPlanActionMessage('patch', response.data || {}));
       await loadTreeWorkspace(projectId, { silent: true });
       return response.data || null;
     } catch (err) {
@@ -1309,6 +1312,7 @@ function VibeResearcherPanel({
       if (feedback.validation) {
         setTreeValidation(feedback.validation);
       }
+      setTreeActionMessage('');
       setTreeError(feedback.message);
       throw err;
     }
@@ -1327,6 +1331,7 @@ function VibeResearcherPanel({
       setTreeValidation(response.data?.validation || null);
       setTreePlanImpact(null);
       setTreeError('');
+      setTreeActionMessage(buildPlanActionMessage('save', response.data || {}));
       await loadTreeWorkspace(projectId, { silent: true });
       return response.data || null;
     } catch (err) {
@@ -1334,6 +1339,7 @@ function VibeResearcherPanel({
       if (feedback.validation) {
         setTreeValidation(feedback.validation);
       }
+      setTreeActionMessage('');
       setTreeError(feedback.message);
       throw err;
     }
@@ -1351,12 +1357,14 @@ function VibeResearcherPanel({
       setTreeValidation(response.data?.validation || null);
       setTreePlanImpact(null);
       setTreeError('');
+      setTreeActionMessage(buildPlanActionMessage('validate', response.data || {}));
       return response.data || null;
     } catch (err) {
       const feedback = getPlanPatchFeedback(err);
       if (feedback.validation) {
         setTreeValidation(feedback.validation);
       }
+      setTreeActionMessage('');
       setTreeError(feedback.message);
       throw err;
     }
@@ -3605,6 +3613,7 @@ function VibeResearcherPanel({
       setTreeEnvironmentDetected(null);
       setTreeWorkspaceReady(false);
       setTreeError('');
+      setTreeActionMessage('');
       setTreeLoading(false);
       setSelectedNodeId('');
       setSearchData(null);
@@ -4244,6 +4253,7 @@ function VibeResearcherPanel({
                     onAbort={() => setTreeControl('abort')}
                     onQuickBash={() => setShowQuickBash(true)}
                   />
+                  {treeActionMessage && !treeError && <div className="vibe-card-note">{treeActionMessage}</div>}
                   {treeError && <div className="vibe-error">{treeError}</div>}
                   {treeLoading && !treePlan && <div className="vibe-card-note">Loading tree workspace...</div>}
                   {!treeLoading && selectedProjectId && !shouldShowJumpstartGate && (!treePlan || treePlan.nodes.length === 0) && (
