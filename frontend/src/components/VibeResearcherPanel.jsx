@@ -25,7 +25,9 @@ import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
+import { getTreeExecutionErrorMessage } from './vibe/treeExecutionErrorPresentation';
 import { buildTreeRunAllMessage } from './vibe/treeRunAllPresentation';
+import { buildTreeRunStepMessage } from './vibe/treeRunStepPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
 import { linkClientWorkspace } from '../hooks/useClientWorkspaceRegistry';
 
@@ -2632,6 +2634,7 @@ function VibeResearcherPanel({
         options,
         { headers }
       );
+      setTreeActionMessage(buildTreeRunStepMessage(response.data || { nodeId: safeNodeId }));
       if (!options?.preflightOnly) {
         await Promise.all([
           loadAll({ silent: true }),
@@ -2641,14 +2644,8 @@ function VibeResearcherPanel({
       }
       return response.data || null;
     } catch (err) {
-      const code = err?.response?.data?.code;
-      const blockedBy = Array.isArray(err?.response?.data?.blockedBy) ? err.response.data.blockedBy : [];
-      const message = err?.response?.data?.error || err?.message || 'Failed to run node step';
-      if (code === 'NODE_BLOCKED' && blockedBy.length > 0) {
-        setTreeError(`${code}: ${message} (${blockedBy.map((item) => item.depId || item.check || item.type).join(', ')})`);
-      } else {
-        setTreeError(code ? `${code}: ${message}` : message);
-      }
+      setTreeActionMessage('');
+      setTreeError(getTreeExecutionErrorMessage(err, 'Failed to run node step'));
       throw err;
     } finally {
       setSubmitting(false);
@@ -2677,10 +2674,8 @@ function VibeResearcherPanel({
         loadRunHistoryPage(projectId, { reset: true }),
       ]);
     } catch (err) {
-      const code = err?.response?.data?.code;
-      const message = err?.response?.data?.error || err?.message || 'Failed to run all steps';
       setTreeActionMessage('');
-      setTreeError(code ? `${code}: ${message}` : message);
+      setTreeError(getTreeExecutionErrorMessage(err, 'Failed to run all steps'));
     } finally {
       setSubmitting(false);
     }
