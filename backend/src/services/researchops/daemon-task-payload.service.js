@@ -1,0 +1,73 @@
+'use strict';
+
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function asObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function normalizeTask(task = null) {
+  const source = asObject(task);
+  return {
+    ...source,
+    id: cleanString(source.id) || null,
+    serverId: cleanString(source.serverId) || null,
+    taskType: cleanString(source.taskType) || null,
+    status: cleanString(source.status).toUpperCase() || 'QUEUED',
+    payload: asObject(source.payload),
+    result: source.result && typeof source.result === 'object' ? source.result : null,
+    error: cleanString(source.error) || null,
+    createdAt: cleanString(source.createdAt) || null,
+    updatedAt: cleanString(source.updatedAt) || null,
+    leasedAt: cleanString(source.leasedAt) || null,
+    completedAt: cleanString(source.completedAt) || null,
+  };
+}
+
+function buildTaskActions(taskId = '') {
+  const safeTaskId = cleanString(taskId);
+  if (!safeTaskId) return {};
+  return {
+    complete: {
+      method: 'POST',
+      path: `/researchops/daemons/tasks/${encodeURIComponent(safeTaskId)}/complete`,
+    },
+  };
+}
+
+function buildTaskSubmitHints() {
+  return {
+    complete: {
+      body: {
+        ok: 'boolean',
+        result: 'object',
+        error: 'string',
+      },
+    },
+  };
+}
+
+function buildDaemonTaskPayload({ task = null } = {}) {
+  const normalizedTask = normalizeTask(task);
+  return {
+    task: normalizedTask,
+    actions: buildTaskActions(normalizedTask.id),
+    submitHints: buildTaskSubmitHints(),
+  };
+}
+
+function buildDaemonTaskClaimPayload({ task = null } = {}) {
+  return buildDaemonTaskPayload({ task });
+}
+
+function buildDaemonTaskCompletionPayload({ task = null } = {}) {
+  return buildDaemonTaskPayload({ task });
+}
+
+module.exports = {
+  buildDaemonTaskPayload,
+  buildDaemonTaskClaimPayload,
+  buildDaemonTaskCompletionPayload,
+};

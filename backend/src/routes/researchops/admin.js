@@ -11,6 +11,10 @@ const {
   buildDaemonListPayload,
   buildDaemonRegistrationPayload,
 } = require('../../services/researchops/daemon-payload.service');
+const {
+  buildDaemonTaskClaimPayload,
+  buildDaemonTaskCompletionPayload,
+} = require('../../services/researchops/daemon-task-payload.service');
 const { buildResourcePoolPayload } = require('../../services/researchops/resource-pool-payload.service');
 const { parseLimit, getUserId, sanitizeError, cleanString } = require('./shared');
 
@@ -543,7 +547,7 @@ router.post('/daemons/tasks/claim', async (req, res) => {
     if (!serverId) return res.status(400).json({ error: 'serverId is required' });
     const task = await researchOpsStore.claimNextDaemonTask(getUserId(req), serverId);
     if (!task) return res.status(204).end();
-    return res.json({ task });
+    return res.json(buildDaemonTaskClaimPayload({ task }));
   } catch (error) {
     console.error('[ResearchOps] claim daemon task failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to claim daemon task') });
@@ -556,7 +560,7 @@ router.post('/daemons/tasks/:taskId/complete', async (req, res) => {
     if (!taskId) return res.status(400).json({ error: 'taskId is required' });
     const task = await researchOpsStore.completeDaemonTask(getUserId(req), taskId, req.body || {});
     if (!task) return res.status(404).json({ error: 'Daemon task not found' });
-    return res.json({ task });
+    return res.json(buildDaemonTaskCompletionPayload({ task }));
   } catch (error) {
     console.error('[ResearchOps] complete daemon task failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to complete daemon task') });
