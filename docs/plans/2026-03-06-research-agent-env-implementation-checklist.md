@@ -100,3 +100,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Daemon list responses now use the normalized daemon payload with list metadata and discovery actions, so `/daemons` no longer remains a raw `{ items }` exception in the execution-control surface
   - Run checkpoint list and decision responses now use a normalized checkpoint payload with filters, checkpoint action descriptors, and list follow-up actions, so the run evidence family no longer leaves checkpoints on ad-hoc raw response shapes
   - Scheduler queue responses now use a normalized queue payload built from enriched run-list items, and dashboard queue aggregation now reuses the same normalizer instead of mixing raw queued-run shapes
+  - Idea list/detail/create/update responses now use normalized idea payloads with compatible top-level idea items plus follow-up action descriptors, and dashboard idea aggregation now reuses the same normalizer

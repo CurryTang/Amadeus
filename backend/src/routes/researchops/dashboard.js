@@ -9,6 +9,10 @@ const codexCliService = require('../../services/codex-cli.service');
 const geminiCliService = require('../../services/gemini-cli.service');
 const llmService = require('../../services/llm.service');
 const researchOpsStore = require('../../services/researchops/store');
+const {
+  buildIdeaListPayload,
+  buildIdeaPayload,
+} = require('../../services/researchops/idea-payload.service');
 const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const { normalizeEnqueueRunPayload } = require('../../services/researchops/enqueue-run-payload.service');
 const workflowSchemaService = require('../../services/researchops/workflow-schema.service');
@@ -243,7 +247,7 @@ router.get('/dashboard', async (req, res) => {
     ]);
     return res.json({
       projects,
-      ideas,
+      ideas: buildIdeaListPayload({ items: ideas, limit: itemLimit }).items,
       queue: buildQueueListPayload({ items: queue, limit: itemLimit }).items,
       runs,
       skills,
@@ -257,12 +261,20 @@ router.get('/dashboard', async (req, res) => {
 
 router.get('/ideas', async (req, res) => {
   try {
+    const projectId = String(req.query.projectId || '').trim();
+    const status = String(req.query.status || '').trim().toUpperCase();
+    const limit = parseLimit(req.query.limit, 80, 300);
     const items = await researchOpsStore.listIdeas(getUserId(req), {
-      projectId: String(req.query.projectId || '').trim(),
-      status: String(req.query.status || '').trim().toUpperCase(),
-      limit: parseLimit(req.query.limit, 80, 300),
+      projectId,
+      status,
+      limit,
     });
-    res.json({ items });
+    res.json(buildIdeaListPayload({
+      items,
+      projectId,
+      status,
+      limit,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listIdeas failed:', error);
     res.status(500).json({ error: 'Failed to list ideas' });
@@ -272,7 +284,7 @@ router.get('/ideas', async (req, res) => {
 router.post('/ideas', async (req, res) => {
   try {
     const idea = await researchOpsStore.createIdea(getUserId(req), req.body || {});
-    res.status(201).json({ idea });
+    res.status(201).json(buildIdeaPayload({ idea }));
   } catch (error) {
     console.error('[ResearchOps] createIdea failed:', error);
     if (error.code === 'PROJECT_NOT_FOUND') {
@@ -286,7 +298,7 @@ router.get('/ideas/:ideaId', async (req, res) => {
   try {
     const idea = await researchOpsStore.getIdea(getUserId(req), req.params.ideaId);
     if (!idea) return res.status(404).json({ error: 'Idea not found' });
-    return res.json({ idea });
+    return res.json(buildIdeaPayload({ idea }));
   } catch (error) {
     console.error('[ResearchOps] getIdea failed:', error);
     res.status(500).json({ error: 'Failed to fetch idea' });
@@ -297,7 +309,7 @@ router.patch('/ideas/:ideaId', async (req, res) => {
   try {
     const idea = await researchOpsStore.updateIdea(getUserId(req), req.params.ideaId, req.body || {});
     if (!idea) return res.status(404).json({ error: 'Idea not found' });
-    return res.json({ idea });
+    return res.json(buildIdeaPayload({ idea }));
   } catch (error) {
     console.error('[ResearchOps] updateIdea failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update idea') });
