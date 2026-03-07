@@ -53,5 +53,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Run detail now exposes normalized execution contract data (`location`, `mode`, `backend`, `runtimeClass`, `resources`)
   - Run detail and run-tree payloads now surface continuation / related-run semantics without introducing a new bundle or review workflow
   - Tree node bridge context now has a thin current-architecture payload for local bridge clients (`node`, `nodeState`, `blocking`, `lastRun`, optional `contextPack`)
+  - Bridge clients can now read a compact `bridge-report` view and submit thin `workspaceSnapshot` / `localSnapshot` hints through existing enqueue APIs
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility

@@ -70,3 +70,33 @@ test('normalizeEnqueueRunPayload merges explicit jobSpec with flat fallbacks and
     },
   });
 });
+
+test('normalizeEnqueueRunPayload preserves thin local snapshot hints for bridge-submitted runs', () => {
+  const payload = normalizeEnqueueRunPayload({
+    projectId: 'proj_bridge',
+    runType: 'AGENT',
+    mode: 'interactive',
+    metadata: {
+      prompt: 'Investigate the regression',
+    },
+    workspaceSnapshot: {
+      path: '/tmp/researchops-runs/run_bridge',
+      sourceServerId: 'srv_remote_1',
+      runSpecArtifactId: 'art_spec',
+    },
+    localSnapshot: {
+      kind: 'workspace_patch',
+      note: 'local edits staged for remote execution',
+    },
+  });
+
+  assert.deepEqual(payload.metadata.workspaceSnapshot, {
+    path: '/tmp/researchops-runs/run_bridge',
+    sourceServerId: 'srv_remote_1',
+    runSpecArtifactId: 'art_spec',
+  });
+  assert.deepEqual(payload.metadata.localSnapshot, {
+    kind: 'workspace_patch',
+    note: 'local edits staged for remote execution',
+  });
+});

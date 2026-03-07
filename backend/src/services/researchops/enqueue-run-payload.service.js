@@ -13,6 +13,30 @@ function cleanNumber(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function cleanSnapshotObject(input = {}) {
+  const source = readObject(input);
+  const path = cleanString(source.path);
+  const sourceServerId = cleanString(source.sourceServerId);
+  const runSpecArtifactId = cleanString(source.runSpecArtifactId);
+  if (!path && !sourceServerId && !runSpecArtifactId) return null;
+  return {
+    path: path || null,
+    sourceServerId: sourceServerId || null,
+    runSpecArtifactId: runSpecArtifactId || null,
+  };
+}
+
+function cleanLocalSnapshot(input = {}) {
+  const source = readObject(input);
+  const kind = cleanString(source.kind);
+  const note = cleanString(source.note);
+  if (!kind && !note) return null;
+  return {
+    ...(kind ? { kind } : {}),
+    ...(note ? { note } : {}),
+  };
+}
+
 function normalizeResources(resources = {}) {
   const source = readObject(resources);
   return {
@@ -55,6 +79,8 @@ function normalizeEnqueueRunPayload(input = {}) {
   const payload = readObject(input);
   const metadata = readObject(payload.metadata);
   const jobSpec = buildJobSpec(payload);
+  const workspaceSnapshot = cleanSnapshotObject(payload.workspaceSnapshot);
+  const localSnapshot = cleanLocalSnapshot(payload.localSnapshot);
   return {
     ...payload,
     serverId: cleanString(payload.serverId) || 'local-default',
@@ -62,6 +88,8 @@ function normalizeEnqueueRunPayload(input = {}) {
     metadata: {
       ...metadata,
       ...(jobSpec ? { jobSpec } : {}),
+      ...(workspaceSnapshot ? { workspaceSnapshot } : {}),
+      ...(localSnapshot ? { localSnapshot } : {}),
     },
   };
 }

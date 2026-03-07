@@ -20,6 +20,7 @@ const { normalizeEnqueueRunPayload } = require('../../services/researchops/enque
 const { buildRunListPayload, deriveResultSnippet } = require('../../services/researchops/run-list-payload.service');
 const { buildRunPayload } = require('../../services/researchops/run-payload.service');
 const { findRunReportHighlights } = require('../../services/researchops/run-report-view');
+const { buildBridgeRunReportPayload } = require('../../services/researchops/bridge-run-report-payload.service');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { getDb } = require('../../db');
 const {
@@ -660,6 +661,35 @@ router.get('/runs/:runId/report', async (req, res) => {
     console.error('[ResearchOps] getRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
     return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch run report') });
+  }
+});
+
+router.get('/runs/:runId/bridge-report', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const runId = String(req.params.runId || '').trim();
+    const [run, steps, artifacts, checkpoints] = await Promise.all([
+      researchOpsStore.getRun(userId, runId),
+      researchOpsStore.listRunSteps(userId, runId),
+      researchOpsStore.listRunArtifacts(userId, runId, { limit: 1000 }),
+      researchOpsStore.listRunCheckpoints(userId, runId, { limit: 500 }),
+    ]);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const report = buildRunReportPayload({
+      run,
+      steps,
+      artifacts,
+      checkpoints,
+      summaryText: null,
+      manifest: null,
+      mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
+    });
+    return res.json(buildBridgeRunReportPayload({ report }));
+  } catch (error) {
+    console.error('[ResearchOps] getBridgeRunReport failed:', error);
+    if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch bridge run report') });
   }
 });
 
