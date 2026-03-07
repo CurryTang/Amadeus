@@ -151,6 +151,17 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
       runId: 'run_eval',
     },
   });
+  assert.deepEqual(payload.taskActions.captureWorkspaceSnapshot, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.captureWorkspaceSnapshot',
+    payload: {
+      workspacePath: null,
+      sourceServerId: 'srv_remote_1',
+      kind: 'workspace_patch',
+      note: null,
+    },
+  });
   assert.deepEqual(payload.actions.bridgeContext, {
     method: 'GET',
     path: '/researchops/projects/proj_1/tree/nodes/node_eval/bridge-context',
@@ -205,6 +216,14 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
       title: 'string',
       content: 'string',
       noteType: 'string',
+    },
+  });
+  assert.deepEqual(payload.taskSubmitHints.captureWorkspaceSnapshot, {
+    payload: {
+      workspacePath: 'string',
+      sourceServerId: 'string|null',
+      kind: 'string',
+      note: 'string|null',
     },
   });
   } finally {

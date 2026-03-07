@@ -105,6 +105,17 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
       runId: 'run_123',
     },
   });
+  assert.deepEqual(payload.taskActions.captureWorkspaceSnapshot, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.captureWorkspaceSnapshot',
+    payload: {
+      workspacePath: null,
+      sourceServerId: 'srv_remote_1',
+      kind: 'workspace_patch',
+      note: null,
+    },
+  });
   assert.deepEqual(payload.contextPack, {
     generatedAt: '2026-03-06T12:00:00.000Z',
   });

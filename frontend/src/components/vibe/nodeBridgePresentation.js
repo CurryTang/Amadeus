@@ -57,7 +57,8 @@ function buildNodeBridgeSummary(payload = {}) {
   if (capabilities.hasBridgeReport) rows.push({ label: 'Bridge Report', value: 'Available' });
   if (capabilities.hasContextPack) rows.push({ label: 'Bridge Context', value: 'Context pack available' });
   if (snapshotKinds.length > 0) rows.push({ label: 'Snapshots', value: snapshotKinds.join(', ') });
-  if (bridgeRuntime?.capabilities?.canCaptureWorkspaceSnapshot === true) {
+  if (bridgeRuntime?.capabilities?.canCaptureWorkspaceSnapshot === true
+    && !cleanString(taskActions?.captureWorkspaceSnapshot?.taskType)) {
     rows.push({ label: 'Snapshot Capture', value: 'Available' });
   }
   if (capabilities.hasContractFailures === true) rows.push({ label: 'Contract', value: 'Failures detected' });
@@ -66,6 +67,8 @@ function buildNodeBridgeSummary(payload = {}) {
   if (fetchTaskType) rows.push({ label: 'Fetch Task', value: fetchTaskType });
   const runTaskType = cleanString(taskActions?.submitNodeRun?.taskType);
   if (runTaskType) rows.push({ label: 'Run Task', value: runTaskType });
+  const snapshotTaskType = cleanString(taskActions?.captureWorkspaceSnapshot?.taskType);
+  if (snapshotTaskType) rows.push({ label: 'Snapshot Capture', value: snapshotTaskType });
   return rows;
 }
 

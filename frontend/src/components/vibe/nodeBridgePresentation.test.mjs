@@ -29,6 +29,7 @@ test('buildNodeBridgeSummary summarizes bridge runtime, transports, and task rea
     taskActions: {
       fetchNodeContext: { taskType: 'bridge.fetchNodeContext' },
       submitNodeRun: { taskType: 'bridge.submitNodeRun' },
+      captureWorkspaceSnapshot: { taskType: 'bridge.captureWorkspaceSnapshot' },
     },
   });
 
@@ -43,10 +44,10 @@ test('buildNodeBridgeSummary summarizes bridge runtime, transports, and task rea
     { label: 'Bridge Report', value: 'Available' },
     { label: 'Bridge Context', value: 'Context pack available' },
     { label: 'Snapshots', value: 'workspace, local, env' },
-    { label: 'Snapshot Capture', value: 'Available' },
     { label: 'Contract', value: 'Failures detected' },
     { label: 'Fetch Task', value: 'bridge.fetchNodeContext' },
     { label: 'Run Task', value: 'bridge.submitNodeRun' },
+    { label: 'Snapshot Capture', value: 'bridge.captureWorkspaceSnapshot' },
   ]);
 });
 

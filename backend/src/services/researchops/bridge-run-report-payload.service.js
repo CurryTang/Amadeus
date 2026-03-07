@@ -1,6 +1,9 @@
 'use strict';
 
-const { buildBridgeDaemonTaskActions } = require('./bridge-daemon-task-action.service');
+const {
+  buildBridgeDaemonTaskActions,
+  buildBridgeDaemonTaskSubmitHints,
+} = require('./bridge-daemon-task-action.service');
 const { buildBridgeTransportEnum } = require('./bridge-transport.service');
 const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 
@@ -93,7 +96,9 @@ function buildBridgeRunReportPayload({ report = null, bridgeRuntime = null } = {
       projectId,
       nodeId,
       runId,
+      sourceServerId: cleanString(source?.execution?.serverId),
     }),
+    taskSubmitHints: buildBridgeDaemonTaskSubmitHints(),
     report: source,
   };
 }

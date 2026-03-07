@@ -21,10 +21,18 @@ function buildBridgeDaemonTaskActions({
   projectId = '',
   nodeId = '',
   runId = '',
+  sourceServerId = '',
 } = {}) {
   const safeProjectId = cleanString(projectId);
   const safeNodeId = cleanString(nodeId);
   const safeRunId = cleanString(runId);
+  const safeSourceServerId = cleanString(sourceServerId);
+  const captureWorkspaceSnapshot = buildTaskAction(serverId, 'bridge.captureWorkspaceSnapshot', {
+    workspacePath: null,
+    sourceServerId: safeSourceServerId || null,
+    kind: 'workspace_patch',
+    note: null,
+  });
   return {
     ...(safeProjectId && safeNodeId ? {
       fetchNodeContext: buildTaskAction(serverId, 'bridge.fetchNodeContext', {
@@ -36,6 +44,7 @@ function buildBridgeDaemonTaskActions({
         nodeId: safeNodeId,
       }),
     } : {}),
+    ...(captureWorkspaceSnapshot ? { captureWorkspaceSnapshot } : {}),
     ...(safeRunId ? {
       fetchContextPack: buildTaskAction(serverId, 'bridge.fetchContextPack', {
         runId: safeRunId,
@@ -50,6 +59,20 @@ function buildBridgeDaemonTaskActions({
   };
 }
 
+function buildBridgeDaemonTaskSubmitHints() {
+  return {
+    captureWorkspaceSnapshot: {
+      payload: {
+        workspacePath: 'string',
+        sourceServerId: 'string|null',
+        kind: 'string',
+        note: 'string|null',
+      },
+    },
+  };
+}
+
 module.exports = {
   buildBridgeDaemonTaskActions,
+  buildBridgeDaemonTaskSubmitHints,
 };

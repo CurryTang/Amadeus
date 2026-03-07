@@ -63,6 +63,7 @@ function buildRunReportPayload({
       projectId: cleanString(run?.projectId),
       nodeId: cleanString(attempt?.treeNodeId || attempt?.nodeId),
       runId: cleanString(run?.id),
+      sourceServerId: cleanString(run?.serverId),
     }),
     summary: summaryText,
     manifest,

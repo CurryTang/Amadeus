@@ -1,6 +1,9 @@
 'use strict';
 
-const { buildBridgeDaemonTaskActions } = require('./bridge-daemon-task-action.service');
+const {
+  buildBridgeDaemonTaskActions,
+  buildBridgeDaemonTaskSubmitHints,
+} = require('./bridge-daemon-task-action.service');
 const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 const { buildRunPreviewView } = require('./run-preview-view.service');
 const { buildRunPayload } = require('./run-payload.service');
@@ -33,7 +36,9 @@ function buildBridgeTreeRunPayload({
     projectId,
     nodeId,
     runId: payload.run?.id,
+    sourceServerId: payload.execution?.serverId,
   });
+  payload.taskSubmitHints = buildBridgeDaemonTaskSubmitHints();
   if (payload.runPayloadPreview && typeof payload.runPayloadPreview === 'object') {
     payload.runPreview = buildRunPreviewView(payload.runPayloadPreview);
   }

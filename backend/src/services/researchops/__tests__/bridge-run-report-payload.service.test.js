@@ -167,6 +167,14 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
       transport: '"http"|"daemon-task"|"rust-daemon"',
     },
   });
+  assert.deepEqual(payload.taskSubmitHints.captureWorkspaceSnapshot, {
+    payload: {
+      workspacePath: 'string',
+      sourceServerId: 'string|null',
+      kind: 'string',
+      note: 'string|null',
+    },
+  });
   } finally {
     if (previousRustUrl === undefined) delete process.env.RESEARCHOPS_RUST_DAEMON_URL;
     else process.env.RESEARCHOPS_RUST_DAEMON_URL = previousRustUrl;
