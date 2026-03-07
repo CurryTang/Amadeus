@@ -84,26 +84,22 @@ async function waitForDaemon(url, attempts = 40) {
 async function createMockBackend() {
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/api/researchops/runs/run_verify/bridge-report') {
-      const body = JSON.stringify({
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        Connection: 'close',
+      });
+      res.end(JSON.stringify({
         bridgeVersion: 'v0',
         runId: 'run_verify',
         ok: true,
-      });
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        Connection: 'close',
-      });
-      res.end(body);
+      }));
       return;
     }
-    const body = JSON.stringify({ error: 'not_found', path: req.url });
     res.writeHead(404, {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(body),
       Connection: 'close',
     });
-    res.end(body);
+    res.end(JSON.stringify({ error: 'not_found', path: req.url }));
   });
   await new Promise((resolve, reject) => {
     server.listen(0, '127.0.0.1', (error) => (error ? reject(error) : resolve()));

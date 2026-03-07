@@ -280,8 +280,45 @@ fn http_request_via_config(
 
     let mut response = String::new();
     stream.read_to_string(&mut response).context("read backend response")?;
-    let (_, body) = response.split_once("\r\n\r\n").context("split backend response body")?;
-    serde_json::from_str(body).context("decode backend response json")
+    let body = decode_http_response_body(&response)?;
+    serde_json::from_str(&body).context("decode backend response json")
+}
+
+fn decode_chunked_body(body: &str) -> Result<String> {
+    let mut remaining = body;
+    let mut decoded = String::new();
+    loop {
+        let (size_line, rest) = remaining.split_once("\r\n").context("split chunk size line")?;
+        let size = usize::from_str_radix(size_line.trim(), 16).context("decode chunk size")?;
+        if size == 0 {
+            return Ok(decoded);
+        }
+        if rest.len() < size + 2 {
+            anyhow::bail!("chunk body shorter than declared size");
+        }
+        decoded.push_str(&rest[..size]);
+        remaining = &rest[size + 2..];
+    }
+}
+
+fn decode_http_response_body(response: &str) -> Result<String> {
+    let (headers, body) = response.split_once("\r\n\r\n").context("split backend response body")?;
+    let transfer_encoding = headers
+        .lines()
+        .find_map(|line| {
+            line.split_once(':').and_then(|(name, value)| {
+                if name.trim().eq_ignore_ascii_case("transfer-encoding") {
+                    Some(value.trim().to_ascii_lowercase())
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_default();
+    if transfer_encoding.contains("chunked") {
+        return decode_chunked_body(body);
+    }
+    Ok(body.to_string())
 }
 
 fn build_task_proxy_request(

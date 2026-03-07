@@ -557,3 +557,48 @@ fn serve_one_http_request_executes_project_ensure_git_task() {
     assert!(response.contains("\"rootPath\""));
     assert!(temp_dir.join(".git").exists());
 }
+
+#[test]
+fn serve_one_http_request_proxies_chunked_bridge_report_from_backend() {
+    let backend_listener = TcpListener::bind("127.0.0.1:0").expect("bind backend listener");
+    let backend_addr = backend_listener.local_addr().expect("backend addr");
+    let backend_handle = thread::spawn(move || {
+        let (mut stream, _) = backend_listener.accept().expect("accept backend connection");
+        let mut request = String::new();
+        stream.read_to_string(&mut request).expect("read backend request");
+        assert!(request.starts_with("GET /api/researchops/runs/run_chunk/bridge-report HTTP/1.1"));
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n34\r\n{\"bridgeVersion\":\"v0\",\"runId\":\"run_chunk\",\"ok\":true}\r\n0\r\n\r\n",
+            )
+            .expect("write backend response");
+    });
+
+    let daemon_listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let daemon_addr = daemon_listener.local_addr().expect("daemon addr");
+    let daemon_handle = thread::spawn(move || {
+        serve_one_http_request_with_config(
+            daemon_listener,
+            true,
+            DaemonConfig {
+                api_base_url: format!("http://{}", backend_addr),
+                admin_token: String::new(),
+            },
+        )
+        .expect("serve daemon bridge-report request");
+    });
+
+    let mut client = TcpStream::connect(daemon_addr).expect("connect daemon");
+    client
+        .write_all(b"GET /bridge-report?runId=run_chunk HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    daemon_handle.join().expect("daemon thread");
+    backend_handle.join().expect("backend thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"runId\":\"run_chunk\""));
+}
