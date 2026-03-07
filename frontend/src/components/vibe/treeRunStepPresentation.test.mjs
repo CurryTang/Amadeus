@@ -52,3 +52,25 @@ test('buildTreeRunStepMessage includes normalized preflight runtime and contract
     'Preflight ready for node_eval with 2 commands on container/container-fast; 2 required artifacts.'
   );
 });
+
+test('buildTreeRunStepMessage includes snapshot-backed hints for preflight runs', () => {
+  assert.equal(
+    buildTreeRunStepMessage({
+      mode: 'preflight',
+      nodeId: 'node_eval',
+      commands: ['python train.py'],
+      runPreview: {
+        execution: {
+          backend: 'container',
+          runtimeClass: 'container-fast',
+        },
+        workspaceSnapshot: {
+          localSnapshot: {
+            kind: 'git_diff',
+          },
+        },
+      },
+    }),
+    'Preflight ready for node_eval with 1 command on container/container-fast; snapshot-backed.'
+  );
+});

@@ -81,6 +81,7 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Tree execution payloads (`run-step`, `run-all`, `bridge-run`) now expose the same `execution/followUp/contract` run views as `/runs/*`, instead of only attempt metadata
   - Tree preflight responses now also include a normalized `runPreview` view, so runtime/contract/snapshot hints are readable before actual enqueue
   - Tree preflight success messages now summarize runtime class/backend and required artifact counts, so those normalized previews are visible in the current UI without a new panel
+  - Tree preflight success messages now also call out snapshot-backed submissions from normalized `runPreview.workspaceSnapshot` data, so local-bridge snapshot runs are visible before enqueue rather than only after report/detail load
   - `bridge-context` now includes concrete bridge action paths for `bridge-run`, `context-pack`, raw `report`, `artifacts`, `bridge-report`, and `bridge-note`, so local bridge clients do not need to hardcode current route shapes
   - `bridge-context` now also includes thin `submitHints` for `bridgeContext`, `bridgeRun`, and `bridgeNote`, documenting the current query/body fields that local bridge clients can safely send
   - `bridge-report` now also includes concrete follow-up action paths for `context-pack`, raw `report`, `artifacts`, and `bridge-note`, so bridge clients can continue from a report payload without reconstructing URLs

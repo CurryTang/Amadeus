@@ -22,18 +22,28 @@ function buildTreeRunStepMessage(payload = {}) {
     const contract = payload?.runPreview?.contract && typeof payload.runPreview.contract === 'object'
       ? payload.runPreview.contract
       : {};
+    const workspaceSnapshot = payload?.runPreview?.workspaceSnapshot && typeof payload.runPreview.workspaceSnapshot === 'object'
+      ? payload.runPreview.workspaceSnapshot
+      : {};
+    const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
+      ? workspaceSnapshot.localSnapshot
+      : {};
     const runtimeBits = [cleanString(execution.backend), cleanString(execution.runtimeClass)].filter(Boolean);
     const requiredArtifacts = Array.isArray(contract.requiredArtifacts)
       ? contract.requiredArtifacts.filter((item) => cleanString(item))
       : [];
-    let message = `Preflight ready for ${nodeId} with ${commands} commands.`;
-    if (runtimeBits.length > 0 || requiredArtifacts.length > 0) {
-      message = `Preflight ready for ${nodeId} with ${commands} commands`;
+    const hasSnapshot = Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note));
+    let message = `Preflight ready for ${nodeId} with ${pluralize(commands, 'command')}.`;
+    if (runtimeBits.length > 0 || requiredArtifacts.length > 0 || hasSnapshot) {
+      message = `Preflight ready for ${nodeId} with ${pluralize(commands, 'command')}`;
       if (runtimeBits.length > 0) {
         message += ` on ${runtimeBits.join('/')}`;
       }
       if (requiredArtifacts.length > 0) {
         message += `; ${pluralize(requiredArtifacts.length, 'required artifact')}`;
+      }
+      if (hasSnapshot) {
+        message += '; snapshot-backed';
       }
       message += '.';
     }
