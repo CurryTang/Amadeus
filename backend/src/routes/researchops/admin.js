@@ -15,6 +15,7 @@ const {
   buildDaemonTaskClaimPayload,
   buildDaemonTaskCompletionPayload,
 } = require('../../services/researchops/daemon-task-payload.service');
+const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const { buildResourcePoolPayload } = require('../../services/researchops/resource-pool-payload.service');
 const { parseLimit, getUserId, sanitizeError, cleanString } = require('./shared');
 
@@ -412,11 +413,17 @@ router.patch('/ui-config', async (req, res) => {
 
 router.get('/scheduler/queue', async (req, res) => {
   try {
+    const serverId = String(req.query.serverId || '').trim();
+    const limit = parseLimit(req.query.limit, 100, 300);
     const items = await researchOpsStore.listQueue(getUserId(req), {
-      serverId: String(req.query.serverId || '').trim(),
-      limit: parseLimit(req.query.limit, 100, 300),
+      serverId,
+      limit,
     });
-    res.json({ items });
+    res.json(buildQueueListPayload({
+      items,
+      serverId,
+      limit,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listQueue failed:', error);
     res.status(500).json({ error: 'Failed to list queue' });

@@ -31,6 +31,7 @@ const {
 const { buildRunEventListPayload } = require('../../services/researchops/run-event-list-payload.service');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { buildRunStepListPayload } = require('../../services/researchops/run-step-list-payload.service');
+const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const { getDb } = require('../../db');
 const {
   buildResearchOpsSshArgs,
@@ -884,11 +885,17 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
 
 router.get('/scheduler/queue', async (req, res) => {
   try {
+    const serverId = String(req.query.serverId || '').trim();
+    const limit = parseLimit(req.query.limit, 100, 300);
     const items = await researchOpsStore.listQueue(getUserId(req), {
-      serverId: String(req.query.serverId || '').trim(),
-      limit: parseLimit(req.query.limit, 100, 300),
+      serverId,
+      limit,
     });
-    res.json({ items });
+    res.json(buildQueueListPayload({
+      items,
+      serverId,
+      limit,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listQueue failed:', error);
     res.status(500).json({ error: 'Failed to list queue' });

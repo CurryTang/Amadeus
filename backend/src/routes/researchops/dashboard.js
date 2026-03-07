@@ -9,6 +9,7 @@ const codexCliService = require('../../services/codex-cli.service');
 const geminiCliService = require('../../services/gemini-cli.service');
 const llmService = require('../../services/llm.service');
 const researchOpsStore = require('../../services/researchops/store');
+const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const { normalizeEnqueueRunPayload } = require('../../services/researchops/enqueue-run-payload.service');
 const workflowSchemaService = require('../../services/researchops/workflow-schema.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
@@ -243,7 +244,7 @@ router.get('/dashboard', async (req, res) => {
     return res.json({
       projects,
       ideas,
-      queue,
+      queue: buildQueueListPayload({ items: queue, limit: itemLimit }).items,
       runs,
       skills,
       refreshedAt: new Date().toISOString(),
