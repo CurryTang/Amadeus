@@ -23,6 +23,13 @@ function formatReadiness(value = '') {
   return '';
 }
 
+function formatSinkProviders(providers = []) {
+  if (!Array.isArray(providers)) return '';
+  const values = providers.map((item) => cleanString(item)).filter(Boolean);
+  if (values.length === 0) return '';
+  return values.join(', ');
+}
+
 function resolveNodeReport(runReport = {}, bridgeReport = {}) {
   const primaryReport = runReport && typeof runReport === 'object' ? runReport : {};
   if (Object.keys(primaryReport).length > 0) return primaryReport;
@@ -125,6 +132,7 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     const otherContractStatus = formatContractOk(runCompare?.other?.contract?.ok);
     const otherReadiness = formatReadiness(compareObservability?.statuses?.readiness);
     const otherWarningsCount = Math.max(Number(compareObservability?.counts?.warnings) || 0, 0);
+    const otherSinkProviders = formatSinkProviders(compareObservability?.sinkProviders);
     const compareWorkspaceSnapshot = runCompare?.other?.report?.workspaceSnapshot
       && typeof runCompare.other.report.workspaceSnapshot === 'object'
       ? runCompare.other.report.workspaceSnapshot
@@ -159,6 +167,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       rows.push({
         label: 'Compare Warnings',
         value: otherWarningsCount === 1 ? '1 warning' : `${otherWarningsCount} warnings`,
+      });
+    }
+    if (otherSinkProviders) {
+      rows.push({
+        label: 'Compare Sinks',
+        value: otherSinkProviders,
       });
     }
     if (otherExecutionLocation) {

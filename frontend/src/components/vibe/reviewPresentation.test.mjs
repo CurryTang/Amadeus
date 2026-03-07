@@ -87,6 +87,7 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
             counts: {
               warnings: 2,
             },
+            sinkProviders: ['wandb', 'tensorboard'],
           },
           workspaceSnapshot: {
             localSnapshot: {
@@ -112,6 +113,7 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare Node', value: 'Same node' },
     { label: 'Compare Readiness', value: 'Needs attention' },
     { label: 'Compare Warnings', value: '2 warnings' },
+    { label: 'Compare Sinks', value: 'wandb, tensorboard' },
     { label: 'Compare Execution', value: 'remote' },
     { label: 'Compare Runtime', value: 'container/container-fast' },
     { label: 'Compare Contract', value: 'Validation failed' },

@@ -273,6 +273,12 @@ function VibeRunDetailModal({
                         <dd>{compareSummary.otherWarnings}</dd>
                       </div>
                     )}
+                    {compareSummary.otherSinkProviders && (
+                      <div>
+                        <dt>Sinks</dt>
+                        <dd>{compareSummary.otherSinkProviders}</dd>
+                      </div>
+                    )}
                     <div>
                       <dt>Same Node</dt>
                       <dd>{compareSummary.sameNode ? 'Yes' : 'No'}</dd>

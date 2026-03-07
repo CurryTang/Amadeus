@@ -30,6 +30,13 @@ function formatContractOk(ok) {
   return '';
 }
 
+function formatSinkProviders(providers = []) {
+  if (!Array.isArray(providers)) return '';
+  const values = providers.map((item) => cleanString(item)).filter(Boolean);
+  if (values.length === 0) return '';
+  return values.join(', ');
+}
+
 function findArtifactById(artifacts = [], artifactId = '') {
   const targetId = cleanString(artifactId);
   if (!targetId) return null;
@@ -385,6 +392,7 @@ function buildRunCompareSummary(comparePayload = {}) {
     otherWarnings: Math.max(Number(observability?.counts?.warnings) || 0, 0) > 0
       ? `${Math.max(Number(observability?.counts?.warnings) || 0, 0)} warnings`
       : '',
+    otherSinkProviders: formatSinkProviders(observability?.sinkProviders),
     otherExecutionLocation: cleanString(execution.location),
     otherExecutionRuntime: runtimeBits.length > 0 ? runtimeBits.join('/') : '',
     otherContractStatus: formatContractOk(contract.ok),

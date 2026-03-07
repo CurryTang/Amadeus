@@ -319,6 +319,30 @@ test('buildRunObservabilitySummary prefers normalized observability rows when av
   ]);
 });
 
+test('buildRunCompareSummary surfaces compare-side sink providers from normalized observability', () => {
+  const summary = buildRunCompareSummary({
+    other: {
+      run: {
+        id: 'run_compare',
+        status: 'FAILED',
+      },
+      execution: {
+        location: 'remote',
+        backend: 'container',
+        runtimeClass: 'container-fast',
+      },
+      report: {
+        observability: {
+          sinkProviders: ['wandb', 'tensorboard'],
+        },
+      },
+    },
+    relation: {},
+  });
+
+  assert.equal(summary.otherSinkProviders, 'wandb, tensorboard');
+});
+
 test('buildRunFollowUpSummary exposes continuation and related-run rows', () => {
   const summary = buildRunFollowUpSummary({
     metadata: {
@@ -381,6 +405,7 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
           counts: {
             warnings: 2,
           },
+          sinkProviders: ['wandb', 'tensorboard'],
         },
         workspaceSnapshot: {
           localSnapshot: {
@@ -414,6 +439,7 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherSummary: 'Ablation branch regressed on accuracy.',
     otherReadiness: 'Needs attention',
     otherWarnings: '2 warnings',
+    otherSinkProviders: 'wandb, tensorboard',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-fast',
     otherContractStatus: 'Validation failed',
@@ -459,6 +485,7 @@ test('buildRunCompareSummary falls back to thin compare run views when report de
     otherSummary: '',
     otherReadiness: '',
     otherWarnings: '',
+    otherSinkProviders: '',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-guarded',
     otherContractStatus: 'Validated',
