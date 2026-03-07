@@ -1,8 +1,13 @@
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 
-use researchops_local_daemon::{serve_http_requests, serve_one_http_request};
+use researchops_local_daemon::{
+    serve_http_requests,
+    serve_one_http_request,
+    serve_one_http_request_with_config,
+    DaemonConfig,
+};
 
 #[test]
 fn serve_one_http_request_returns_runtime_summary_json() {
@@ -83,4 +88,96 @@ fn serve_http_requests_handles_multiple_requests_before_stopping() {
     assert!(first_response.contains("\"status\":\"ok\""));
     assert!(second_response.starts_with("HTTP/1.1 200 OK"));
     assert!(second_response.contains("\"task_catalog_version\":\"v0\""));
+}
+
+#[test]
+fn serve_one_http_request_proxies_bridge_report_from_backend() {
+    let backend_listener = TcpListener::bind("127.0.0.1:0").expect("bind backend listener");
+    let backend_addr = backend_listener.local_addr().expect("backend addr");
+    let backend_handle = thread::spawn(move || {
+        let (mut stream, _) = backend_listener.accept().expect("accept backend connection");
+        let mut request = String::new();
+        stream.read_to_string(&mut request).expect("read backend request");
+        assert!(request.starts_with("GET /api/researchops/runs/run_123/bridge-report HTTP/1.1"));
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 40\r\nConnection: close\r\n\r\n{\"bridgeVersion\":\"v0\",\"runId\":\"run_123\"}",
+            )
+            .expect("write backend response");
+    });
+
+    let daemon_listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let daemon_addr = daemon_listener.local_addr().expect("daemon addr");
+    let daemon_handle = thread::spawn(move || {
+        serve_one_http_request_with_config(
+            daemon_listener,
+            true,
+            DaemonConfig {
+                api_base_url: format!("http://{}", backend_addr),
+                admin_token: String::new(),
+            },
+        )
+        .expect("serve daemon bridge-report request");
+    });
+
+    let mut client = TcpStream::connect(daemon_addr).expect("connect daemon");
+    client
+        .write_all(b"GET /bridge-report?runId=run_123 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    daemon_handle.join().expect("daemon thread");
+    backend_handle.join().expect("backend thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"bridgeVersion\":\"v0\""));
+    assert!(response.contains("\"runId\":\"run_123\""));
+}
+
+#[test]
+fn serve_one_http_request_proxies_context_pack_from_backend() {
+    let backend_listener = TcpListener::bind("127.0.0.1:0").expect("bind backend listener");
+    let backend_addr = backend_listener.local_addr().expect("backend addr");
+    let backend_handle = thread::spawn(move || {
+        let (mut stream, _) = backend_listener.accept().expect("accept backend connection");
+        let mut request = String::new();
+        stream.read_to_string(&mut request).expect("read backend request");
+        assert!(request.starts_with("GET /api/researchops/runs/run_456/context-pack HTTP/1.1"));
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 51\r\nConnection: close\r\n\r\n{\"mode\":\"routed\",\"view\":{\"selectedItems\":2},\"pack\":{}}",
+            )
+            .expect("write backend response");
+    });
+
+    let daemon_listener = TcpListener::bind("127.0.0.1:0").expect("bind daemon listener");
+    let daemon_addr = daemon_listener.local_addr().expect("daemon addr");
+    let daemon_handle = thread::spawn(move || {
+        serve_one_http_request_with_config(
+            daemon_listener,
+            true,
+            DaemonConfig {
+                api_base_url: format!("http://{}", backend_addr),
+                admin_token: String::new(),
+            },
+        )
+        .expect("serve daemon context-pack request");
+    });
+
+    let mut client = TcpStream::connect(daemon_addr).expect("connect daemon");
+    client
+        .write_all(b"GET /context-pack?runId=run_456 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .expect("write daemon request");
+    client.shutdown(Shutdown::Write).expect("shutdown daemon write");
+    let mut response = String::new();
+    client.read_to_string(&mut response).expect("read daemon response");
+
+    daemon_handle.join().expect("daemon thread");
+    backend_handle.join().expect("backend thread");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK"));
+    assert!(response.contains("\"mode\":\"routed\""));
+    assert!(response.contains("\"selectedItems\":2"));
 }

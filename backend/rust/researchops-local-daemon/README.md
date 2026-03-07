@@ -8,14 +8,17 @@ Current scope:
 - provide a typed runtime summary for the current daemon task catalog
 - provide a typed task catalog view for built-in and bridge task families
 - expose a tiny CLI that prints the runtime summary as JSON
-- expose a single-request localhost HTTP prototype for `/health`, `/runtime`, and `/task-catalog`
+- expose localhost HTTP and Unix socket prototypes for `/health`, `/runtime`, and `/task-catalog`
+- proxy thin backend read routes for bridge clients:
+  - `/bridge-report?runId=...`
+  - `/context-pack?runId=...`
 
 It does not yet implement:
 
-- HTTP or Unix socket serving
 - real task execution
 - snapshot syncing
 - artifact upload or event reporting
+- proxying POST bridge mutations such as `bridge-run` or `bridge-note`
 
 Run it with:
 
@@ -74,3 +77,17 @@ cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-lo
 ```
 
 Set `RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=false` to print a project-only runtime summary.
+
+Set these when you want the prototype to proxy existing backend read APIs:
+
+```bash
+export RESEARCHOPS_API_BASE_URL=http://127.0.0.1:3001
+export ADMIN_TOKEN=your-admin-token
+```
+
+Then the daemon can proxy:
+
+```bash
+curl "http://127.0.0.1:7788/bridge-report?runId=run_123"
+curl "http://127.0.0.1:7788/context-pack?runId=run_123"
+```

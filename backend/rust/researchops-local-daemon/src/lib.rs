@@ -1,5 +1,7 @@
 use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::net::TcpListener;
+use std::net::Shutdown;
 use std::os::unix::net::UnixListener;
 
 use anyhow::{Context, Result};
@@ -72,6 +74,12 @@ pub struct TaskDescriptor {
     pub family: &'static str,
     pub handler_mode: &'static str,
     pub summary: &'static str,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DaemonConfig {
+    pub api_base_url: String,
+    pub admin_token: String,
 }
 
 pub fn task_catalog_version() -> &'static str {
@@ -150,8 +158,60 @@ pub fn build_task_catalog() -> TaskCatalog {
     }
 }
 
-fn build_http_body(path: &str, enable_bridge: bool) -> Result<serde_json::Value> {
-    match path {
+fn parse_request_target(path: &str) -> (&str, Option<&str>) {
+    path.split_once('?')
+        .map(|(route, query)| (route, Some(query)))
+        .unwrap_or((path, None))
+}
+
+fn query_value<'a>(query: Option<&'a str>, key: &str) -> Option<&'a str> {
+    query
+        .unwrap_or("")
+        .split('&')
+        .find_map(|pair| pair.split_once('=').filter(|(name, _)| *name == key).map(|(_, value)| value))
+}
+
+fn http_request_via_config(config: &DaemonConfig, path: &str) -> Result<serde_json::Value> {
+    let base = config.api_base_url.trim();
+    if base.is_empty() {
+        anyhow::bail!("api_base_url is required for backend proxy routes");
+    }
+    let authority = base
+        .strip_prefix("http://")
+        .context("only http:// backend urls are supported in the prototype")?;
+    let mut stream = TcpStream::connect(authority).context("connect backend tcp stream")?;
+    let auth_header = if config.admin_token.trim().is_empty() {
+        String::new()
+    } else {
+        format!("Authorization: Bearer {}\r\n", config.admin_token.trim())
+    };
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {authority}\r\n{auth_header}Connection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).context("write backend request")?;
+    stream.flush().context("flush backend request")?;
+    stream.shutdown(Shutdown::Write).context("shutdown backend write")?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).context("read backend response")?;
+    let (_, body) = response.split_once("\r\n\r\n").context("split backend response body")?;
+    serde_json::from_str(body).context("decode backend response json")
+}
+
+fn build_http_body(path: &str, enable_bridge: bool, config: &DaemonConfig) -> Result<serde_json::Value> {
+    let (route, query) = parse_request_target(path);
+    let run_id = query_value(query, "runId").map(str::trim).filter(|value| !value.is_empty());
+
+    if route == "/bridge-report" {
+        let run_id = run_id.context("runId is required for /bridge-report")?;
+        return http_request_via_config(config, &format!("/api/researchops/runs/{run_id}/bridge-report"));
+    }
+    if route == "/context-pack" {
+        let run_id = run_id.context("runId is required for /context-pack")?;
+        return http_request_via_config(config, &format!("/api/researchops/runs/{run_id}/context-pack"));
+    }
+
+    match route {
         "/health" => Ok(serde_json::json!({
             "status": "ok",
             "service": "researchops-local-daemon",
@@ -169,7 +229,7 @@ fn build_http_body(path: &str, enable_bridge: bool) -> Result<serde_json::Value>
     }
 }
 
-fn respond_to_http_connection<T: Read + Write>(stream: &mut T, enable_bridge: bool) -> Result<()> {
+fn respond_to_http_connection<T: Read + Write>(stream: &mut T, enable_bridge: bool, config: &DaemonConfig) -> Result<()> {
     let mut buffer = [0_u8; 4096];
     let bytes_read = stream.read(&mut buffer).context("read http request")?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
@@ -178,8 +238,9 @@ fn respond_to_http_connection<T: Read + Write>(stream: &mut T, enable_bridge: bo
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .unwrap_or("/");
-    let body = build_http_body(path, enable_bridge)?;
-    let status_line = if matches!(path, "/health" | "/runtime" | "/task-catalog") {
+    let body = build_http_body(path, enable_bridge, config)?;
+    let (route, _) = parse_request_target(path);
+    let status_line = if matches!(route, "/health" | "/runtime" | "/task-catalog" | "/bridge-report" | "/context-pack") {
         "HTTP/1.1 200 OK"
     } else {
         "HTTP/1.1 404 Not Found"
@@ -196,16 +257,29 @@ fn respond_to_http_connection<T: Read + Write>(stream: &mut T, enable_bridge: bo
 }
 
 pub fn serve_one_http_request(listener: TcpListener, enable_bridge: bool) -> Result<()> {
+    serve_one_http_request_with_config(listener, enable_bridge, DaemonConfig::default())
+}
+
+pub fn serve_one_http_request_with_config(listener: TcpListener, enable_bridge: bool, config: DaemonConfig) -> Result<()> {
     let (mut stream, _) = listener.accept().context("accept tcp connection")?;
-    respond_to_http_connection(&mut stream, enable_bridge)?;
+    respond_to_http_connection(&mut stream, enable_bridge, &config)?;
     Ok(())
 }
 
 pub fn serve_http_requests(listener: TcpListener, enable_bridge: bool, max_requests: Option<usize>) -> Result<()> {
+    serve_http_requests_with_config(listener, enable_bridge, max_requests, DaemonConfig::default())
+}
+
+pub fn serve_http_requests_with_config(
+    listener: TcpListener,
+    enable_bridge: bool,
+    max_requests: Option<usize>,
+    config: DaemonConfig,
+) -> Result<()> {
     let mut handled = 0_usize;
     loop {
         let (mut stream, _) = listener.accept().context("accept tcp connection")?;
-        respond_to_http_connection(&mut stream, enable_bridge)?;
+        respond_to_http_connection(&mut stream, enable_bridge, &config)?;
         handled += 1;
         if max_requests.is_some_and(|value| handled >= value) {
             break;
@@ -215,16 +289,29 @@ pub fn serve_http_requests(listener: TcpListener, enable_bridge: bool, max_reque
 }
 
 pub fn serve_one_unix_request(listener: UnixListener, enable_bridge: bool) -> Result<()> {
+    serve_one_unix_request_with_config(listener, enable_bridge, DaemonConfig::default())
+}
+
+pub fn serve_one_unix_request_with_config(listener: UnixListener, enable_bridge: bool, config: DaemonConfig) -> Result<()> {
     let (mut stream, _) = listener.accept().context("accept unix connection")?;
-    respond_to_http_connection(&mut stream, enable_bridge)?;
+    respond_to_http_connection(&mut stream, enable_bridge, &config)?;
     Ok(())
 }
 
 pub fn serve_unix_requests(listener: UnixListener, enable_bridge: bool, max_requests: Option<usize>) -> Result<()> {
+    serve_unix_requests_with_config(listener, enable_bridge, max_requests, DaemonConfig::default())
+}
+
+pub fn serve_unix_requests_with_config(
+    listener: UnixListener,
+    enable_bridge: bool,
+    max_requests: Option<usize>,
+    config: DaemonConfig,
+) -> Result<()> {
     let mut handled = 0_usize;
     loop {
         let (mut stream, _) = listener.accept().context("accept unix connection")?;
-        respond_to_http_connection(&mut stream, enable_bridge)?;
+        respond_to_http_connection(&mut stream, enable_bridge, &config)?;
         handled += 1;
         if max_requests.is_some_and(|value| handled >= value) {
             break;
