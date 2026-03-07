@@ -198,6 +198,22 @@ function createDaemonBootstrapResponse({
   apiBaseUrl = '',
   requestedHostname = '',
 } = {}) {
+  return buildDaemonBootstrapPayload({
+    bootstrap,
+    apiBaseUrl,
+    requestedHostname,
+    includeSecret: true,
+    includeInstallArtifacts: true,
+  });
+}
+
+function buildDaemonBootstrapPayload({
+  bootstrap,
+  apiBaseUrl = '',
+  requestedHostname = '',
+  includeSecret = false,
+  includeInstallArtifacts = false,
+} = {}) {
   const normalizedApiBaseUrl = String(apiBaseUrl || '').trim().replace(/\/+$/, '');
   const hostname = String(requestedHostname || bootstrap?.requestedHostname || '').trim();
   const scriptPath = path.join(process.cwd(), 'backend', 'scripts', 'researchops-bootstrap-client.sh');
@@ -211,19 +227,23 @@ function createDaemonBootstrapResponse({
 
   return {
     bootstrapId: String(bootstrap?.bootstrapId || bootstrap?.id || '').trim(),
-    secret: String(bootstrap?.secret || '').trim(),
     status: String(bootstrap?.status || 'PENDING').trim(),
     expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
+    redeemedAt: String(bootstrap?.redeemedAt || '').trim() || null,
+    redeemedServerId: String(bootstrap?.redeemedServerId || '').trim() || null,
     requestedHostname: hostname || null,
     apiBaseUrl: normalizedApiBaseUrl,
-    installCommand,
-    bootstrapFile: {
-      apiBaseUrl: normalizedApiBaseUrl,
-      bootstrapId: String(bootstrap?.bootstrapId || bootstrap?.id || '').trim(),
-      bootstrapSecret: String(bootstrap?.secret || '').trim(),
-      requestedHostname: hostname || null,
-      expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
-    },
+    ...(includeSecret ? { secret: String(bootstrap?.secret || '').trim() } : {}),
+    ...(includeInstallArtifacts ? {
+      installCommand,
+      bootstrapFile: {
+        apiBaseUrl: normalizedApiBaseUrl,
+        bootstrapId: String(bootstrap?.bootstrapId || bootstrap?.id || '').trim(),
+        bootstrapSecret: String(bootstrap?.secret || '').trim(),
+        requestedHostname: hostname || null,
+        expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
+      },
+    } : {}),
     actions: {
       bootstrapStatus: {
         method: 'GET',
@@ -246,6 +266,20 @@ function createDaemonBootstrapResponse({
       },
     },
   };
+}
+
+function buildDaemonBootstrapStatusPayload({
+  bootstrap,
+  apiBaseUrl = '',
+  requestedHostname = '',
+} = {}) {
+  return buildDaemonBootstrapPayload({
+    bootstrap,
+    apiBaseUrl,
+    requestedHostname,
+    includeSecret: false,
+    includeInstallArtifacts: false,
+  });
 }
 
 function buildUiConfigResponse(config = {}) {
@@ -463,14 +497,7 @@ router.get('/daemons/bootstrap/:bootstrapId', async (req, res) => {
     if (!bootstrapId) return res.status(400).json({ error: 'bootstrapId is required' });
     const bootstrap = await researchOpsStore.getDaemonBootstrapToken(getUserId(req), bootstrapId);
     if (!bootstrap) return res.status(404).json({ error: 'Bootstrap token not found' });
-    return res.json({
-      bootstrapId: bootstrap.bootstrapId || bootstrap.id,
-      status: bootstrap.status,
-      expiresAt: bootstrap.expiresAt,
-      redeemedAt: bootstrap.redeemedAt,
-      redeemedServerId: bootstrap.redeemedServerId,
-      requestedHostname: bootstrap.requestedHostname,
-    });
+    return res.json(buildDaemonBootstrapStatusPayload({ bootstrap }));
   } catch (error) {
     console.error('[ResearchOps] get daemon bootstrap failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to load daemon bootstrap token') });
@@ -816,5 +843,6 @@ router.post('/experiments/execute', async (req, res) => {
 
 module.exports = router;
 module.exports.createDaemonBootstrapResponse = createDaemonBootstrapResponse;
+module.exports.buildDaemonBootstrapStatusPayload = buildDaemonBootstrapStatusPayload;
 module.exports.buildUiConfigResponse = buildUiConfigResponse;
 module.exports.normalizeUiConfigPatch = normalizeUiConfigPatch;
