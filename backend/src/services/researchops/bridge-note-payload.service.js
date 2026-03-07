@@ -45,6 +45,16 @@ function buildBridgeNotePayload({
         path: `/researchops/runs/${encodeURIComponent(safeRunId)}`,
       },
     } : {},
+    submitHints: {
+      bridgeNote: {
+        body: {
+          transport: '"http"|"daemon-task"',
+          title: 'string',
+          content: 'string',
+          noteType: 'string',
+        },
+      },
+    },
   };
 }
 

@@ -25,6 +25,11 @@ test('buildContextPackPayload exposes routed context packs through a stable payl
   assert.equal(payload.mode, 'routed');
   assert.equal(payload.view.mode, 'routed');
   assert.equal(payload.view.nodeId, 'node_eval');
+  assert.deepEqual(payload.submitHints.contextPack, {
+    query: {
+      transport: '"http"|"daemon-task"',
+    },
+  });
   assert.equal('bundle' in payload, false);
 });
 

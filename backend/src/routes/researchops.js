@@ -140,8 +140,10 @@ const {
 } = require('../services/researchops/bridge-note-payload.service');
 const {
   fetchNodeBridgeContextViaDaemon,
+  fetchRunContextPackViaDaemon,
   fetchRunBridgeReportViaDaemon,
   submitNodeBridgeRunViaDaemon,
+  submitRunBridgeNoteViaDaemon,
 } = require('../services/researchops/bridge-daemon-rpc.service');
 const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const {
@@ -6119,6 +6121,24 @@ router.post('/runs/:runId/bridge-note', async (req, res) => {
     const content = typeof req.body?.content === 'string' ? req.body.content : '';
     if (!runId) return res.status(400).json({ error: 'runId is required' });
     if (!content.trim()) return res.status(400).json({ error: 'content is required' });
+    const run = await researchOpsStore.getRun(userId, runId);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+    const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
+      userId,
+      run,
+      store: researchOpsStore,
+    });
+    if (readBridgeTransportMode(req.body?.transport) === 'daemon-task') {
+      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
+      return res.json(await submitRunBridgeNoteViaDaemon({
+        userId,
+        serverId: daemonServerId,
+        runId,
+        title: req.body?.title,
+        content,
+        noteType: req.body?.noteType,
+      }));
+    }
 
     const artifact = await researchOpsStore.createRunArtifact(
       userId,
@@ -8001,6 +8021,19 @@ router.get('/runs/:runId/context-pack', async (req, res) => {
     const userId = getUserId(req);
     const run = await researchOpsStore.getRun(userId, runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
+    const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
+      userId,
+      run,
+      store: researchOpsStore,
+    });
+    if (readBridgeTransportMode(req.query.transport) === 'daemon-task') {
+      const daemonServerId = assertBridgeDaemonTransportReady(bridgeRuntime);
+      return res.json(await fetchRunContextPackViaDaemon({
+        userId,
+        serverId: daemonServerId,
+        runId,
+      }));
+    }
     const project = await researchOpsStore.getProject(userId, run.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const nodeId = String(run?.metadata?.nodeId || run?.metadata?.treeNodeId || '').trim();

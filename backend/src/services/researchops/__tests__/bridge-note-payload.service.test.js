@@ -52,4 +52,12 @@ test('buildBridgeNotePayload preserves artifact root while exposing follow-up ac
     method: 'GET',
     path: '/researchops/runs/run_1',
   });
+  assert.deepEqual(payload.submitHints.bridgeNote, {
+    body: {
+      transport: '"http"|"daemon-task"',
+      title: 'string',
+      content: 'string',
+      noteType: 'string',
+    },
+  });
 });

@@ -8,6 +8,13 @@ function buildContextPackPayload({ pack = {}, mode = '' } = {}) {
     pack,
     mode: view.mode,
     view,
+    submitHints: {
+      contextPack: {
+        query: {
+          transport: '"http"|"daemon-task"',
+        },
+      },
+    },
   };
 }
 

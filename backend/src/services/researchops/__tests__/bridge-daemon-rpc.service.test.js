@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   fetchNodeBridgeContextViaDaemon,
+  fetchRunContextPackViaDaemon,
   fetchRunBridgeReportViaDaemon,
   submitNodeBridgeRunViaDaemon,
   submitRunBridgeNoteViaDaemon,
@@ -67,6 +68,28 @@ test('submitNodeBridgeRunViaDaemon delegates to requestDaemonRpc with snapshot-b
       workspaceSnapshot: {
         path: '/tmp/snapshot',
       },
+    },
+  }]);
+});
+
+test('fetchRunContextPackViaDaemon delegates to requestDaemonRpc with the bridge context-pack task', async () => {
+  const calls = [];
+  await fetchRunContextPackViaDaemon({
+    userId: 'czk',
+    serverId: 'srv_client_1',
+    runId: 'run_123',
+    requestDaemonRpc: async (input) => {
+      calls.push(input);
+      return { mode: 'routed' };
+    },
+  });
+
+  assert.deepEqual(calls, [{
+    userId: 'czk',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.fetchContextPack',
+    payload: {
+      runId: 'run_123',
     },
   }]);
 });
