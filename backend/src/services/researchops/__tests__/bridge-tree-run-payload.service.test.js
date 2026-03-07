@@ -61,6 +61,11 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
   assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
   assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
   assert.equal(payload.bridgeRuntime.supportsLocalBridgeWorkflow, true);
+  assert.equal(payload.bridgeRuntime.capabilities.canFetchNodeContext, true);
+  assert.equal(payload.bridgeRuntime.capabilities.canFetchContextPack, true);
+  assert.equal(payload.bridgeRuntime.capabilities.canSubmitNodeRun, true);
+  assert.equal(payload.bridgeRuntime.capabilities.canFetchRunReport, true);
+  assert.equal(payload.bridgeRuntime.capabilities.canSubmitRunNote, true);
   assert.deepEqual(payload.contextPack, {
     generatedAt: '2026-03-06T12:00:00.000Z',
   });

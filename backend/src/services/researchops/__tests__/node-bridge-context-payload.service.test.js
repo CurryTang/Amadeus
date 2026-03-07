@@ -95,6 +95,11 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
   assert.deepEqual(payload.capabilities.missingBridgeTaskTypes, ['bridge.submitNodeRun']);
   assert.equal(payload.bridgeRuntime.executionTarget, 'client-daemon');
   assert.equal(payload.bridgeRuntime.serverId, 'srv_client_1');
+  assert.equal(payload.bridgeRuntime.capabilities.canFetchNodeContext, false);
+  assert.equal(payload.bridgeRuntime.capabilities.canFetchContextPack, false);
+  assert.equal(payload.bridgeRuntime.capabilities.canSubmitNodeRun, false);
+  assert.equal(payload.bridgeRuntime.capabilities.canFetchRunReport, false);
+  assert.equal(payload.bridgeRuntime.capabilities.canSubmitRunNote, false);
   assert.deepEqual(payload.actions.bridgeRun, {
     method: 'POST',
     path: '/researchops/projects/proj_1/tree/nodes/node_eval/bridge-run',

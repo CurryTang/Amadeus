@@ -1,5 +1,6 @@
 'use strict';
 
+const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 const { buildRunPreviewView } = require('./run-preview-view.service');
 const { buildRunPayload } = require('./run-payload.service');
 
@@ -10,9 +11,7 @@ function buildBridgeTreeRunPayload({
   result = {},
 } = {}) {
   const source = result && typeof result === 'object' ? result : {};
-  const normalizedBridgeRuntime = bridgeRuntime && typeof bridgeRuntime === 'object'
-    ? bridgeRuntime
-    : null;
+  const normalizedBridgeRuntime = buildBridgeRuntimeView(bridgeRuntime);
   const payload = {
     bridgeVersion: 'v0',
     projectId,

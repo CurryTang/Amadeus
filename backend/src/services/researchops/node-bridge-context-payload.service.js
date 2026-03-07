@@ -1,5 +1,6 @@
 'use strict';
 
+const { buildBridgeRuntimeView } = require('./bridge-runtime-view.service');
 const { buildRunPayload } = require('./run-payload.service');
 
 function cleanString(value) {
@@ -100,7 +101,7 @@ function buildNodeBridgeContextPayload({
   const normalizedBlocking = asObject(blocking);
   const normalizedContextPack = asObject(contextPack);
   const normalizedBridgeReport = asObject(bridgeReport);
-  const normalizedBridgeRuntime = asObject(bridgeRuntime);
+  const normalizedBridgeRuntime = buildBridgeRuntimeView(bridgeRuntime);
   const bridgeSnapshots = asObject(normalizedBridgeReport.snapshots);
   const workspaceSnapshot = asObject(bridgeSnapshots.workspace);
   const envSnapshot = asObject(bridgeSnapshots.env);
@@ -137,8 +138,8 @@ function buildNodeBridgeContextPayload({
       hasLocalSnapshot: Boolean(localSnapshot.kind || localSnapshot.note),
       hasEnvSnapshot: Boolean(envSnapshot.backend || envSnapshot.runtimeClass || envSnapshot.resources),
       hasContractFailures: normalizedBridgeReport?.flags?.hasContractFailures === true,
-      canUseLocalBridgeWorkflow: normalizedBridgeRuntime.supportsLocalBridgeWorkflow === true,
-      missingBridgeTaskTypes: Array.isArray(normalizedBridgeRuntime.missingBridgeTaskTypes)
+      canUseLocalBridgeWorkflow: normalizedBridgeRuntime?.supportsLocalBridgeWorkflow === true,
+      missingBridgeTaskTypes: Array.isArray(normalizedBridgeRuntime?.missingBridgeTaskTypes)
         ? normalizedBridgeRuntime.missingBridgeTaskTypes
         : [],
       canRun: true,
