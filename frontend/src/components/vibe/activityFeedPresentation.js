@@ -21,3 +21,18 @@ export function buildActivityFeed({
     runReviewSummary: runReviewSummary && typeof runReviewSummary === 'object' ? runReviewSummary : null,
   };
 }
+
+export function buildRunCardMetaLabels(card = {}) {
+  const values = [
+    card?.executionLabel,
+    card?.executionRuntimeLabel,
+    card?.snapshotLabel,
+    card?.contractLabel,
+    card?.readinessLabel,
+    card?.warningsLabel,
+    card?.sinkProvidersLabel,
+  ];
+  return values
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean);
+}

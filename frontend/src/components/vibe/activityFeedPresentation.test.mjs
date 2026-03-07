@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildActivityFeed } from './activityFeedPresentation.js';
+import { buildActivityFeed, buildRunCardMetaLabels } from './activityFeedPresentation.js';
 
 test('buildActivityFeed returns run-only items with counts', () => {
   const result = buildActivityFeed({
@@ -86,4 +86,26 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
     instrumentedCount: 1,
     status: 'needs_attention',
   });
+});
+
+test('buildRunCardMetaLabels keeps execution and observability labels in activity cards', () => {
+  const labels = buildRunCardMetaLabels({
+    executionLabel: 'Remote',
+    executionRuntimeLabel: 'container/container-fast',
+    snapshotLabel: 'Snapshot-backed',
+    contractLabel: 'Validation failed',
+    readinessLabel: 'Needs attention',
+    warningsLabel: '2 warnings',
+    sinkProvidersLabel: 'wandb, tensorboard',
+  });
+
+  assert.deepEqual(labels, [
+    'Remote',
+    'container/container-fast',
+    'Snapshot-backed',
+    'Validation failed',
+    'Needs attention',
+    '2 warnings',
+    'wandb, tensorboard',
+  ]);
 });

@@ -1,4 +1,5 @@
 import EmptyState from '../ui/EmptyState';
+import { buildRunCardMetaLabels } from './activityFeedPresentation.js';
 
 function VibeActivityFeedStrip({
   items,
@@ -68,6 +69,7 @@ function VibeActivityFeedStrip({
           {feedItems.map((item) => {
             if (item.kind === 'run') {
               const card = item.card || {};
+              const metaLabels = buildRunCardMetaLabels(card);
               return (
                 <button
                   key={`activity-run-${card.id}`}
@@ -94,6 +96,11 @@ function VibeActivityFeedStrip({
                     <span className="vibe-recent-run-snippet" title={card.snippet}>
                       {card.snippet}
                     </span>
+                  )}
+                  {metaLabels.length > 0 && (
+                    <div className="vibe-recent-run-meta">
+                      {metaLabels.map((label) => <span key={label}>{label}</span>)}
+                    </div>
                   )}
                   <div className="vibe-recent-run-meta">
                     <span>{card.status}</span>
