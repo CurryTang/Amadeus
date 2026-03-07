@@ -9,6 +9,7 @@ const codexCliService = require('../../services/codex-cli.service');
 const geminiCliService = require('../../services/gemini-cli.service');
 const llmService = require('../../services/llm.service');
 const researchOpsStore = require('../../services/researchops/store');
+const { normalizeEnqueueRunPayload } = require('../../services/researchops/enqueue-run-payload.service');
 const workflowSchemaService = require('../../services/researchops/workflow-schema.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
 const todoGeneratorService = require('../../services/researchops/todo-generator.service');
@@ -393,7 +394,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
     });
     const workflow = workflowSchemaService.normalizeAndValidateWorkflow(plan.workflow, { allowEmpty: false });
 
-    const run = await researchOpsStore.enqueueRun(getUserId(req), {
+    const normalizedPlanRun = normalizeEnqueueRunPayload({
       projectId,
       serverId,
       runType,
@@ -402,9 +403,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
       mode: String(body.mode || 'headless').trim().toLowerCase() === 'interactive' ? 'interactive' : 'headless',
       workflow,
       contextRefs: body.contextRefs && typeof body.contextRefs === 'object' ? body.contextRefs : {},
-      outputContract: body.outputContract && typeof body.outputContract === 'object'
-        ? body.outputContract
-        : {},
+      outputContract: body.outputContract,
       budgets: body.budgets && typeof body.budgets === 'object' ? body.budgets : {},
       hitlPolicy: body.hitlPolicy && typeof body.hitlPolicy === 'object' ? body.hitlPolicy : {},
       metadata: {
@@ -417,6 +416,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
         },
       },
     });
+    const run = await researchOpsStore.enqueueRun(getUserId(req), normalizedPlanRun);
     return res.status(201).json({ plan, run });
   } catch (error) {
     console.error('[ResearchOps] plan enqueue-v2 failed:', error);

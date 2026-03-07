@@ -5292,7 +5292,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
     });
     const workflow = workflowSchemaService.normalizeAndValidateWorkflow(plan.workflow, { allowEmpty: false });
 
-    const run = await researchOpsStore.enqueueRun(getUserId(req), {
+    const normalizedPlanRun = normalizeEnqueueRunPayload({
       projectId,
       serverId,
       runType,
@@ -5301,9 +5301,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
       mode: String(body.mode || 'headless').trim().toLowerCase() === 'interactive' ? 'interactive' : 'headless',
       workflow,
       contextRefs: body.contextRefs && typeof body.contextRefs === 'object' ? body.contextRefs : {},
-      outputContract: body.outputContract && typeof body.outputContract === 'object'
-        ? body.outputContract
-        : {},
+      outputContract: body.outputContract,
       budgets: body.budgets && typeof body.budgets === 'object' ? body.budgets : {},
       hitlPolicy: body.hitlPolicy && typeof body.hitlPolicy === 'object' ? body.hitlPolicy : {},
       metadata: {
@@ -5316,6 +5314,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
         },
       },
     });
+    const run = await researchOpsStore.enqueueRun(getUserId(req), normalizedPlanRun);
     return res.status(201).json({ plan, run });
   } catch (error) {
     console.error('[ResearchOps] plan enqueue-v2 failed:', error);
