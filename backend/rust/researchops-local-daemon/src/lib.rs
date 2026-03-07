@@ -1,3 +1,7 @@
+use std::io::{Read, Write};
+use std::net::TcpListener;
+
+use anyhow::{Context, Result};
 use serde::Serialize;
 
 pub const TASK_CATALOG_VERSION: &str = "v0";
@@ -143,6 +147,59 @@ pub fn build_task_catalog() -> TaskCatalog {
             },
         ],
     }
+}
+
+pub fn serve_one_http_request(listener: TcpListener, enable_bridge: bool) -> Result<()> {
+    let (mut stream, _) = listener.accept().context("accept tcp connection")?;
+    let mut buffer = [0_u8; 4096];
+    let bytes_read = stream.read(&mut buffer).context("read http request")?;
+    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+    let path = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/");
+
+    let body = match path {
+        "/health" => serde_json::json!({
+            "status": "ok",
+            "service": "researchops-local-daemon",
+            "task_catalog_version": TASK_CATALOG_VERSION,
+        }),
+        "/runtime" => {
+            let task_types = build_runtime_task_types(enable_bridge);
+            serde_json::to_value(build_runtime_summary(&task_types)).context("serialize runtime summary")?
+        }
+        "/task-catalog" => serde_json::to_value(build_task_catalog()).context("serialize task catalog")?,
+        _ => serde_json::json!({
+            "error": "not_found",
+            "path": path,
+        }),
+    };
+    let status_line = if matches!(path, "/health" | "/runtime" | "/task-catalog") {
+        "HTTP/1.1 200 OK"
+    } else {
+        "HTTP/1.1 404 Not Found"
+    };
+    let body_text = serde_json::to_string(&body).context("encode response body")?;
+    let response = format!(
+        "{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body_text.len(),
+        body_text
+    );
+    stream
+        .write_all(response.as_bytes())
+        .context("write http response")?;
+    stream.flush().context("flush http response")?;
+    Ok(())
+}
+
+pub fn build_runtime_task_types(enable_bridge: bool) -> Vec<&'static str> {
+    let mut task_types = BUILT_IN_TASK_TYPES.iter().copied().collect::<Vec<_>>();
+    if enable_bridge {
+        task_types.extend(OPTIONAL_BRIDGE_TASK_TYPES.iter().copied());
+    }
+    task_types
 }
 
 fn normalize_task_types(task_types: &[&str]) -> Vec<String> {

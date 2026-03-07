@@ -8,6 +8,7 @@ Current scope:
 - provide a typed runtime summary for the current daemon task catalog
 - provide a typed task catalog view for built-in and bridge task families
 - expose a tiny CLI that prints the runtime summary as JSON
+- expose a single-request localhost HTTP prototype for `/health`, `/runtime`, and `/task-catalog`
 
 It does not yet implement:
 
@@ -35,6 +36,13 @@ Print the task catalog instead:
 ```bash
 source "$HOME/.cargo/env"
 cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet -- --task-catalog
+```
+
+Serve one local HTTP request on an explicit address:
+
+```bash
+source "$HOME/.cargo/env"
+cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet -- --serve-once 127.0.0.1:7788
 ```
 
 Set `RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=false` to print a project-only runtime summary.

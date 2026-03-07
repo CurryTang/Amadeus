@@ -1,29 +1,34 @@
 use anyhow::Result;
 use researchops_local_daemon::{
     build_task_catalog,
+    build_runtime_task_types,
     build_runtime_summary,
-    BUILT_IN_TASK_TYPES,
-    OPTIONAL_BRIDGE_TASK_TYPES,
+    serve_one_http_request,
 };
+use std::net::TcpListener;
 
 fn main() -> Result<()> {
-    if std::env::args().skip(1).any(|arg| arg == "--task-catalog") {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.iter().any(|arg| arg == "--task-catalog") {
         println!("{}", serde_json::to_string_pretty(&build_task_catalog())?);
         return Ok(());
     }
 
-    let mut task_types = BUILT_IN_TASK_TYPES
-        .iter()
-        .map(|item| *item)
-        .collect::<Vec<_>>();
-
     let enable_bridge = std::env::var("RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS")
         .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(true);
-    if enable_bridge {
-        task_types.extend(OPTIONAL_BRIDGE_TASK_TYPES.iter().copied());
+
+    if let Some(listen_addr) = args
+        .windows(2)
+        .find(|window| window.first().map(|value| value.as_str()) == Some("--serve-once"))
+        .and_then(|window| window.get(1))
+    {
+        let listener = TcpListener::bind(listen_addr)?;
+        serve_one_http_request(listener, enable_bridge)?;
+        return Ok(());
     }
 
+    let task_types = build_runtime_task_types(enable_bridge);
     let summary = build_runtime_summary(&task_types);
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
