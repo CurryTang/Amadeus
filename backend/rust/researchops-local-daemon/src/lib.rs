@@ -149,8 +149,26 @@ pub fn build_task_catalog() -> TaskCatalog {
     }
 }
 
-pub fn serve_one_http_request(listener: TcpListener, enable_bridge: bool) -> Result<()> {
-    let (mut stream, _) = listener.accept().context("accept tcp connection")?;
+fn build_http_body(path: &str, enable_bridge: bool) -> Result<serde_json::Value> {
+    match path {
+        "/health" => Ok(serde_json::json!({
+            "status": "ok",
+            "service": "researchops-local-daemon",
+            "task_catalog_version": TASK_CATALOG_VERSION,
+        })),
+        "/runtime" => {
+            let task_types = build_runtime_task_types(enable_bridge);
+            serde_json::to_value(build_runtime_summary(&task_types)).context("serialize runtime summary")
+        }
+        "/task-catalog" => serde_json::to_value(build_task_catalog()).context("serialize task catalog"),
+        _ => Ok(serde_json::json!({
+            "error": "not_found",
+            "path": path,
+        })),
+    }
+}
+
+fn respond_to_http_connection<T: Read + Write>(stream: &mut T, enable_bridge: bool) -> Result<()> {
     let mut buffer = [0_u8; 4096];
     let bytes_read = stream.read(&mut buffer).context("read http request")?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
@@ -159,23 +177,7 @@ pub fn serve_one_http_request(listener: TcpListener, enable_bridge: bool) -> Res
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .unwrap_or("/");
-
-    let body = match path {
-        "/health" => serde_json::json!({
-            "status": "ok",
-            "service": "researchops-local-daemon",
-            "task_catalog_version": TASK_CATALOG_VERSION,
-        }),
-        "/runtime" => {
-            let task_types = build_runtime_task_types(enable_bridge);
-            serde_json::to_value(build_runtime_summary(&task_types)).context("serialize runtime summary")?
-        }
-        "/task-catalog" => serde_json::to_value(build_task_catalog()).context("serialize task catalog")?,
-        _ => serde_json::json!({
-            "error": "not_found",
-            "path": path,
-        }),
-    };
+    let body = build_http_body(path, enable_bridge)?;
     let status_line = if matches!(path, "/health" | "/runtime" | "/task-catalog") {
         "HTTP/1.1 200 OK"
     } else {
@@ -187,10 +189,27 @@ pub fn serve_one_http_request(listener: TcpListener, enable_bridge: bool) -> Res
         body_text.len(),
         body_text
     );
-    stream
-        .write_all(response.as_bytes())
-        .context("write http response")?;
+    stream.write_all(response.as_bytes()).context("write http response")?;
     stream.flush().context("flush http response")?;
+    Ok(())
+}
+
+pub fn serve_one_http_request(listener: TcpListener, enable_bridge: bool) -> Result<()> {
+    let (mut stream, _) = listener.accept().context("accept tcp connection")?;
+    respond_to_http_connection(&mut stream, enable_bridge)?;
+    Ok(())
+}
+
+pub fn serve_http_requests(listener: TcpListener, enable_bridge: bool, max_requests: Option<usize>) -> Result<()> {
+    let mut handled = 0_usize;
+    loop {
+        let (mut stream, _) = listener.accept().context("accept tcp connection")?;
+        respond_to_http_connection(&mut stream, enable_bridge)?;
+        handled += 1;
+        if max_requests.is_some_and(|value| handled >= value) {
+            break;
+        }
+    }
     Ok(())
 }
 

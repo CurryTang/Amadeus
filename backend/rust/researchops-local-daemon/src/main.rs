@@ -3,6 +3,7 @@ use researchops_local_daemon::{
     build_task_catalog,
     build_runtime_task_types,
     build_runtime_summary,
+    serve_http_requests,
     serve_one_http_request,
 };
 use std::net::TcpListener;
@@ -25,6 +26,21 @@ fn main() -> Result<()> {
     {
         let listener = TcpListener::bind(listen_addr)?;
         serve_one_http_request(listener, enable_bridge)?;
+        return Ok(());
+    }
+
+    if let Some(listen_addr) = args
+        .windows(2)
+        .find(|window| window.first().map(|value| value.as_str()) == Some("--serve"))
+        .and_then(|window| window.get(1))
+    {
+        let max_requests = args
+            .windows(2)
+            .find(|window| window.first().map(|value| value.as_str()) == Some("--max-requests"))
+            .and_then(|window| window.get(1))
+            .and_then(|value| value.parse::<usize>().ok());
+        let listener = TcpListener::bind(listen_addr)?;
+        serve_http_requests(listener, enable_bridge, max_requests)?;
         return Ok(());
     }
 

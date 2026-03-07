@@ -45,4 +45,18 @@ source "$HOME/.cargo/env"
 cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet -- --serve-once 127.0.0.1:7788
 ```
 
+Serve continuously on localhost:
+
+```bash
+cd /Users/czk/auto-researcher/backend
+npm run researchops:rust-daemon-serve
+```
+
+You can also cap the loop for testing:
+
+```bash
+source "$HOME/.cargo/env"
+cargo run --manifest-path /Users/czk/auto-researcher/backend/rust/researchops-local-daemon/Cargo.toml --quiet -- --serve 127.0.0.1:7788 --max-requests 2
+```
+
 Set `RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=false` to print a project-only runtime summary.
