@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   createDaemonBootstrapResponse,
   buildDaemonBootstrapStatusPayload,
+  buildRustDaemonStatusResponse,
 } = require('../admin');
 
 test('bootstrap create route returns token metadata and install payload', async () => {
@@ -79,4 +80,48 @@ test('bootstrap status payload keeps discovery metadata without leaking install 
     method: 'POST',
     path: '/researchops/daemons/register',
   });
+});
+
+test('rust daemon status response exposes runtime probe data and reusable runtime options', async () => {
+  const response = buildRustDaemonStatusResponse({
+    apiBaseUrl: 'https://example.com/api',
+    rustDaemon: {
+      enabled: true,
+      status: 'ok',
+      transport: 'unix',
+      socketPath: '/tmp/researchops-local-daemon.sock',
+      runtime: {
+        task_catalog_version: 'v0',
+        supports_local_bridge_workflow: true,
+      },
+      taskCatalog: {
+        version: 'v0',
+        tasks: [{ task_type: 'project.checkPath' }],
+      },
+      catalogParity: {
+        status: 'mismatch',
+        missingTaskTypes: ['bridge.submitRunNote'],
+        extraTaskTypes: [],
+      },
+    },
+  });
+
+  assert.equal(response.enabled, true);
+  assert.equal(response.status, 'ok');
+  assert.equal(response.transport, 'unix');
+  assert.equal(response.socketPath, '/tmp/researchops-local-daemon.sock');
+  assert.equal(response.runtime.task_catalog_version, 'v0');
+  assert.equal(response.taskCatalog.version, 'v0');
+  assert.equal(response.catalogParity.status, 'mismatch');
+  assert.deepEqual(response.actions.status, {
+    method: 'GET',
+    path: '/researchops/daemons/rust/status',
+  });
+  assert.deepEqual(response.actions.health, {
+    method: 'GET',
+    path: '/researchops/health',
+  });
+  assert.equal(response.runtimeOptions?.rustDaemonPrototype?.runtime, 'rust');
+  assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.http || '', /researchops-bootstrap-rust-daemon\.sh/);
+  assert.match(response.runtimeOptions?.rustDaemonPrototype?.envFiles?.unix?.content || '', /RESEARCHOPS_RUST_DAEMON_TRANSPORT=unix/);
 });

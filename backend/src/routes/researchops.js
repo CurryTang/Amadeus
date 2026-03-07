@@ -91,6 +91,7 @@ const {
 } = require('../services/researchops/runner-status-payload.service');
 const { buildResearchOpsHealthPayload } = require('../services/researchops/health-payload.service');
 const { probeRustDaemonRuntime } = require('../services/researchops/rust-daemon-runtime.service');
+const { buildRustDaemonStatusPayload } = require('../services/researchops/rust-daemon-status-payload.service');
 const {
   loadProjectBridgeRuntimeForProject,
   loadProjectBridgeRuntimeForRun,
@@ -6300,6 +6301,20 @@ router.get('/daemons', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] listDaemons failed:', error);
     return res.status(500).json({ error: 'Failed to list daemons' });
+  }
+});
+
+router.get('/daemons/rust/status', async (req, res) => {
+  try {
+    const rustDaemon = await probeRustDaemonRuntime();
+    return res.json(buildRustDaemonStatusPayload({
+      rustDaemon,
+      apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+      cwd: process.cwd(),
+    }));
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon status failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to load rust daemon status') });
   }
 });
 

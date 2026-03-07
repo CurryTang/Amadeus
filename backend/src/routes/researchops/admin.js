@@ -27,6 +27,12 @@ const {
 } = require('../../services/researchops/runner-status-payload.service');
 const { buildExperimentExecutePayload } = require('../../services/researchops/experiment-execute-payload.service');
 const { buildResourcePoolPayload } = require('../../services/researchops/resource-pool-payload.service');
+const { probeRustDaemonRuntime } = require('../../services/researchops/rust-daemon-runtime.service');
+const {
+  buildRustDaemonEnvFileContent,
+  buildRustDaemonPrototypeRuntimeOptions,
+  buildRustDaemonStatusPayload,
+} = require('../../services/researchops/rust-daemon-status-payload.service');
 const { parseLimit, getUserId, sanitizeError, cleanString } = require('./shared');
 
 const CHATDSE_ENFORCED_HOST = 'compute.example.edu';
@@ -194,21 +200,6 @@ function shellQuote(value = '') {
   return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
 }
 
-function buildRustDaemonEnvFileContent({
-  apiBaseUrl = '',
-  transport = 'http',
-  unixSocket = '/tmp/researchops-local-daemon.sock',
-  httpAddr = '127.0.0.1:7788',
-} = {}) {
-  return [
-    `RESEARCHOPS_API_BASE_URL=${String(apiBaseUrl || '').trim()}`,
-    'RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=true',
-    `RESEARCHOPS_RUST_DAEMON_TRANSPORT=${transport === 'unix' ? 'unix' : 'http'}`,
-    `RESEARCHOPS_RUST_DAEMON_HTTP_ADDR=${String(httpAddr || '127.0.0.1:7788').trim()}`,
-    `RESEARCHOPS_RUST_DAEMON_UNIX_SOCKET=${String(unixSocket || '/tmp/researchops-local-daemon.sock').trim()}`,
-  ].join('\n');
-}
-
 function resolveResearchOpsApiBaseUrl(req) {
   const configured = String(
     process.env.RESEARCHOPS_API_BASE_URL
@@ -247,7 +238,6 @@ function buildDaemonBootstrapPayload({
   const normalizedApiBaseUrl = String(apiBaseUrl || '').trim().replace(/\/+$/, '');
   const hostname = String(requestedHostname || bootstrap?.requestedHostname || '').trim();
   const scriptPath = path.join(process.cwd(), 'backend', 'scripts', 'researchops-bootstrap-client.sh');
-  const rustScriptPath = path.join(process.cwd(), 'backend', 'scripts', 'researchops-bootstrap-rust-daemon.sh');
   const installCommand = [
     `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
     `RESEARCHOPS_BOOTSTRAP_ID=${shellQuote(bootstrap?.bootstrapId || bootstrap?.id || '')}`,
@@ -255,42 +245,10 @@ function buildDaemonBootstrapPayload({
     hostname ? `RESEARCHOPS_DAEMON_HOSTNAME=${shellQuote(hostname)}` : '',
     `sh ${shellQuote(scriptPath)}`,
   ].filter(Boolean).join(' \\\n');
-  const rustDaemonPrototype = {
-    runtime: 'rust',
-    status: 'prototype',
-    commands: {
-      http: [
-        `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
-        `RESEARCHOPS_RUST_DAEMON_TRANSPORT='http'`,
-        `sh ${shellQuote(rustScriptPath)}`,
-      ].join(' \\\n'),
-      unix: [
-        `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
-        `RESEARCHOPS_RUST_DAEMON_TRANSPORT='unix'`,
-        `sh ${shellQuote(rustScriptPath)}`,
-      ].join(' \\\n'),
-    },
-    env: {
-      RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
-      RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS: 'true',
-    },
-    envFiles: {
-      http: {
-        filename: '.env.researchops-rust-daemon.http',
-        content: buildRustDaemonEnvFileContent({
-          apiBaseUrl: normalizedApiBaseUrl,
-          transport: 'http',
-        }),
-      },
-      unix: {
-        filename: '.env.researchops-rust-daemon.unix',
-        content: buildRustDaemonEnvFileContent({
-          apiBaseUrl: normalizedApiBaseUrl,
-          transport: 'unix',
-        }),
-      },
-    },
-  };
+  const runtimeOptions = buildRustDaemonPrototypeRuntimeOptions({
+    apiBaseUrl: normalizedApiBaseUrl,
+    cwd: process.cwd(),
+  });
 
   return {
     bootstrapId: String(bootstrap?.bootstrapId || bootstrap?.id || '').trim(),
@@ -310,14 +268,16 @@ function buildDaemonBootstrapPayload({
         requestedHostname: hostname || null,
         expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
       },
-      runtimeOptions: {
-        rustDaemonPrototype,
-      },
+      runtimeOptions,
     } : {}),
     actions: {
       bootstrapStatus: {
         method: 'GET',
         path: `/researchops/daemons/bootstrap/${encodeURIComponent(String(bootstrap?.bootstrapId || bootstrap?.id || '').trim())}`,
+      },
+      rustDaemonStatus: {
+        method: 'GET',
+        path: '/researchops/daemons/rust/status',
       },
       registerDaemon: {
         method: 'POST',
@@ -349,6 +309,17 @@ function buildDaemonBootstrapStatusPayload({
     requestedHostname,
     includeSecret: false,
     includeInstallArtifacts: false,
+  });
+}
+
+function buildRustDaemonStatusResponse({
+  rustDaemon,
+  apiBaseUrl = '',
+} = {}) {
+  return buildRustDaemonStatusPayload({
+    rustDaemon,
+    apiBaseUrl,
+    cwd: process.cwd(),
   });
 }
 
@@ -597,6 +568,19 @@ router.get('/daemons/bootstrap/:bootstrapId', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] get daemon bootstrap failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to load daemon bootstrap token') });
+  }
+});
+
+router.get('/daemons/rust/status', async (req, res) => {
+  try {
+    const rustDaemon = await probeRustDaemonRuntime();
+    return res.json(buildRustDaemonStatusResponse({
+      rustDaemon,
+      apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+    }));
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon status failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to load rust daemon status') });
   }
 });
 
@@ -951,5 +935,6 @@ router.post('/experiments/execute', async (req, res) => {
 module.exports = router;
 module.exports.createDaemonBootstrapResponse = createDaemonBootstrapResponse;
 module.exports.buildDaemonBootstrapStatusPayload = buildDaemonBootstrapStatusPayload;
+module.exports.buildRustDaemonStatusResponse = buildRustDaemonStatusResponse;
 module.exports.buildUiConfigResponse = buildUiConfigResponse;
 module.exports.normalizeUiConfigPatch = normalizeUiConfigPatch;

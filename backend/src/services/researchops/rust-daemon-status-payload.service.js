@@ -1,0 +1,132 @@
+'use strict';
+
+const path = require('node:path');
+
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function shellQuote(value = '') {
+  return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function buildRustDaemonEnvFileContent({
+  apiBaseUrl = '',
+  transport = 'http',
+  unixSocket = '/tmp/researchops-local-daemon.sock',
+  httpAddr = '127.0.0.1:7788',
+} = {}) {
+  return [
+    `RESEARCHOPS_API_BASE_URL=${String(apiBaseUrl || '').trim()}`,
+    'RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS=true',
+    `RESEARCHOPS_RUST_DAEMON_TRANSPORT=${transport === 'unix' ? 'unix' : 'http'}`,
+    `RESEARCHOPS_RUST_DAEMON_HTTP_ADDR=${String(httpAddr || '127.0.0.1:7788').trim()}`,
+    `RESEARCHOPS_RUST_DAEMON_UNIX_SOCKET=${String(unixSocket || '/tmp/researchops-local-daemon.sock').trim()}`,
+  ].join('\n');
+}
+
+function buildRustDaemonPrototypeRuntimeOptions({
+  apiBaseUrl = '',
+  cwd = process.cwd(),
+} = {}) {
+  const normalizedApiBaseUrl = cleanString(apiBaseUrl).replace(/\/+$/, '');
+  const rustScriptPath = path.join(cwd, 'backend', 'scripts', 'researchops-bootstrap-rust-daemon.sh');
+  return {
+    rustDaemonPrototype: {
+      runtime: 'rust',
+      status: 'prototype',
+      commands: {
+        http: [
+          `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
+          `RESEARCHOPS_RUST_DAEMON_TRANSPORT='http'`,
+          `sh ${shellQuote(rustScriptPath)}`,
+        ].join(' \\\n'),
+        unix: [
+          `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
+          `RESEARCHOPS_RUST_DAEMON_TRANSPORT='unix'`,
+          `sh ${shellQuote(rustScriptPath)}`,
+        ].join(' \\\n'),
+      },
+      env: {
+        RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
+        RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS: 'true',
+      },
+      envFiles: {
+        http: {
+          filename: '.env.researchops-rust-daemon.http',
+          content: buildRustDaemonEnvFileContent({
+            apiBaseUrl: normalizedApiBaseUrl,
+            transport: 'http',
+          }),
+        },
+        unix: {
+          filename: '.env.researchops-rust-daemon.unix',
+          content: buildRustDaemonEnvFileContent({
+            apiBaseUrl: normalizedApiBaseUrl,
+            transport: 'unix',
+          }),
+        },
+      },
+    },
+  };
+}
+
+function buildRustDaemonStatusPayload({
+  rustDaemon = null,
+  apiBaseUrl = '',
+  cwd = process.cwd(),
+} = {}) {
+  const runtimeOptions = buildRustDaemonPrototypeRuntimeOptions({ apiBaseUrl, cwd });
+  const source = rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {};
+  return {
+    enabled: source.enabled === true,
+    status: cleanString(source.status) || 'disabled',
+    transport: cleanString(source.transport) || null,
+    endpoint: cleanString(source.endpoint) || null,
+    socketPath: cleanString(source.socketPath) || null,
+    runtime: source.runtime && typeof source.runtime === 'object' ? { ...source.runtime } : null,
+    taskCatalog: source.taskCatalog && typeof source.taskCatalog === 'object'
+      ? {
+          ...source.taskCatalog,
+          tasks: Array.isArray(source.taskCatalog.tasks)
+            ? source.taskCatalog.tasks.map((item) => ({ ...item }))
+            : [],
+        }
+      : null,
+    catalogParity: source.catalogParity && typeof source.catalogParity === 'object'
+      ? {
+          status: cleanString(source.catalogParity.status) || 'unknown',
+          expectedVersion: cleanString(source.catalogParity.expectedVersion) || null,
+          actualVersion: cleanString(source.catalogParity.actualVersion) || null,
+          missingTaskTypes: Array.isArray(source.catalogParity.missingTaskTypes)
+            ? source.catalogParity.missingTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+            : [],
+          extraTaskTypes: Array.isArray(source.catalogParity.extraTaskTypes)
+            ? source.catalogParity.extraTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+            : [],
+        }
+      : null,
+    error: cleanString(source.error) || null,
+    runtimeOptions,
+    actions: {
+      status: {
+        method: 'GET',
+        path: '/researchops/daemons/rust/status',
+      },
+      health: {
+        method: 'GET',
+        path: '/researchops/health',
+      },
+      bootstrap: {
+        method: 'POST',
+        path: '/researchops/daemons/bootstrap',
+      },
+    },
+  };
+}
+
+module.exports = {
+  buildRustDaemonEnvFileContent,
+  buildRustDaemonPrototypeRuntimeOptions,
+  buildRustDaemonStatusPayload,
+};
