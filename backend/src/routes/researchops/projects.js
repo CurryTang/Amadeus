@@ -100,7 +100,10 @@ const {
   daemonSupportsTaskTypes,
   missingDaemonTaskTypes,
 } = require('../../services/researchops/daemon-task-descriptor.service');
-const { buildProjectBridgeRuntime } = require('../../services/researchops/project-bridge-runtime.service');
+const {
+  buildProjectBridgeRuntime,
+  loadProjectBridgeRuntimeForProject,
+} = require('../../services/researchops/project-bridge-runtime.service');
 const { buildProjectPathCheckPayload } = require('../../services/researchops/project-path-check-payload.service');
 const {
   buildKnowledgeGroupDeletePayload,
@@ -6847,9 +6850,11 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
     if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
-    const bridgeRuntime = project?.locationType === 'client' && project?.clientMode === 'agent'
-      ? buildProjectBridgeRuntime(project, await getClientDeviceById(userId, project?.clientDeviceId))
-      : null;
+    const bridgeRuntime = await loadProjectBridgeRuntimeForProject({
+      userId,
+      project,
+      store: researchOpsStore,
+    });
 
     const result = await executeTreeNodeRun({
       userId,
@@ -7167,9 +7172,11 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
     if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
 
     const { project, server } = await resolveProjectContext(userId, projectId);
-    const bridgeRuntime = project?.locationType === 'client' && project?.clientMode === 'agent'
-      ? buildProjectBridgeRuntime(project, await getClientDeviceById(userId, project?.clientDeviceId))
-      : null;
+    const bridgeRuntime = await loadProjectBridgeRuntimeForProject({
+      userId,
+      project,
+      store: researchOpsStore,
+    });
     const [{ plan }, stateRead] = await Promise.all([
       treePlanService.readProjectPlan({ project, server }),
       treeStateService.readProjectState({ project, server }),

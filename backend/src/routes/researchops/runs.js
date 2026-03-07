@@ -48,7 +48,7 @@ const {
   buildSchedulerStatusPayload,
 } = require('../../services/researchops/scheduler-payload.service');
 const { buildRunnerRunningPayload } = require('../../services/researchops/runner-status-payload.service');
-const { buildProjectBridgeRuntime } = require('../../services/researchops/project-bridge-runtime.service');
+const { loadProjectBridgeRuntimeForRun } = require('../../services/researchops/project-bridge-runtime.service');
 const { getDb } = require('../../db');
 const {
   buildResearchOpsSshArgs,
@@ -735,14 +735,11 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
     const runId = String(req.params.runId || '').trim();
     const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
-    const project = run?.projectId
-      ? await researchOpsStore.getProject(userId, run.projectId).catch(() => null)
-      : null;
-    const device = project?.locationType === 'client' && project?.clientMode === 'agent' && project?.clientDeviceId
-      ? (await researchOpsStore.listDaemons(userId, { limit: 500 }))
-        .find((item) => String(item?.id || '').trim() === String(project.clientDeviceId || '').trim()) || null
-      : null;
-    const bridgeRuntime = buildProjectBridgeRuntime(project, device);
+    const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
+      userId,
+      run,
+      store: researchOpsStore,
+    });
 
     const report = buildRunReportPayload({
       run,

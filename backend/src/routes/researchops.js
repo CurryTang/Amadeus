@@ -91,6 +91,10 @@ const {
 } = require('../services/researchops/runner-status-payload.service');
 const { buildResearchOpsHealthPayload } = require('../services/researchops/health-payload.service');
 const {
+  loadProjectBridgeRuntimeForProject,
+  loadProjectBridgeRuntimeForRun,
+} = require('../services/researchops/project-bridge-runtime.service');
+const {
   buildProjectPayload,
   buildProjectListPayload,
 } = require('../services/researchops/project-location.service');
@@ -6028,6 +6032,11 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
     const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
 
+    const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
+      userId,
+      run,
+      store: researchOpsStore,
+    });
     const report = buildRunReportPayload({
       run,
       steps,
@@ -6037,7 +6046,7 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
       manifest: null,
       mapArtifact: (item) => withArtifactDownloadUrl(item, runId),
     });
-    return res.json(buildBridgeRunReportPayload({ report }));
+    return res.json(buildBridgeRunReportPayload({ report, bridgeRuntime }));
   } catch (error) {
     console.error('[ResearchOps] getBridgeRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -7497,6 +7506,11 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
     const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => String(item?.id || '').trim() === nodeId);
     if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
 
+    const bridgeRuntime = await loadProjectBridgeRuntimeForProject({
+      userId,
+      project,
+      store: researchOpsStore,
+    });
     const result = await executeTreeNodeRun({
       userId,
       project,
@@ -7563,6 +7577,7 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
     return res.status(preflightOnly ? 200 : 202).json(buildBridgeTreeRunPayload({
       projectId: project.id,
       nodeId,
+      bridgeRuntime,
       result,
     }));
   } catch (error) {
@@ -7813,6 +7828,11 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
     if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
 
     const { project, server } = await resolveProjectContext(userId, projectId);
+    const bridgeRuntime = await loadProjectBridgeRuntimeForProject({
+      userId,
+      project,
+      store: researchOpsStore,
+    });
     const [{ plan }, stateRead] = await Promise.all([
       treePlanService.readProjectPlan({ project, server }),
       treeStateService.readProjectState({ project, server }),
@@ -7861,6 +7881,7 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/bridge-context', async (req,
       blocking: evaluateNodeBlocking(node, state),
       run,
       contextPack,
+      bridgeRuntime,
       reportSteps,
       reportArtifacts,
       reportCheckpoints,

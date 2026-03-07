@@ -28,6 +28,40 @@ function buildProjectBridgeRuntime(project = {}, device = null) {
   };
 }
 
+async function loadProjectBridgeRuntimeForProject({
+  userId,
+  project = null,
+  store,
+} = {}) {
+  if (!project || typeof project !== 'object') return null;
+  const clientDeviceId = cleanString(project.clientDeviceId);
+  if (!clientDeviceId) {
+    return buildProjectBridgeRuntime(project, null);
+  }
+  const daemons = await store.listDaemons(userId, { limit: 500 });
+  const device = Array.isArray(daemons)
+    ? daemons.find((item) => cleanString(item?.id) === clientDeviceId) || null
+    : null;
+  return buildProjectBridgeRuntime(project, device);
+}
+
+async function loadProjectBridgeRuntimeForRun({
+  userId,
+  run = null,
+  store,
+} = {}) {
+  const projectId = cleanString(run?.projectId);
+  if (!projectId) return null;
+  const project = await store.getProject(userId, projectId).catch(() => null);
+  return loadProjectBridgeRuntimeForProject({
+    userId,
+    project,
+    store,
+  });
+}
+
 module.exports = {
   buildProjectBridgeRuntime,
+  loadProjectBridgeRuntimeForProject,
+  loadProjectBridgeRuntimeForRun,
 };
