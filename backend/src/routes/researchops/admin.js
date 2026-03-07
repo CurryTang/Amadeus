@@ -6,6 +6,11 @@ const path = require('path');
 const { getDb } = require('../../db');
 const researchOpsStore = require('../../services/researchops/store');
 const researchOpsRunner = require('../../services/researchops/runner');
+const {
+  buildDaemonHeartbeatPayload,
+  buildDaemonListPayload,
+  buildDaemonRegistrationPayload,
+} = require('../../services/researchops/daemon-payload.service');
 const { parseLimit, getUserId, sanitizeError, cleanString } = require('./shared');
 
 const CHATDSE_ENFORCED_HOST = 'compute.example.edu';
@@ -465,12 +470,7 @@ router.post('/daemons/register', async (req, res) => {
         serverId: daemon.id,
       });
     }
-    return res.status(201).json({
-      serverId: daemon.id,
-      hostname: daemon.hostname,
-      status: daemon.status,
-      heartbeatAt: daemon.heartbeatAt,
-    });
+    return res.status(201).json(buildDaemonRegistrationPayload({ daemon }));
   } catch (error) {
     console.error('[ResearchOps] registerDaemon failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to register daemon') });
@@ -481,12 +481,7 @@ router.post('/daemons/heartbeat', async (req, res) => {
   try {
     const daemon = await researchOpsStore.heartbeatDaemon(getUserId(req), req.body || {});
     if (!daemon) return res.status(404).json({ error: 'Server not found for heartbeat' });
-    return res.json({
-      serverId: daemon.id,
-      hostname: daemon.hostname,
-      status: daemon.status,
-      heartbeatAt: daemon.heartbeatAt,
-    });
+    return res.json(buildDaemonHeartbeatPayload({ daemon }));
   } catch (error) {
     console.error('[ResearchOps] heartbeatDaemon failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update heartbeat') });
@@ -524,7 +519,7 @@ router.get('/daemons', async (req, res) => {
     const items = await researchOpsStore.listDaemons(getUserId(req), {
       limit: parseLimit(req.query.limit, 100, 300),
     });
-    return res.json({ items });
+    return res.json(buildDaemonListPayload({ items }));
   } catch (error) {
     console.error('[ResearchOps] listDaemons failed:', error);
     return res.status(500).json({ error: 'Failed to list daemons' });
