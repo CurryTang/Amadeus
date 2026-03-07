@@ -35,13 +35,18 @@ function close(server) {
   });
 }
 
-function buildRuntimeBody() {
+function buildRuntimeBody(overrides = {}) {
   return JSON.stringify({
     task_catalog_version: 'v0',
     supported_task_types: ['project.checkPath', 'bridge.fetchRunReport'],
     supports_local_bridge_workflow: false,
     supports_workspace_snapshot_capture: true,
     missing_bridge_task_types: ['bridge.fetchNodeContext'],
+    host_ready: true,
+    container_ready: false,
+    health_state: 'degraded',
+    last_failure_reason: 'docker unavailable',
+    ...overrides,
   });
 }
 
@@ -52,6 +57,10 @@ test('probeRustDaemonRuntime returns disabled when no rust daemon env is configu
   assert.equal(result.status, 'disabled');
   assert.equal(result.transport, null);
   assert.equal(result.runtime, null);
+  assert.equal(result.hostReady, false);
+  assert.equal(result.containerReady, false);
+  assert.equal(result.healthState, 'disabled');
+  assert.equal(result.lastFailureReason, null);
 });
 
 test('probeRustDaemonRuntime reads runtime summary over http', async () => {
@@ -106,6 +115,10 @@ test('probeRustDaemonRuntime reads runtime summary over http', async () => {
     assert.equal(result.runtime.task_catalog_version, 'v0');
     assert.deepEqual(result.runtime.supported_task_types, ['project.checkPath', 'bridge.fetchRunReport']);
     assert.equal(result.runtime.supports_workspace_snapshot_capture, true);
+    assert.equal(result.hostReady, true);
+    assert.equal(result.containerReady, false);
+    assert.equal(result.healthState, 'degraded');
+    assert.equal(result.lastFailureReason, 'docker unavailable');
     assert.equal(result.taskCatalog.version, 'v0');
     assert.equal(result.catalogParity.status, 'aligned');
     assert.deepEqual(result.catalogParity.missingTaskTypes, []);
@@ -120,7 +133,12 @@ test('probeRustDaemonRuntime reads runtime summary over unix socket', async () =
   const server = http.createServer((req, res) => {
     assert.equal(req.method, 'GET');
     if (req.url === '/runtime') {
-      const body = buildRuntimeBody();
+      const body = buildRuntimeBody({
+        host_ready: true,
+        container_ready: true,
+        health_state: 'healthy',
+        last_failure_reason: '',
+      });
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
@@ -158,6 +176,10 @@ test('probeRustDaemonRuntime reads runtime summary over unix socket', async () =
     assert.equal(result.transport, 'unix');
     assert.equal(result.runtime.task_catalog_version, 'v0');
     assert.equal(result.socketPath, socketPath);
+    assert.equal(result.hostReady, true);
+    assert.equal(result.containerReady, true);
+    assert.equal(result.healthState, 'healthy');
+    assert.equal(result.lastFailureReason, null);
     assert.equal(result.catalogParity.status, 'mismatch');
     assert.deepEqual(result.catalogParity.missingTaskTypes, [
       'bridge.captureWorkspaceSnapshot',

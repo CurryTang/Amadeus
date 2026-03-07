@@ -7,6 +7,15 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeHealthState(value) {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'healthy') return 'healthy';
+  if (normalized === 'degraded') return 'degraded';
+  if (normalized === 'reconciling') return 'reconciling';
+  if (normalized === 'disabled') return 'disabled';
+  return null;
+}
+
 function normalizeDesiredState(value, fallback = 'stopped') {
   const normalized = cleanString(value).toLowerCase();
   if (normalized === 'running') return 'running';
@@ -71,11 +80,14 @@ function buildRustDaemonSupervisorState({ cwd = process.cwd(), env = process.env
     startedAt: cleanString(state.startedAt) || null,
     transport: cleanString(state.transport) || null,
     command: cleanString(state.command) || null,
+    healthState: normalizeHealthState(state.healthState),
+    lastFailureReason: cleanString(state.lastFailureReason) || null,
   };
 }
 
 module.exports = {
   buildRustDaemonSupervisorPaths,
   buildRustDaemonSupervisorState,
+  normalizeHealthState,
   normalizeDesiredState,
 };

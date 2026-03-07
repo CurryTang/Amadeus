@@ -2,6 +2,7 @@
 
 const { buildIdeaListPayload } = require('./idea-payload.service');
 const { buildProjectListPayload } = require('./project-location.service');
+const { buildProjectControlSurface } = require('./project-control-surface.service');
 const { buildQueueListPayload } = require('./queue-payload.service');
 const { buildRunReviewSummary } = require('./run-review-summary.service');
 const { buildRunListPayload } = require('./run-list-payload.service');
@@ -18,6 +19,7 @@ function buildDashboardPayload({
   queue = [],
   runs = [],
   skills = [],
+  runtimeSummary = null,
   projectLimit = 80,
   itemLimit = 120,
   refreshedAt = '',
@@ -45,6 +47,10 @@ function buildDashboardPayload({
     }).items,
     runs: normalizedRuns,
     reviewSummary: buildRunReviewSummary(normalizedRuns),
+    projectControlSurface: buildProjectControlSurface({
+      runs: normalizedRuns,
+      runtimeSummary,
+    }),
     skills: buildSkillListPayload({
       items: skills,
     }).items,

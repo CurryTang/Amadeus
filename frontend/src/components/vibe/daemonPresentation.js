@@ -2,6 +2,15 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function formatControlSurfaceNextActionLabel(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'fix-runtime') return 'Fix runtime';
+  if (normalized === 'review-output') return 'Review output';
+  if (normalized === 'sync-snapshot') return 'Sync snapshot';
+  if (normalized === 'rerun') return 'Rerun';
+  return '';
+}
+
 function filterOnlineClientDevices(items = []) {
   return (Array.isArray(items) ? items : []).filter(
     (item) => cleanString(item?.status).toUpperCase() === 'ONLINE'
@@ -153,6 +162,72 @@ function buildUnifiedControlSurfaceRows({
   }
   if (Number.isFinite(Number(runtime.runningCount))) {
     rows.push({ label: 'Running Jobs', value: String(Number(runtime.runningCount)) });
+  }
+  return rows;
+}
+
+function deriveProjectControlAction({ reviewSummary = null, runtimeSummary = null } = {}) {
+  const review = reviewSummary && typeof reviewSummary === 'object' ? reviewSummary : {};
+  const runtime = runtimeSummary && typeof runtimeSummary === 'object' ? runtimeSummary : {};
+  if (runtime.rustManagedDesired === true && runtime.rustManagedRunning !== true) {
+    return 'fix-runtime';
+  }
+  if (cleanString(runtime.rustHealthState).toLowerCase() === 'degraded') {
+    return 'fix-runtime';
+  }
+  if (Number(review.attentionCount || 0) > 0 || Number(review.contractFailureCount || 0) > 0) {
+    return 'review-output';
+  }
+  if (Number(review.remoteExecutionCount || 0) > Number(review.snapshotBackedCount || 0)) {
+    return 'sync-snapshot';
+  }
+  return 'rerun';
+}
+
+function buildProjectControlSurfaceRows({
+  projectControlSurface = null,
+  reviewSummary = null,
+  runtimeSummary = null,
+} = {}) {
+  const surface = projectControlSurface && typeof projectControlSurface === 'object' ? projectControlSurface : null;
+  if (!surface) {
+    const rows = buildUnifiedControlSurfaceRows({ reviewSummary, runtimeSummary });
+    const nextAction = formatControlSurfaceNextActionLabel(deriveProjectControlAction({ reviewSummary, runtimeSummary }));
+    if (nextAction) rows.push({ label: 'Next Action', value: nextAction });
+    return rows;
+  }
+  const rows = [];
+  const review = surface.review && typeof surface.review === 'object' ? surface.review : {};
+  const runtime = surface.runtime && typeof surface.runtime === 'object' ? surface.runtime : {};
+  const execution = surface.execution && typeof surface.execution === 'object' ? surface.execution : {};
+  const observability = surface.observability && typeof surface.observability === 'object' ? surface.observability : {};
+  const recommendation = surface.recommendation && typeof surface.recommendation === 'object' ? surface.recommendation : {};
+  const reviewStatus = cleanString(review.status).replace(/_/g, ' ');
+  if (reviewStatus) rows.push({ label: 'Control Status', value: reviewStatus });
+  if (Number.isFinite(Number(review.attentionRuns))) rows.push({ label: 'Attention Runs', value: String(Number(review.attentionRuns)) });
+  if (Number.isFinite(Number(review.contractFailures)) && Number(review.contractFailures) > 0) rows.push({ label: 'Contract Failures', value: String(Number(review.contractFailures)) });
+  if (Number.isFinite(Number(review.missingOutputs)) && Number(review.missingOutputs) > 0) rows.push({ label: 'Missing Outputs', value: String(Number(review.missingOutputs)) });
+  if (Number.isFinite(Number(review.warnings)) && Number(review.warnings) > 0) rows.push({ label: 'Warnings', value: String(Number(review.warnings)) });
+  if (runtime.runtimeDrift === true) rows.push({ label: 'Runtime Drift', value: 'managed desired, runtime down' });
+  if (cleanString(runtime.rustHealthState) && cleanString(runtime.rustHealthState).toLowerCase() !== 'unknown') {
+    rows.push({ label: 'Runtime Health', value: cleanString(runtime.rustHealthState) });
+  }
+  if (cleanString(recommendation.backend) && cleanString(recommendation.runtimeClass)) {
+    rows.push({ label: 'Recommended Runtime', value: `${cleanString(recommendation.backend)} / ${cleanString(recommendation.runtimeClass)}` });
+  }
+  const nextAction = formatControlSurfaceNextActionLabel(recommendation.nextAction);
+  if (nextAction) rows.push({ label: 'Next Action', value: nextAction });
+  if (Number.isFinite(Number(execution.remoteRuns))) rows.push({ label: 'Remote Runs', value: String(Number(execution.remoteRuns)) });
+  if (Number.isFinite(Number(execution.snapshotBackedRuns))) rows.push({ label: 'Snapshot-Backed Runs', value: String(Number(execution.snapshotBackedRuns)) });
+  const transports = Array.isArray(execution.transportMix) ? execution.transportMix.map((item) => cleanString(item)).filter(Boolean) : [];
+  if (transports.length > 0) rows.push({ label: 'Transports', value: transports.join(', ') });
+  const telemetry = Array.isArray(observability.sinkProviders) ? observability.sinkProviders.map((item) => cleanString(item)).filter(Boolean) : [];
+  if (telemetry.length > 0) rows.push({ label: 'Telemetry', value: telemetry.join(', ') });
+  const onlineClients = Number.isFinite(Number(runtime.onlineClients)) ? Number(runtime.onlineClients) : null;
+  const bridgeReadyClients = Number.isFinite(Number(runtime.bridgeReadyClients)) ? Number(runtime.bridgeReadyClients) : null;
+  const snapshotReadyClients = Number.isFinite(Number(runtime.snapshotReadyClients)) ? Number(runtime.snapshotReadyClients) : null;
+  if (onlineClients !== null && bridgeReadyClients !== null && snapshotReadyClients !== null && onlineClients > 0) {
+    rows.push({ label: 'Client Coverage', value: `${bridgeReadyClients}/${onlineClients} bridge-ready · ${snapshotReadyClients}/${onlineClients} snapshot-ready` });
   }
   return rows;
 }
@@ -457,12 +532,14 @@ export {
   buildBootstrapRuntimeEnvFiles,
   buildRustDaemonActionItems,
   buildClientDeviceOption,
+  buildProjectControlSurfaceRows,
   buildRuntimeOverviewPanelRows,
   buildRuntimeOverviewSummaryRows,
   buildUnifiedControlSurfaceRows,
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
+  formatControlSurfaceNextActionLabel,
   getRuntimeOverviewSummary,
   getRustDaemonPayload,
   getRuntimeOverviewClientDevices,

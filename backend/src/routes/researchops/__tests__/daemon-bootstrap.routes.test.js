@@ -92,6 +92,10 @@ test('rust daemon status response exposes runtime probe data and reusable runtim
       status: 'ok',
       transport: 'unix',
       socketPath: '/tmp/researchops-local-daemon.sock',
+      hostReady: true,
+      containerReady: false,
+      healthState: 'degraded',
+      lastFailureReason: 'docker unavailable',
       runtime: {
         task_catalog_version: 'v0',
         supports_local_bridge_workflow: true,
@@ -113,6 +117,10 @@ test('rust daemon status response exposes runtime probe data and reusable runtim
   assert.equal(response.refreshedAt, '2026-03-07T12:00:00.000Z');
   assert.equal(response.transport, 'unix');
   assert.equal(response.socketPath, '/tmp/researchops-local-daemon.sock');
+  assert.equal(response.hostReady, true);
+  assert.equal(response.containerReady, false);
+  assert.equal(response.healthState, 'degraded');
+  assert.equal(response.lastFailureReason, 'docker unavailable');
   assert.equal(response.runtime.task_catalog_version, 'v0');
   assert.equal(response.taskCatalog.version, 'v0');
   assert.equal(response.catalogParity.status, 'mismatch');

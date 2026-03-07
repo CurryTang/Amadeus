@@ -4,7 +4,7 @@ import EmptyState from '../ui/EmptyState';
 import ClarificationChat from './ClarificationChat';
 import { buildContextPackSummary } from './contextPackPresentation.js';
 import { buildNodeBridgeSummary } from './nodeBridgePresentation.js';
-import { buildNodeReviewSummary } from './reviewPresentation.js';
+import { buildNodeControlSurfaceRows, buildNodeReviewSummary } from './reviewPresentation.js';
 import { buildSearchSummaryRows, buildSearchTrialRows } from './searchPresentation.js';
 import { getTreeNodeKindLabel, isObservedTreeNode, isSearchTreeNode } from './treeNodePresentation.js';
 
@@ -209,6 +209,22 @@ function VibeNodeWorkbench({
     () => buildNodeReviewSummary(node, nodeState, runReport, runCompare, nodeBridgeContext?.bridgeReport),
     [node, nodeBridgeContext?.bridgeReport, nodeState, runCompare, runReport]
   );
+  const nodeControlSurfaceRows = useMemo(
+    () => buildNodeControlSurfaceRows({
+      runReport,
+      bridgeReport: nodeBridgeContext?.bridgeReport,
+    }),
+    [nodeBridgeContext?.bridgeReport, runReport]
+  );
+  const combinedReviewRows = useMemo(() => {
+    const seen = new Set();
+    return [...nodeControlSurfaceRows, ...reviewSummaryRows].filter((row) => {
+      const label = cleanString(row?.label);
+      if (!label || seen.has(label)) return false;
+      seen.add(label);
+      return true;
+    });
+  }, [nodeControlSurfaceRows, reviewSummaryRows]);
   const searchTrialRows = useMemo(
     () => buildSearchTrialRows(searchData),
     [searchData]
@@ -379,11 +395,11 @@ function VibeNodeWorkbench({
             {!isObservedNode && (
               <article>
                 <h4>Review / Evidence</h4>
-                {reviewSummaryRows.length === 0 ? (
+                {combinedReviewRows.length === 0 ? (
                   <p className="vibe-empty">No review state available yet.</p>
                 ) : (
                   <div className="vibe-list">
-                    {reviewSummaryRows.map((row) => (
+                    {combinedReviewRows.map((row) => (
                       <div key={row.label} className="vibe-list-item">
                         <div className="vibe-list-main">
                           <strong>{row.label}</strong>

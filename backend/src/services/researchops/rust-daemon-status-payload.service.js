@@ -127,6 +127,11 @@ function buildRustDaemonStatusPayload({
     : null;
   const source = rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {};
   const supervisor = buildRustDaemonSupervisorState({ cwd, env });
+  const hostReady = source.hostReady === true;
+  const containerReady = source.containerReady === true;
+  const healthState = cleanString(source.healthState || supervisor.healthState)
+    || (cleanString(source.status) === 'disabled' ? 'disabled' : cleanString(source.status) === 'ok' ? 'healthy' : 'degraded');
+  const lastFailureReason = cleanString(source.lastFailureReason || supervisor.lastFailureReason || source.error) || null;
   return {
     enabled: source.enabled === true,
     status: cleanString(source.status) || 'disabled',
@@ -134,6 +139,10 @@ function buildRustDaemonStatusPayload({
     transport: cleanString(source.transport) || null,
     endpoint: cleanString(source.endpoint) || null,
     socketPath: cleanString(source.socketPath) || null,
+    hostReady,
+    containerReady,
+    healthState,
+    lastFailureReason,
     runtime: source.runtime && typeof source.runtime === 'object' ? { ...source.runtime } : null,
     taskCatalog: source.taskCatalog && typeof source.taskCatalog === 'object'
       ? {

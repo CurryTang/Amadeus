@@ -4,6 +4,15 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function formatControlSurfaceNextActionLabel(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'fix-runtime') return 'Fix runtime';
+  if (normalized === 'review-output') return 'Review output';
+  if (normalized === 'sync-snapshot') return 'Sync snapshot';
+  if (normalized === 'rerun') return 'Rerun';
+  return '';
+}
+
 function formatContractOk(ok) {
   if (ok === true) return 'Validated';
   if (ok === false) return 'Validation failed';
@@ -48,6 +57,69 @@ function resolveNodeReport(runReport = {}, bridgeReport = {}) {
     : {};
   if (Object.keys(fallbackReport).length > 0) return fallbackReport;
   return {};
+}
+
+function buildNodeControlSurfaceRows({
+  runReport = {},
+  bridgeReport = {},
+} = {}) {
+  const effectiveRunReport = resolveNodeReport(runReport, bridgeReport);
+  const rows = [];
+  const run = effectiveRunReport?.run && typeof effectiveRunReport.run === 'object' ? effectiveRunReport.run : {};
+  const execution = effectiveRunReport?.execution && typeof effectiveRunReport.execution === 'object'
+    ? effectiveRunReport.execution
+    : (bridgeReport?.execution && typeof bridgeReport.execution === 'object' ? bridgeReport.execution : {});
+  const contract = effectiveRunReport?.contract && typeof effectiveRunReport.contract === 'object' ? effectiveRunReport.contract : {};
+  const highlights = effectiveRunReport?.highlights && typeof effectiveRunReport.highlights === 'object' ? effectiveRunReport.highlights : {};
+  const output = effectiveRunReport?.output && typeof effectiveRunReport.output === 'object' ? effectiveRunReport.output : {};
+  const observability = effectiveRunReport?.observability && typeof effectiveRunReport.observability === 'object' ? effectiveRunReport.observability : {};
+  const workspaceSnapshot = effectiveRunReport?.workspaceSnapshot && typeof effectiveRunReport.workspaceSnapshot === 'object'
+    ? effectiveRunReport.workspaceSnapshot
+    : {};
+  const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
+    ? workspaceSnapshot.localSnapshot
+    : {};
+  const deliverableCount = Array.isArray(highlights.deliverableArtifactIds)
+    ? highlights.deliverableArtifactIds.filter((item) => cleanString(item)).length
+    : 0;
+  const hasSummary = output.hasSummary === true || Boolean(cleanString(highlights.summaryArtifactId));
+  const hasFinalOutput = output.hasFinalOutput === true || Boolean(cleanString(highlights.finalOutputArtifactId));
+  const outputState = hasSummary && hasFinalOutput ? 'Complete' : hasSummary || hasFinalOutput ? 'Partial' : 'Missing';
+  const contractState = contract.ok === true ? 'Validated' : contract.ok === false ? 'Validation failed' : 'Unknown';
+  const warningCount = Math.max(Number(observability?.counts?.warnings) || 0, 0);
+  const sinkProviders = Array.isArray(observability?.sinkProviders)
+    ? observability.sinkProviders.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  let nextAction = '';
+  if (contract.ok === false || warningCount > 0 || !hasFinalOutput) {
+    nextAction = 'review-output';
+  } else if (cleanString(execution.location).toLowerCase() === 'remote' && !cleanString(localSnapshot.kind)) {
+    nextAction = 'sync-snapshot';
+  } else if (cleanString(run.status).toUpperCase() === 'FAILED') {
+    nextAction = 'rerun';
+  }
+
+  if (cleanString(run.status)) rows.push({ label: 'Run State', value: cleanString(run.status).toUpperCase() });
+  rows.push({ label: 'Contract State', value: contractState });
+  rows.push({ label: 'Output State', value: outputState });
+  rows.push({ label: 'Deliverables', value: String(deliverableCount) });
+  if (cleanString(execution.location)) rows.push({ label: 'Execution', value: cleanString(execution.location) });
+  if (cleanString(execution.backend) || cleanString(execution.runtimeClass)) {
+    rows.push({
+      label: 'Runtime',
+      value: [cleanString(execution.backend), cleanString(execution.runtimeClass)].filter(Boolean).join('/'),
+    });
+  }
+  if (cleanString(effectiveRunReport?.resolvedTransport || bridgeReport?.resolvedTransport)) {
+    rows.push({ label: 'Transport', value: cleanString(effectiveRunReport?.resolvedTransport || bridgeReport?.resolvedTransport) });
+  }
+  if (cleanString(localSnapshot.kind)) rows.push({ label: 'Snapshot State', value: 'Snapshot-backed' });
+  if (cleanString(observability?.statuses?.readiness)) rows.push({ label: 'Readiness', value: formatReadiness(observability.statuses.readiness) || cleanString(observability.statuses.readiness) });
+  if (warningCount > 0) rows.push({ label: 'Warnings', value: warningCount === 1 ? '1 warning' : `${warningCount} warnings` });
+  if (sinkProviders.length > 0) rows.push({ label: 'Sinks', value: sinkProviders.join(', ') });
+  const nextActionLabel = formatControlSurfaceNextActionLabel(nextAction);
+  if (nextActionLabel) rows.push({ label: 'Next Action', value: nextActionLabel });
+  return rows;
 }
 
 function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCompare = {}, bridgeReport = {}) {
@@ -343,5 +415,7 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
 }
 
 export {
+  buildNodeControlSurfaceRows,
   buildNodeReviewSummary,
+  formatControlSurfaceNextActionLabel,
 };

@@ -29,8 +29,8 @@ import {
   buildBootstrapRuntimeEnvFiles,
   buildRustDaemonActionItems,
   buildClientDeviceOption,
+  buildProjectControlSurfaceRows,
   buildRuntimeOverviewPanelRows,
-  buildUnifiedControlSurfaceRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
   getRuntimeOverviewClientDevices,
@@ -445,6 +445,7 @@ function VibeResearcherPanel({
   const [queue, setQueue] = useState([]);
   const [runs, setRuns] = useState([]);
   const [dashboardReviewSummary, setDashboardReviewSummary] = useState(null);
+  const [dashboardProjectControlSurface, setDashboardProjectControlSurface] = useState(null);
   const [observedSessions, setObservedSessions] = useState([]);
   const [skills, setSkills] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -700,6 +701,11 @@ function VibeResearcherPanel({
             ? dashboardRes.data.reviewSummary
             : null
         );
+        setDashboardProjectControlSurface(
+          dashboardRes.data?.projectControlSurface && typeof dashboardRes.data.projectControlSurface === 'object'
+            ? dashboardRes.data.projectControlSurface
+            : null
+        );
         if (nextRuns.length === 0) {
           const runsRes = await axios.get(`${apiUrl}/researchops/runs?limit=200`, { headers });
           nextRuns = runsRes.data?.items || [];
@@ -719,6 +725,7 @@ function VibeResearcherPanel({
         nextRuns = runsRes.data?.items || [];
         nextSkills = skillsRes.data?.items || [];
         setDashboardReviewSummary(null);
+        setDashboardProjectControlSurface(null);
       }
 
       const stickyProjectId = String(selectedProjectRef.current || '').trim();
@@ -1642,11 +1649,12 @@ function VibeResearcherPanel({
     [runtimeOverviewSummary, rustDaemonStatus],
   );
   const unifiedControlSurfaceRows = useMemo(
-    () => buildUnifiedControlSurfaceRows({
+    () => buildProjectControlSurfaceRows({
+      projectControlSurface: dashboardProjectControlSurface,
       reviewSummary: dashboardReviewSummary,
       runtimeSummary: runtimeOverviewSummary,
     }),
-    [dashboardReviewSummary, runtimeOverviewSummary],
+    [dashboardProjectControlSurface, dashboardReviewSummary, runtimeOverviewSummary],
   );
   const rustDaemonRuntimeSource = useMemo(() => {
     if (clientBootstrapData?.runtimeOptions && typeof clientBootstrapData.runtimeOptions === 'object') {

@@ -43,8 +43,9 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
 
 - Status: passed
 - Notes:
-  - Backend verification passed: 37 tests, 0 failures
-  - Frontend verification passed: 20 tests, 0 failures
+  - Backend verification passed: 28 tests, 0 failures
+  - Frontend verification passed: 46 tests, 0 failures
+  - Rust verification passed: 28 cargo tests + 1 catalog-contract test, 0 failures
   - `Recent Runs` now defaults to node scope when matching runs exist and falls back to project scope otherwise
   - `RunReport` now exposes attempt-shaped read data plus deliverable artifact highlights
   - `RunReport` now also exposes thin `workspaceSnapshot`, `envSnapshot`, and `followUp` views for current review/detail flows
@@ -243,17 +244,23 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - The selected-node workbench `Review / Evidence` summary now also surfaces current-run and bridge-fallback summary/final-output presence, so node-centered evidence triage no longer requires opening the full run-detail output section just to know whether key outputs exist
   - Run compare summaries and node review compare rows now also surface compare-side summary/final-output presence, so compare triage no longer requires opening the full output section to tell whether the alternate run actually produced key deliverables
   - A Node-side verifier now checks that the Rust prototype task catalog stays aligned with the JS daemon catalog, so the new Rust bridge/runtime prototype cannot silently drift away from the current `v0` task contract
+  - Execution request and result payloads are now normalized through shared Node builders, so the control plane and Rust executor plane consume the same daemon-facing contract for `workspaceSnapshot`, `envSnapshot`, `jobSpec`, `outputContract`, artifacts, metrics, and failure summaries
+  - The Rust local daemon now has an explicit executor plane with host and noop executors plus a Docker-compatible container executor v1, so backend/runtime dispatch, staged vs mounted workspace handling, timeout wrapping, cancel wiring, and `container-fast` vs `container-guarded` policy mapping are exercised in the real daemon crate
+  - Managed Rust runtime health now projects real executor readiness (`hostReady`, `containerReady`, `healthState`, `lastFailureReason`) through runtime/status payloads, supervisor state, and admin bootstrap routes, so managed-runtime drift is grounded in actual backend readiness instead of process liveness alone
+  - Bridge-backed run submission can now forward a normalized `executionRequest` into the Rust daemon and read back a normalized `executionResult`, so executor-backed runs no longer stop at task-level bridge metadata
+  - Dashboard payloads now ship project-level and node-level control-surface aggregates for review, runtime, execution, and observability signals, with stable next-action hints such as `fix-runtime`, `review-output`, `sync-snapshot`, and `rerun`
+  - The workbench now renders those project and node control-surface summaries directly in the runtime panel and node `Review / Evidence` panel, so runtime health, execution path, snapshot coverage, telemetry sinks, and recommended follow-up are visible without manually merging separate UI sections
 
 ## Section Status Audit
 
 - `01 Design Principles`: effectively complete in implementation terms; current-vs-target distinctions are now consistently reflected in shipped read models and UI seams
 - `02 System Architecture`: mostly complete for the current architecture; remaining gap is target-state convergence of runtime/control-plane pieces
 - `03 Domain Model and State Machines`: mostly complete; `Attempt ≈ Run`, `TreeNode`, `RunReport`, `AgentSession`, and `ObservedSession` are all reflected in current payloads and UI
-- `04 Execution Environment and Sandbox`: partially complete; runtime hints, bridge transports, snapshot capture, and Rust daemon prototype exist, but full long-running runtime/container backend is still incomplete
+- `04 Execution Environment and Sandbox`: mostly complete; the shared executor contract, Rust executor plane, Docker-compatible container backend v1, and managed readiness projection are landed, while stronger isolation targets beyond `container-guarded` remain future work
 - `05 Agent API / Context / Session Sync`: mostly complete for current APIs; remaining gap is stronger unified control-plane behavior rather than route-shape normalization
-- `06 Frontend and Interaction Spec`: mostly complete for the tree-centered workbench; remaining gap is deeper target-state runtime/review console behavior
-- `07 Review / Deliverables / Observability`: mostly complete for current run-centered review; remaining gap is fuller project/node review workflow convergence
-- `08 Parallel Implementation Plan`: Phase A is effectively done, Phase B is mostly done, and Phase C is underway but not finished
+- `06 Frontend and Interaction Spec`: mostly complete for the tree-centered workbench; project/runtime control-surface summaries now render in the shipped workbench, while deeper target-state operator workflows still remain
+- `07 Review / Deliverables / Observability`: mostly complete; project/node review-runtime-observability signals now converge into explicit control-surface aggregates, with remaining work centered on deeper operator workflows rather than missing read models
+- `08 Parallel Implementation Plan`: Phase A is effectively done, Phase B is mostly done, and Phase C has crossed the managed-runtime/control-surface convergence threshold but is not yet finished
 - `09 Repo Layout and Module Boundaries`: mostly complete at the seam level; remaining gap is deeper runtime backend consolidation rather than route/service wrapper cleanup
 
 ## Unified Final Step
@@ -268,6 +275,20 @@ This step covers the remaining cross-cutting gap between the current-compatible 
 - Promote typed bridge flows from “discoverable and executable” into the default managed execution/control path
 - Converge review, compare, output, transport, snapshot, contract, and observability signals into a single consistent node/project triage model
 - Finish the runtime boundary needed for stronger container/isolation backends without re-breaking current workbench flows
+
+### Current convergence checkpoint
+
+The largest remaining target-state gap is no longer “does the managed runtime/control-surface seam exist?” That seam is now present:
+
+- Rust daemon execution now runs through explicit host/container executor backends instead of a prototype-only task bridge
+- Managed runtime routes and payloads now expose real executor readiness and managed actions
+- Project and node control-surface summaries now converge runtime, execution, review, snapshot, contract, and observability signals in shipped backend payloads and frontend presentation helpers
+
+What still remains is hardening and extending that seam:
+
+- make the managed Rust daemon the default long-running execution path under more real workloads
+- extend runtime backends beyond container v1 into stronger isolation targets
+- continue tightening operational workflows around restart, recovery, and follow-up actions
 
 ### Practical meaning
 

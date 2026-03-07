@@ -35,7 +35,45 @@ test('buildDashboardPayload preserves aggregate roots and exposes dashboard acti
     contractFailureCount: 0,
     remoteExecutionCount: 1,
     snapshotBackedCount: 1,
+    instrumentedCount: 0,
+    instrumentedProviders: [],
+    resolvedTransports: [],
     status: 'needs_attention',
+  });
+  assert.deepEqual(payload.projectControlSurface, {
+    review: {
+      attentionRuns: 1,
+      contractFailures: 0,
+      missingOutputs: 2,
+      warnings: 0,
+      status: 'needs_attention',
+    },
+    runtime: {
+      onlineClients: 0,
+      bridgeReadyClients: 0,
+      snapshotReadyClients: 0,
+      rustManagedRunning: false,
+      rustManagedDesired: false,
+      rustHealthState: 'unknown',
+      rustLastFailureReason: null,
+      runtimeDrift: false,
+    },
+    execution: {
+      remoteRuns: 1,
+      snapshotBackedRuns: 1,
+      transportMix: [],
+      runtimeMix: ['local/default'],
+    },
+    observability: {
+      instrumentedRuns: 0,
+      sinkProviders: [],
+    },
+    recommendation: {
+      backend: null,
+      runtimeClass: null,
+      reason: null,
+      nextAction: 'review-output',
+    },
   });
   assert.equal(payload.skills.length, 1);
   assert.equal(payload.refreshedAt, '2026-03-06T12:00:00.000Z');
