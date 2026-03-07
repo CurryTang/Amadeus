@@ -61,6 +61,22 @@ function getContractLabel(run = {}) {
   return contract.ok === false ? 'Validation failed' : '';
 }
 
+function getReadinessLabel(run = {}) {
+  const observability = run?.observability && typeof run.observability === 'object' ? run.observability : {};
+  const readiness = cleanString(observability?.statuses?.readiness).toLowerCase();
+  if (readiness === 'needs_attention') return 'Needs attention';
+  if (readiness === 'pending_outputs') return 'Pending outputs';
+  if (readiness === 'ready') return 'Ready';
+  return '';
+}
+
+function getWarningsLabel(run = {}) {
+  const observability = run?.observability && typeof run.observability === 'object' ? run.observability : {};
+  const warnings = Math.max(Number(observability?.counts?.warnings) || 0, 0);
+  if (warnings <= 0) return '';
+  return warnings === 1 ? '1 warning' : `${warnings} warnings`;
+}
+
 function buildRecentRunCards(runs = []) {
   if (!Array.isArray(runs)) return [];
   return [...runs]
@@ -85,6 +101,8 @@ function buildRecentRunCards(runs = []) {
         executionRuntimeLabel: getExecutionRuntimeLabel(run),
         snapshotLabel: getSnapshotLabel(run),
         contractLabel: getContractLabel(run),
+        readinessLabel: getReadinessLabel(run),
+        warningsLabel: getWarningsLabel(run),
         timestamp: formatTimestamp(run?.createdAt),
         raw: run,
       };

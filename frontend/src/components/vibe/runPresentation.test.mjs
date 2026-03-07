@@ -138,6 +138,42 @@ test('buildRecentRunCards surfaces contract-failure labels from normalized contr
   assert.equal(cards[1].contractLabel, '');
 });
 
+test('buildRecentRunCards surfaces observability readiness and warnings from normalized views', () => {
+  const cards = buildRecentRunCards([
+    {
+      id: 'run_obs',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T11:00:00.000Z',
+      metadata: {
+        prompt: 'Inspect observability summary',
+      },
+      observability: {
+        statuses: {
+          readiness: 'needs_attention',
+        },
+        counts: {
+          warnings: 2,
+        },
+      },
+    },
+    {
+      id: 'run_no_obs',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T10:00:00.000Z',
+      metadata: {
+        prompt: 'No observability summary',
+      },
+    },
+  ]);
+
+  assert.equal(cards[0].readinessLabel, 'Needs attention');
+  assert.equal(cards[0].warningsLabel, '2 warnings');
+  assert.equal(cards[1].readinessLabel, '');
+  assert.equal(cards[1].warningsLabel, '');
+});
+
 test('getRunSourceLabel falls back to linked entities when sourceType is absent', () => {
   assert.equal(getRunSourceLabel({ metadata: { treeNodeId: 'node_a' } }), 'Tree');
   assert.equal(getRunSourceLabel({ metadata: { todoId: 'todo_a' } }), 'TODO');
