@@ -3,7 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { startClientDaemon } = require('../client-daemon.service');
+const {
+  buildClientDaemonRuntimeView,
+  startClientDaemon,
+} = require('../client-daemon.service');
 
 test('startClientDaemon registers, executes a claimed task, and reports completion', async () => {
   const requests = [];
@@ -564,6 +567,83 @@ test('startClientDaemon executes bridge tasks via backend request metadata when 
         runId: 'run_123',
       },
     });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('startClientDaemon exposes runtime metadata for local observability', async () => {
+  const requests = [];
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    requests.push({
+      url: String(url),
+      method: options.method || 'GET',
+      body,
+    });
+
+    if (String(url).endsWith('/researchops/daemons/register')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ serverId: 'srv_client_runtime' }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/heartbeat')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/claim')) {
+      return {
+        ok: true,
+        status: 204,
+        headers: { get: () => '' },
+        text: async () => '',
+      };
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const daemon = startClientDaemon({
+      apiBaseUrl: 'http://127.0.0.1:3000/api',
+      hostname: 'client-host',
+      heartbeatMs: 5000,
+      pollMs: 1,
+      advertiseBridgeTasks: true,
+      logger: { log() {}, error() {} },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await daemon.stop();
+    await Promise.race([
+      daemon.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('daemon did not stop')), 800)),
+    ]);
+
+    assert.equal(daemon.advertiseBridgeTasks, true);
+    assert.equal(daemon.taskCatalogVersion, 'v0');
+    assert.deepEqual(daemon.supportedTaskTypes, [
+      'project.checkPath',
+      'project.ensurePath',
+      'project.ensureGit',
+      'bridge.fetchNodeContext',
+      'bridge.fetchContextPack',
+      'bridge.submitNodeRun',
+      'bridge.fetchRunReport',
+      'bridge.submitRunNote',
+    ]);
+    assert.equal(buildClientDaemonRuntimeView(daemon).supportsLocalBridgeWorkflow, true);
   } finally {
     global.fetch = originalFetch;
   }

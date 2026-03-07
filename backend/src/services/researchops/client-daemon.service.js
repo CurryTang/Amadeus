@@ -6,6 +6,7 @@ const {
   BUILT_IN_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  missingDaemonTaskTypes,
   normalizeDaemonTaskTypes,
 } = require('./daemon-task-descriptor.service');
 
@@ -46,6 +47,22 @@ function buildAdvertisedTaskTypes(handlers = {}, { advertiseBridgeTasks = false 
     ...(advertiseBridgeTasks ? OPTIONAL_BRIDGE_DAEMON_TASK_TYPES : []),
     ...Object.keys(asObject(handlers)),
   ]);
+}
+
+function buildClientDaemonRuntimeView(daemon = {}) {
+  const supportedTaskTypes = normalizeDaemonTaskTypes(daemon?.supportedTaskTypes);
+  const missingBridgeTaskTypes = missingDaemonTaskTypes(
+    { supportedTaskTypes },
+    OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  );
+  return {
+    enabled: daemon?.enabled === true,
+    advertiseBridgeTasks: daemon?.advertiseBridgeTasks === true,
+    taskCatalogVersion: cleanString(daemon?.taskCatalogVersion) || DAEMON_TASK_CATALOG_VERSION,
+    supportedTaskTypes,
+    supportsLocalBridgeWorkflow: missingBridgeTaskTypes.length === 0,
+    missingBridgeTaskTypes,
+  };
 }
 
 function buildDaemonApiPaths(registerResponse = {}) {
@@ -233,6 +250,9 @@ function startClientDaemon({
 
   return {
     enabled: true,
+    advertiseBridgeTasks,
+    supportedTaskTypes,
+    taskCatalogVersion: DAEMON_TASK_CATALOG_VERSION,
     promise: loopPromise,
     stop: async () => {
       stopped = true;
@@ -243,5 +263,6 @@ function startClientDaemon({
 }
 
 module.exports = {
+  buildClientDaemonRuntimeView,
   startClientDaemon,
 };

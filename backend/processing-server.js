@@ -27,7 +27,10 @@ const projectInsightsService = require('./src/services/project-insights.service'
 const paperTrackerService = require('./src/services/paper-tracker.service');
 const twitterPlaywrightTracker = require('./src/services/twitter-playwright-tracker.service');
 const agentSessionWatcher = require('./src/services/agent-session-watcher.service');
-const { startClientDaemon } = require('./src/services/researchops/client-daemon.service');
+const {
+  buildClientDaemonRuntimeView,
+  startClientDaemon,
+} = require('./src/services/researchops/client-daemon.service');
 
 const app = express();
 const PORT = process.env.PROCESSING_PORT || 3001;
@@ -75,6 +78,7 @@ app.get('/health', (req, res) => {
     service: 'Desktop Processing Server',
     timestamp: new Date().toISOString(),
     geminiCliAvailable: geminiCliService.isAvailable ? 'checking...' : false,
+    researchOpsClientDaemon: buildClientDaemonRuntimeView(clientDaemon),
   });
 });
 
