@@ -17,6 +17,9 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
         serverId: 'srv_remote_1',
         runType: 'EXPERIMENT',
         status: 'QUEUED',
+        outputContract: {
+          requiredArtifacts: ['metrics', 'table'],
+        },
         metadata: {
           treeNodeId: 'node_eval',
           treeNodeTitle: 'Evaluation branch',
@@ -38,6 +41,7 @@ test('buildBridgeTreeRunPayload exposes run semantics for bridge-submitted tree 
   assert.equal(payload.attempt.treeNodeId, 'node_eval');
   assert.equal(payload.execution.serverId, 'srv_remote_1');
   assert.equal(payload.followUp.parentRunId, 'run_base');
+  assert.deepEqual(payload.contract.requiredArtifacts, ['metrics', 'table']);
   assert.deepEqual(payload.contextPack, {
     generatedAt: '2026-03-06T12:00:00.000Z',
   });

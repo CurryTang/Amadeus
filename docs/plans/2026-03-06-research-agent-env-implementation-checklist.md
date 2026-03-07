@@ -72,5 +72,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - `bridge-context` capabilities now bubble up bridge-side contract failures directly, so local bridge clients can gate follow-up without reparsing the full report
   - `/runs/enqueue*` now normalizes top-level `outputContract` input before persistence, so required artifacts and summary rules follow the same contract semantics as read models
   - Plan/dashboard enqueue paths now also reuse the shared enqueue normalizer, so those side entrances no longer bypass execution and contract normalization
+  - Tree execution payloads (`run-step`, `run-all`, `bridge-run`) now expose the same `execution/followUp/contract` run views as `/runs/*`, instead of only attempt metadata
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility

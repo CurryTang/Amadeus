@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildAttemptViewFromRun } = require('./attempt-view.service');
+const { buildRunPayload } = require('./run-payload.service');
 
 function buildTreeRunStepPayload({
   projectId = '',
@@ -13,7 +13,11 @@ function buildTreeRunStepPayload({
     ...(result && typeof result === 'object' ? result : {}),
   };
   if (payload?.run && typeof payload.run === 'object') {
-    payload.attempt = buildAttemptViewFromRun(payload.run);
+    const runPayload = buildRunPayload({ run: payload.run });
+    payload.attempt = runPayload.attempt;
+    payload.execution = runPayload.execution;
+    payload.followUp = runPayload.followUp;
+    payload.contract = runPayload.contract;
   }
   return payload;
 }

@@ -20,6 +20,7 @@ function buildBridgeTreeRunPayload({
     payload.attempt = runPayload.attempt;
     payload.execution = runPayload.execution;
     payload.followUp = runPayload.followUp;
+    payload.contract = runPayload.contract;
   }
   return payload;
 }
