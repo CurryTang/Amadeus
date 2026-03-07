@@ -46,6 +46,7 @@ const {
   buildSchedulerRecoveryPayload,
   buildSchedulerStatusPayload,
 } = require('../../services/researchops/scheduler-payload.service');
+const { buildRunnerRunningPayload } = require('../../services/researchops/runner-status-payload.service');
 const { getDb } = require('../../db');
 const {
   buildResearchOpsSshArgs,
@@ -995,7 +996,9 @@ router.get('/scheduler/dispatcher/status', (req, res) => {
 });
 
 router.get('/runner/running', (req, res) => {
-  res.json({ items: researchOpsRunner.getRunningState() });
+  res.json(buildRunnerRunningPayload({
+    items: researchOpsRunner.getRunningState(),
+  }));
 });
 
 // ---------------------------------------------------------------------------

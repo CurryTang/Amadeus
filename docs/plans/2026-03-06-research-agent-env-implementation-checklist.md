@@ -125,3 +125,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Runner `running` and cluster `agent-capacity` responses now use normalized execution-status payloads with follow-up actions, and `backend/data.sqlite` is now ignored locally via `backend/.gitignore`
   - Monolith daemon register/heartbeat now reuse the same normalized daemon payloads as admin routes instead of returning a narrower ad-hoc subset
   - Project delete now uses a normalized payload with compatible `projectId/force/deleteStorage/summary` roots plus project-list follow-up actions across modular and monolith routes
+  - Dashboard aggregate and runs-router `runner/running` now use normalized payload services, so those remaining aggregate/status reads no longer depend on route-local wrappers

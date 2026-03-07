@@ -52,6 +52,7 @@ const {
   buildIdeaListPayload,
   buildIdeaPayload,
 } = require('../services/researchops/idea-payload.service');
+const { buildDashboardPayload } = require('../services/researchops/dashboard-payload.service');
 const {
   buildKnowledgeGroupDeletePayload,
   buildKnowledgeGroupListPayload,
@@ -3263,14 +3264,16 @@ router.get('/dashboard', async (req, res) => {
       researchOpsStore.listRuns(userId, { limit: itemLimit }),
       researchOpsStore.listSkills(userId),
     ]);
-    return res.json({
+    return res.json(buildDashboardPayload({
       projects,
       ideas,
       queue,
       runs,
-      skills: buildSkillListPayload({ items: skills }).items,
+      skills,
+      projectLimit,
+      itemLimit,
       refreshedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] dashboard failed:', error);
     return res.status(500).json({ error: 'Failed to load dashboard data' });
