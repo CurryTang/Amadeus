@@ -110,3 +110,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Dashboard plan generate/enqueue responses now use a normalized payload family with compatible `plan` roots plus run follow-up views/actions, so that planning flow no longer depends on raw `{ plan }` / `{ plan, run }` wrappers
   - Skill sync/content responses now use normalized payloads with compatible roots plus follow-up actions, so dashboard skill editing no longer depends on raw sync/content wrappers
   - KB search responses now use a normalized payload with compatible `source/items` roots plus request metadata and action descriptors, so dashboard KB search no longer depends on raw proxy/fallback wrappers
+  - Project file search responses now use a normalized payload with compatible `items` roots plus scope/query metadata and search actions, so current project/kb search consumers no longer depend on raw `{ projectId, rootMode, items }` wrappers

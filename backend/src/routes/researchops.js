@@ -81,6 +81,7 @@ const {
   buildProjectPayload,
   buildProjectListPayload,
 } = require('../services/researchops/project-location.service');
+const { buildProjectFileSearchPayload } = require('../services/researchops/project-file-search-payload.service');
 const { buildNodeBridgeView } = require('../services/researchops/node-bridge-view.service');
 const { normalizeEnqueueRunPayload } = require('../services/researchops/enqueue-run-payload.service');
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
@@ -4497,10 +4498,18 @@ router.get('/projects/:projectId/files/search', async (req, res) => {
     const projectId = String(req.params.projectId || '').trim();
     const query = String(req.query.q || req.query.query || '').trim();
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-    if (!query) return res.json({ items: [] });
-    const limit = parseLimit(req.query.limit, 20, 100);
-    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
     const scope = String(req.query.scope || 'project').trim().toLowerCase();
+    const limit = parseLimit(req.query.limit, 20, 100);
+    if (!query) {
+      return res.json(buildProjectFileSearchPayload({
+        projectId,
+        scope,
+        query,
+        limit,
+        items: [],
+      }));
+    }
+    const { project, server } = await resolveProjectContext(getUserId(req), projectId);
     const kbRootPath = String(project.kbFolderPath || '').trim()
       || `${String(project.projectPath || '').replace(/\/+$/, '')}/resource`;
     const browseRoot = scope === 'kb'
@@ -4512,11 +4521,14 @@ router.get('/projects/:projectId/files/search', async (req, res) => {
     const items = project.locationType === 'ssh'
       ? await searchSshProjectFiles(server, browseRoot.rootPath, query, limit)
       : await searchLocalProjectFiles(browseRoot.rootPath, query, limit);
-    return res.json({
+    return res.json(buildProjectFileSearchPayload({
       projectId: project.id,
+      scope,
+      query,
+      limit,
       rootMode: browseRoot.rootMode,
       items,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
