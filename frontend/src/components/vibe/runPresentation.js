@@ -130,10 +130,12 @@ function buildRecentRunReviewSummary(runs = []) {
   let contractFailureCount = 0;
   let remoteExecutionCount = 0;
   let snapshotBackedCount = 0;
+  let instrumentedCount = 0;
   items.forEach((run) => {
     const status = cleanString(run?.status).toUpperCase();
     const execution = run?.execution && typeof run.execution === 'object' ? run.execution : {};
     const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+    const observability = run?.observability && typeof run.observability === 'object' ? run.observability : {};
     const workspaceSnapshot = run?.workspaceSnapshot && typeof run.workspaceSnapshot === 'object'
       ? run.workspaceSnapshot
       : {};
@@ -161,6 +163,9 @@ function buildRecentRunReviewSummary(runs = []) {
     if (cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)) {
       snapshotBackedCount += 1;
     }
+    if (Array.isArray(observability.sinkProviders) && observability.sinkProviders.some((item) => cleanString(item))) {
+      instrumentedCount += 1;
+    }
   });
   let status = 'idle';
   if (attentionCount > 0) {
@@ -180,6 +185,7 @@ function buildRecentRunReviewSummary(runs = []) {
     contractFailureCount,
     remoteExecutionCount,
     snapshotBackedCount,
+    instrumentedCount,
     status,
   };
 }
