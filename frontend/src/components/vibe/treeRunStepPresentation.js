@@ -7,6 +7,16 @@ function pluralize(count = 0, singular = '', plural = '') {
   return value === 1 ? `1 ${singular}` : `${value} ${plural || `${singular}s`}`;
 }
 
+function formatIsolationTier(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'none') return 'host-native';
+  if (normalized === 'lite') return 'lite isolation';
+  if (normalized === 'standard') return 'standard isolation';
+  if (normalized === 'guarded') return 'guarded isolation';
+  if (normalized === 'strong') return 'strong isolation';
+  return '';
+}
+
 function buildTreeRunStepMessage(payload = {}) {
   const mode = cleanString(payload?.mode).toLowerCase();
   const nodeId = cleanString(payload?.nodeId);
@@ -19,6 +29,9 @@ function buildTreeRunStepMessage(payload = {}) {
     const execution = payload?.runPreview?.execution && typeof payload.runPreview.execution === 'object'
       ? payload.runPreview.execution
       : {};
+    const runtimeProfile = execution?.runtimeProfile && typeof execution.runtimeProfile === 'object'
+      ? execution.runtimeProfile
+      : {};
     const contract = payload?.runPreview?.contract && typeof payload.runPreview.contract === 'object'
       ? payload.runPreview.contract
       : {};
@@ -29,6 +42,7 @@ function buildTreeRunStepMessage(payload = {}) {
       ? workspaceSnapshot.localSnapshot
       : {};
     const runtimeBits = [cleanString(execution.backend), cleanString(execution.runtimeClass)].filter(Boolean);
+    const isolationTier = formatIsolationTier(runtimeProfile.isolationTier);
     const requiredArtifacts = Array.isArray(contract.requiredArtifacts)
       ? contract.requiredArtifacts.filter((item) => cleanString(item))
       : [];
@@ -38,6 +52,9 @@ function buildTreeRunStepMessage(payload = {}) {
       message = `Preflight ready for ${nodeId} with ${pluralize(commands, 'command')}`;
       if (runtimeBits.length > 0) {
         message += ` on ${runtimeBits.join('/')}`;
+        if (isolationTier) {
+          message += ` (${isolationTier})`;
+        }
       }
       if (requiredArtifacts.length > 0) {
         message += `; ${pluralize(requiredArtifacts.length, 'required artifact')}`;

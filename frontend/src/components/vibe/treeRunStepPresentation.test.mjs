@@ -43,13 +43,16 @@ test('buildTreeRunStepMessage includes normalized preflight runtime and contract
         execution: {
           backend: 'container',
           runtimeClass: 'container-fast',
+          runtimeProfile: {
+            isolationTier: 'guarded',
+          },
         },
         contract: {
           requiredArtifacts: ['metrics', 'table'],
         },
       },
     }),
-    'Preflight ready for node_eval with 2 commands on container/container-fast; 2 required artifacts.'
+    'Preflight ready for node_eval with 2 commands on container/container-fast (guarded isolation); 2 required artifacts.'
   );
 });
 
@@ -63,6 +66,9 @@ test('buildTreeRunStepMessage includes snapshot-backed hints for preflight runs'
         execution: {
           backend: 'container',
           runtimeClass: 'container-fast',
+          runtimeProfile: {
+            isolationTier: 'standard',
+          },
         },
         workspaceSnapshot: {
           localSnapshot: {
@@ -71,6 +77,6 @@ test('buildTreeRunStepMessage includes snapshot-backed hints for preflight runs'
         },
       },
     }),
-    'Preflight ready for node_eval with 1 command on container/container-fast; snapshot-backed.'
+    'Preflight ready for node_eval with 1 command on container/container-fast (standard isolation); snapshot-backed.'
   );
 });
