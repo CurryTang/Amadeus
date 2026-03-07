@@ -129,3 +129,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Project TODO `next-actions` and `clear` now use normalized payloads with compatible roots plus follow-up actions across modular and monolith routes
   - Tree `root-node`, tree plan save, and tree state now use normalized payload services with compatible roots plus follow-up actions across modular and monolith routes
   - Tree queue pause/resume/abort plus search read/promote now use normalized payload services with compatible roots plus follow-up actions across modular and monolith routes
+  - Tree `jumpstart` now uses a normalized payload with compatible roots plus follow-up actions on the modular route, matching the current architecture where this endpoint is not exposed in the monolith router

@@ -55,6 +55,7 @@ const {
   buildTreeSearchPayload,
   buildTreeSearchPromotionPayload,
 } = require('../../services/researchops/tree-control-search-payload.service');
+const { buildTreeJumpstartPayload } = require('../../services/researchops/tree-jumpstart-payload.service');
 const { buildBridgeTreeRunPayload } = require('../../services/researchops/bridge-tree-run-payload.service');
 const {
   readBridgeContextOptions,
@@ -6703,7 +6704,7 @@ router.post('/projects/:projectId/tree/jumpstart', async (req, res) => {
         autoRunError = toErrorPayload(runError, 'Failed to auto-run environment bootstrap');
       }
     }
-    return res.json({
+    return res.json(buildTreeJumpstartPayload({
       projectId: project.id,
       projectMode: built.projectMode,
       nodes: built.nodes,
@@ -6712,7 +6713,7 @@ router.post('/projects/:projectId/tree/jumpstart', async (req, res) => {
       autoRun,
       autoRunError,
       updatedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to create jumpstart node'));
   }
