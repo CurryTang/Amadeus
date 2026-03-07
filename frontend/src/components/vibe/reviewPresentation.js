@@ -84,6 +84,14 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
   const warningCount = Math.max(Number(observability?.counts?.warnings) || 0, 0);
   const sinkProviders = formatSinkProviders(observability?.sinkProviders);
   const resolvedTransport = cleanString(effectiveRunReport?.resolvedTransport || bridgeReport?.resolvedTransport);
+  const workspaceSnapshot = effectiveRunReport?.workspaceSnapshot && typeof effectiveRunReport.workspaceSnapshot === 'object'
+    ? effectiveRunReport.workspaceSnapshot
+    : (bridgeReport?.report?.workspaceSnapshot && typeof bridgeReport.report.workspaceSnapshot === 'object'
+      ? bridgeReport.report.workspaceSnapshot
+      : {});
+  const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
+    ? workspaceSnapshot.localSnapshot
+    : {};
   if (readiness === 'ready') {
     rows.push({
       label: 'Readiness',
@@ -110,6 +118,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     rows.push({
       label: 'Sinks',
       value: sinkProviders,
+    });
+  }
+  if (cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)) {
+    rows.push({
+      label: 'Snapshot',
+      value: 'Snapshot-backed',
     });
   }
   if (resolvedTransport) {

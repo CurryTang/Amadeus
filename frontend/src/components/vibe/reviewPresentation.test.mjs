@@ -179,6 +179,11 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
       contract: {
         ok: false,
       },
+      workspaceSnapshot: {
+        localSnapshot: {
+          kind: 'workspace_patch',
+        },
+      },
       highlights: {
         deliverableArtifactIds: ['art_summary'],
       },
@@ -200,6 +205,7 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     { label: 'Readiness', value: 'Needs attention' },
     { label: 'Warnings', value: '2 warnings' },
     { label: 'Sinks', value: 'wandb, tensorboard' },
+    { label: 'Snapshot', value: 'Snapshot-backed' },
     { label: 'Transport', value: 'daemon-task' },
   ]);
 });
@@ -219,6 +225,11 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
         supportsLocalBridgeWorkflow: true,
       },
       report: {
+        workspaceSnapshot: {
+          localSnapshot: {
+            kind: 'git_diff',
+          },
+        },
         checkpoints: [
           { id: 'cp_pending', status: 'PENDING' },
           { id: 'cp_done', status: 'APPROVED' },
@@ -245,6 +256,7 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     { label: 'Contract', value: 'Validated' },
     { label: 'Readiness', value: 'Ready' },
     { label: 'Sinks', value: 'wandb' },
+    { label: 'Snapshot', value: 'Snapshot-backed' },
     { label: 'Transport', value: 'rust-daemon' },
     { label: 'Bridge', value: 'Local bridge ready' },
   ]);
