@@ -28,6 +28,12 @@ function VibeActivityFeedStrip({
   if (reviewSummary && Number(reviewSummary.contractFailureCount) > 0) {
     reviewBits.push(`${Number(reviewSummary.contractFailureCount)} contract failures`);
   }
+  if (reviewSummary && Number(reviewSummary.remoteExecutionCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.remoteExecutionCount)} remote`);
+  }
+  if (reviewSummary && Number(reviewSummary.snapshotBackedCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.snapshotBackedCount)} snapshot-backed`);
+  }
   if (reviewSummary && Number(reviewSummary.failedCount) > 0) {
     reviewBits.push(`${Number(reviewSummary.failedCount)} failed`);
   }

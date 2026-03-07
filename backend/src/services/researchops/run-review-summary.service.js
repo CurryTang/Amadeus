@@ -8,6 +8,10 @@ function normalizeStatus(value = '') {
   return cleanString(value).toUpperCase();
 }
 
+function readObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
 function buildRunReviewSummary(runs = []) {
   const items = Array.isArray(runs) ? runs : [];
   let activeCount = 0;
@@ -16,9 +20,15 @@ function buildRunReviewSummary(runs = []) {
   let failedCount = 0;
   let cancelledCount = 0;
   let contractFailureCount = 0;
+  let remoteExecutionCount = 0;
+  let snapshotBackedCount = 0;
 
   items.forEach((run) => {
     const status = normalizeStatus(run?.status);
+    const execution = readObject(run?.execution);
+    const metadata = readObject(run?.metadata);
+    const workspaceSnapshot = readObject(run?.workspaceSnapshot);
+    const localSnapshot = readObject(workspaceSnapshot.localSnapshot || metadata.localSnapshot);
     if (['RUNNING', 'QUEUED', 'PENDING'].includes(status)) {
       activeCount += 1;
     } else if (status === 'SUCCEEDED') {
@@ -35,6 +45,12 @@ function buildRunReviewSummary(runs = []) {
       if (!['FAILED', 'CANCELLED'].includes(status)) {
         attentionCount += 1;
       }
+    }
+    if (cleanString(execution.location) === 'remote' || cleanString(run?.serverId) && cleanString(run?.serverId) !== 'local-default') {
+      remoteExecutionCount += 1;
+    }
+    if (cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)) {
+      snapshotBackedCount += 1;
     }
   });
 
@@ -55,6 +71,8 @@ function buildRunReviewSummary(runs = []) {
     failedCount,
     cancelledCount,
     contractFailureCount,
+    remoteExecutionCount,
+    snapshotBackedCount,
     status,
   };
 }

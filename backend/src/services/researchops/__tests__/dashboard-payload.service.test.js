@@ -10,7 +10,10 @@ test('buildDashboardPayload preserves aggregate roots and exposes dashboard acti
     projects: [{ id: 'proj_1', name: 'Project 1' }],
     ideas: [{ id: 'idea_1', title: 'Idea 1' }],
     queue: [{ id: 'run_queued_1', runId: 'run_queued_1' }],
-    runs: [{ id: 'run_1', status: 'RUNNING' }, { id: 'run_2', status: 'FAILED' }],
+    runs: [
+      { id: 'run_1', status: 'RUNNING', serverId: 'srv_remote_1', metadata: { localSnapshot: { kind: 'workspace_patch' } } },
+      { id: 'run_2', status: 'FAILED' },
+    ],
     skills: [{ id: 'skill_1', name: 'skill-one' }],
     projectLimit: 80,
     itemLimit: 120,
@@ -30,6 +33,8 @@ test('buildDashboardPayload preserves aggregate roots and exposes dashboard acti
     failedCount: 1,
     cancelledCount: 0,
     contractFailureCount: 0,
+    remoteExecutionCount: 1,
+    snapshotBackedCount: 1,
     status: 'needs_attention',
   });
   assert.equal(payload.skills.length, 1);
