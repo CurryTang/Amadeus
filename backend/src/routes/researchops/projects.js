@@ -98,6 +98,10 @@ const {
 } = require('../../services/researchops/knowledge-asset-payload.service');
 const { buildProjectFileSearchPayload } = require('../../services/researchops/project-file-search-payload.service');
 const {
+  buildProjectGitRestorePayload,
+  buildProjectKbSetupPayload,
+} = require('../../services/researchops/project-control-payload.service');
+const {
   buildKbSyncJobPayload,
   buildKbSyncJobAcceptedPayload,
 } = require('../../services/researchops/kb-sync-job-payload.service');
@@ -4144,12 +4148,12 @@ router.post('/projects/:projectId/kb/setup-from-resource', async (req, res) => {
       project.id,
       inspection.resourcePath
     );
-    return res.json({
-      success: true,
+    return res.json(buildProjectKbSetupPayload({
+      projectId,
       message: 'resource/ folder validated and linked as project KB',
       inspection,
       project: updatedProject,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
@@ -5023,7 +5027,12 @@ router.post('/projects/:projectId/git/restore', async (req, res) => {
       return res.status(400).json({ error: `git checkout failed: ${String(gitErr.message || gitErr).slice(0, 200)}` });
     }
 
-    return res.json({ ok: true, branch, commit: resolvedCommit, runId });
+    return res.json(buildProjectGitRestorePayload({
+      projectId,
+      runId,
+      branch,
+      commit: resolvedCommit,
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     console.error('[ResearchOps] git/restore failed:', error);

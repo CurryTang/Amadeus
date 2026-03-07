@@ -37,6 +37,7 @@ const {
   buildProjectRunClearPayload,
   buildRunEventMutationPayload,
 } = require('../../services/researchops/run-mutation-payload.service');
+const { buildHorizonCancelPayload } = require('../../services/researchops/horizon-payload.service');
 const {
   buildSchedulerLeasePayload,
   buildSchedulerRecoveryPayload,
@@ -1097,7 +1098,11 @@ router.post('/runs/:runId/horizon-cancel', async (req, res) => {
       } catch (_) {}
     }
 
-    return res.json({ ok: true, session, message: `Killed tmux session '${session}'` });
+    return res.json(buildHorizonCancelPayload({
+      runId,
+      session,
+      message: `Killed tmux session '${session}'`,
+    }));
   } catch (error) {
     console.error('[ResearchOps] horizon-cancel failed:', error);
     return res.status(500).json({ error: 'Failed to cancel horizon session' });

@@ -70,6 +70,7 @@ const {
   buildKnowledgeGroupAssetsPayload,
   buildKnowledgeGroupAssetMutationPayload,
 } = require('../services/researchops/knowledge-asset-payload.service');
+const { buildHorizonCancelPayload } = require('../services/researchops/horizon-payload.service');
 const {
   buildSkillListPayload,
   buildSkillSyncPayload,
@@ -85,6 +86,10 @@ const {
   buildProjectListPayload,
 } = require('../services/researchops/project-location.service');
 const { buildProjectPathCheckPayload } = require('../services/researchops/project-path-check-payload.service');
+const {
+  buildProjectGitRestorePayload,
+  buildProjectKbSetupPayload,
+} = require('../services/researchops/project-control-payload.service');
 const {
   buildKbSyncJobPayload,
   buildKbSyncJobAcceptedPayload,
@@ -4151,12 +4156,12 @@ router.post('/projects/:projectId/kb/setup-from-resource', async (req, res) => {
       project.id,
       inspection.resourcePath
     );
-    return res.json({
-      success: true,
+    return res.json(buildProjectKbSetupPayload({
+      projectId,
       message: 'resource/ folder validated and linked as project KB',
       inspection,
       project: updatedProject,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
@@ -5316,7 +5321,12 @@ router.post('/projects/:projectId/git/restore', requireAuth, async (req, res) =>
       return res.status(400).json({ error: `git checkout failed: ${String(gitErr.message || gitErr).slice(0, 200)}` });
     }
 
-    return res.json({ ok: true, branch, commit: resolvedCommit, runId });
+    return res.json(buildProjectGitRestorePayload({
+      projectId,
+      runId,
+      branch,
+      commit: resolvedCommit,
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     console.error('[ResearchOps] git/restore failed:', error);
@@ -8118,7 +8128,11 @@ router.post('/runs/:runId/horizon-cancel', requireAuth, async (req, res) => {
       } catch (_) {}
     }
 
-    return res.json({ ok: true, session, message: `Killed tmux session '${session}'` });
+    return res.json(buildHorizonCancelPayload({
+      runId,
+      session,
+      message: `Killed tmux session '${session}'`,
+    }));
   } catch (error) {
     console.error('[ResearchOps] horizon-cancel failed:', error);
     return res.status(500).json({ error: 'Failed to cancel horizon session' });
