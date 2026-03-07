@@ -102,3 +102,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Scheduler queue responses now use a normalized queue payload built from enriched run-list items, and dashboard queue aggregation now reuses the same normalizer instead of mixing raw queued-run shapes
   - Idea list/detail/create/update responses now use normalized idea payloads with compatible top-level idea items plus follow-up action descriptors, and dashboard idea aggregation now reuses the same normalizer
   - Skill list responses now use a normalized payload with content-edit action descriptors, and dashboard skill aggregation now reuses the same normalizer instead of raw merged skill items
+  - Tree plan read/validate/patch/impact-preview responses now use a normalized plan payload family with consistent follow-up action descriptors while preserving the existing `plan`, `validation`, and `impact` roots used by the workbench

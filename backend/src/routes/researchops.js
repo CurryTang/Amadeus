@@ -84,6 +84,12 @@ const {
 } = require('../services/researchops/bridge-route-options.service');
 const { buildRunReportPayload } = require('../services/researchops/run-report-payload.service');
 const { buildRunTreePayload } = require('../services/researchops/run-tree-payload.service');
+const {
+  buildTreePlanImpactPayload,
+  buildTreePlanPatchPayload,
+  buildTreePlanPayload,
+  buildTreePlanValidationPayload,
+} = require('../services/researchops/tree-plan-payload.service');
 const { buildTreeRunStepPayload } = require('../services/researchops/tree-run-step-payload.service');
 const { buildQueueListPayload } = require('../services/researchops/queue-payload.service');
 const {
@@ -7053,7 +7059,7 @@ router.get('/projects/:projectId/tree/plan', async (req, res) => {
       degraded = degraded || rooted.degraded || null;
     }
 
-    return res.json({
+    return res.json(buildTreePlanPayload({
       projectId: project.id,
       plan,
       validation,
@@ -7061,7 +7067,7 @@ router.get('/projects/:projectId/tree/plan', async (req, res) => {
       rootSummary,
       degraded,
       refreshedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
@@ -7144,11 +7150,12 @@ router.post('/projects/:projectId/tree/plan/validate', async (req, res) => {
       return res.status(400).json({ error: 'plan payload is required' });
     }
     const validated = treePlanService.validateProjectPlan(inputPlan);
-    return res.json({
+    return res.json(buildTreePlanValidationPayload({
+      projectId: String(req.params.projectId || '').trim(),
       plan: validated.plan,
       validation: validated.validation,
       valid: Boolean(validated.validation?.valid),
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to validate plan'));
   }
@@ -7169,14 +7176,14 @@ router.post('/projects/:projectId/tree/plan/patches', async (req, res) => {
       patches,
       state,
     });
-    return res.json({
+    return res.json(buildTreePlanPatchPayload({
       projectId: project.id,
       plan: result.plan,
       validation: result.validation,
       impact: result.impact,
       applied: result.applied,
       updatedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     if (error.code === 'PLAN_PATCH_CONFLICT') {
       return res.status(409).json({
@@ -7207,13 +7214,13 @@ router.post('/projects/:projectId/tree/plan/impact-preview', async (req, res) =>
       patches,
       state,
     });
-    return res.json({
+    return res.json(buildTreePlanImpactPayload({
       projectId,
       validation: result.validation,
       impact: result.impact,
       applied: result.applied,
       previewPlan: result.plan,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PLAN_PATCH_CONFLICT') {
       return res.status(409).json({
