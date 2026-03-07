@@ -9,6 +9,11 @@ const {
   buildKnowledgeGroupListPayload,
   buildKnowledgeGroupPayload,
 } = require('../../services/researchops/knowledge-group-payload.service');
+const {
+  buildKnowledgeAssetListPayload,
+  buildKnowledgeAssetPayload,
+  buildKnowledgeGroupAssetsPayload,
+} = require('../../services/researchops/knowledge-asset-payload.service');
 const { parseLimit, parseOffset, getUserId, sanitizeError, parseMaybeJson } = require('./shared');
 
 const knowledgeAssetUpload = multer({
@@ -120,16 +125,32 @@ router.delete('/knowledge-groups/:groupId/documents/:documentId', async (req, re
 // Knowledge assets (insights/files/notes/reports + document-backed assets)
 router.get('/knowledge/assets', async (req, res) => {
   try {
+    const limit = parseLimit(req.query.limit, 20, 200);
+    const offset = parseOffset(req.query.offset, 0, 100000);
+    const q = String(req.query.q || '').trim();
+    const assetType = String(req.query.assetType || '').trim();
+    const provider = String(req.query.provider || '').trim();
+    const groupId = req.query.groupId ? Number(req.query.groupId) : null;
+    const includeBody = req.query.includeBody === 'true';
     const result = await knowledgeAssetsService.listKnowledgeAssets(getUserId(req), {
-      limit: parseLimit(req.query.limit, 20, 200),
-      offset: parseOffset(req.query.offset, 0, 100000),
-      q: String(req.query.q || '').trim(),
-      assetType: String(req.query.assetType || '').trim(),
-      provider: String(req.query.provider || '').trim(),
-      groupId: req.query.groupId ? Number(req.query.groupId) : null,
-      includeBody: req.query.includeBody === 'true',
+      limit,
+      offset,
+      q,
+      assetType,
+      provider,
+      groupId,
+      includeBody,
     });
-    return res.json(result);
+    return res.json(buildKnowledgeAssetListPayload({
+      items: result.items,
+      limit,
+      offset,
+      q,
+      assetType,
+      provider,
+      groupId,
+      includeBody,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listKnowledgeAssets failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to list knowledge assets') });
@@ -139,7 +160,7 @@ router.get('/knowledge/assets', async (req, res) => {
 router.post('/knowledge/assets', async (req, res) => {
   try {
     const asset = await knowledgeAssetsService.createKnowledgeAsset(getUserId(req), req.body || {});
-    return res.status(201).json({ asset });
+    return res.status(201).json(buildKnowledgeAssetPayload({ asset }));
   } catch (error) {
     console.error('[ResearchOps] createKnowledgeAsset failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to create knowledge asset') });
@@ -173,7 +194,7 @@ router.post('/knowledge/assets/upload', knowledgeAssetUpload.single('file'), asy
       },
       req.file
     );
-    return res.status(201).json({ asset });
+    return res.status(201).json(buildKnowledgeAssetPayload({ asset }));
   } catch (error) {
     console.error('[ResearchOps] uploadKnowledgeAsset failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to upload knowledge asset') });
@@ -186,7 +207,7 @@ router.get('/knowledge/assets/:assetId', async (req, res) => {
       includeBody: true,
     });
     if (!asset) return res.status(404).json({ error: 'Knowledge asset not found' });
-    return res.json({ asset });
+    return res.json(buildKnowledgeAssetPayload({ asset }));
   } catch (error) {
     console.error('[ResearchOps] getKnowledgeAsset failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch knowledge asset') });
@@ -197,7 +218,7 @@ router.patch('/knowledge/assets/:assetId', async (req, res) => {
   try {
     const asset = await knowledgeAssetsService.updateKnowledgeAsset(getUserId(req), req.params.assetId, req.body || {});
     if (!asset) return res.status(404).json({ error: 'Knowledge asset not found' });
-    return res.json({ asset });
+    return res.json(buildKnowledgeAssetPayload({ asset }));
   } catch (error) {
     console.error('[ResearchOps] updateKnowledgeAsset failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update knowledge asset') });
@@ -217,17 +238,28 @@ router.delete('/knowledge/assets/:assetId', async (req, res) => {
 
 router.get('/knowledge/groups/:groupId/assets', async (req, res) => {
   try {
+    const limit = parseLimit(req.query.limit, 20, 200);
+    const offset = parseOffset(req.query.offset, 0, 100000);
+    const q = String(req.query.q || '').trim();
+    const includeBody = req.query.includeBody === 'true';
     const result = await knowledgeAssetsService.listKnowledgeGroupAssets(
       getUserId(req),
       req.params.groupId,
       {
-        limit: parseLimit(req.query.limit, 20, 200),
-        offset: parseOffset(req.query.offset, 0, 100000),
-        q: String(req.query.q || '').trim(),
-        includeBody: req.query.includeBody === 'true',
+        limit,
+        offset,
+        q,
+        includeBody,
       }
     );
-    return res.json(result);
+    return res.json(buildKnowledgeGroupAssetsPayload({
+      groupId: req.params.groupId,
+      items: result.items,
+      limit,
+      offset,
+      q,
+      includeBody,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listKnowledgeGroupAssets failed:', error);
     if (error.code === 'GROUP_NOT_FOUND') return res.status(404).json({ error: 'Knowledge group not found' });
