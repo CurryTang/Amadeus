@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './treeExecutionSummary.js';
+import { getTreeNodeKindLabel, hasManualGate, isObservedTreeNode, isSearchTreeNode } from './treeNodePresentation.js';
 
 const EXECUTED_STATUSES = new Set(['RUNNING', 'PASSED', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'STALE']);
 
@@ -305,13 +306,11 @@ function VibeTreeCanvas({
             const nodeState = treeState?.nodes?.[node.id] || {};
             const executed = EXECUTED_STATUSES.has(status);
             const isSelected = node.id === selectedNodeId;
-            const isObserved = cleanString(node.kind).toLowerCase() === 'observed_agent';
+            const isObserved = isObservedTreeNode(node);
             const hasTarget = Array.isArray(node.target) && node.target.length > 0;
             const commandCount = Array.isArray(node.commands) ? node.commands.length : 0;
             const checkCount = Array.isArray(node.checks) ? node.checks.length : 0;
-            const kindLabel = isObserved
-              ? 'OBSERVED'
-              : cleanString(node.kind || 'topic').slice(0, 16).toUpperCase();
+            const kindLabel = getTreeNodeKindLabel(node);
             const nextAction = getPrimaryTreeAction(node, nodeState);
 
             return (
@@ -379,10 +378,9 @@ function VibeTreeCanvas({
               <>
                 {(() => {
                   const nodeState = treeState?.nodes?.[selectedNode.id] || {};
-                  const hasManualGate = Array.isArray(selectedNode.checks)
-                    && selectedNode.checks.some((c) => c?.type === 'manual_approve');
+                  const hasNodeManualGate = hasManualGate(selectedNode);
                   const gateApproved = Boolean(nodeState.manualApproved);
-                  return hasManualGate && !gateApproved ? (
+                  return hasNodeManualGate && !gateApproved ? (
                     <button
                       type="button"
                       style={{ background: 'var(--vibe-warn, #f59e0b)', color: '#fff' }}
@@ -397,7 +395,7 @@ function VibeTreeCanvas({
                 <button type="button" onClick={() => onNodeAction?.('run_step_force', selectedNode)}>Force</button>
                 <button type="button" onClick={() => onNodeAction?.('rerun', selectedNode)}>Rerun</button>
                 <button type="button" onClick={() => onNodeAction?.('create_patch_node', selectedNode)}>Create Patch Node</button>
-                {selectedNode.kind === 'search' && (
+                {isSearchTreeNode(selectedNode) && (
                   <button type="button" onClick={() => onNodeAction?.('promote', selectedNode)}>Promote</button>
                 )}
                 <button type="button" onClick={() => onNodeAction?.('continue_from', selectedNode)}>Continue From</button>

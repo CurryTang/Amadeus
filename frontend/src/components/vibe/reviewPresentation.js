@@ -1,15 +1,12 @@
+import { hasManualGate } from './treeNodePresentation.js';
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function hasManualApproval(node = {}) {
-  return Array.isArray(node?.checks)
-    && node.checks.some((item) => cleanString(item?.type).toLowerCase() === 'manual_approve');
-}
-
 function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}) {
   const rows = [];
-  if (hasManualApproval(node)) {
+  if (hasManualGate(node)) {
     rows.push({
       label: 'Gate',
       value: nodeState?.manualApproved ? 'Approved' : 'Awaiting manual approval',

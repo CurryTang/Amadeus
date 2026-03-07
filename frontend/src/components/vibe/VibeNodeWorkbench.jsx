@@ -4,6 +4,7 @@ import EmptyState from '../ui/EmptyState';
 import ClarificationChat from './ClarificationChat';
 import { buildContextPackSummary } from './contextPackPresentation.js';
 import { buildNodeReviewSummary } from './reviewPresentation.js';
+import { getTreeNodeKindLabel, isObservedTreeNode, isSearchTreeNode } from './treeNodePresentation.js';
 
 const TABS = ['summary', 'commands', 'diff', 'outputs', 'deliverables', 'notes'];
 
@@ -69,7 +70,8 @@ function VibeNodeWorkbench({
   const [clarifySkipped, setClarifySkipped] = useState(false);
   const [running, setRunning] = useState(false);
 
-  const isObservedNode = cleanString(node?.kind).toLowerCase() === 'observed_agent';
+  const isObservedNode = isObservedTreeNode(node);
+  const isSearchNode = isSearchTreeNode(node);
   const status = cleanString(nodeState?.status).toUpperCase() || 'PLANNED';
   const editable = !isObservedNode && ['PLANNED', 'BLOCKED'].includes(status) && mode !== 'view';
   const canRun = !isObservedNode && ['PLANNED', 'BLOCKED'].includes(status) && !!onRunStep && mode !== 'view';
@@ -213,7 +215,7 @@ function VibeNodeWorkbench({
       <header className="vibe-node-workbench-head">
         <div>
           <h3>{node.title || node.id}</h3>
-          <p className="vibe-card-note">{node.kind || 'experiment'} · {status}</p>
+          <p className="vibe-card-note">{getTreeNodeKindLabel(node).toLowerCase()} · {status}</p>
         </div>
         {isObservedNode && (
           <button
@@ -225,7 +227,7 @@ function VibeNodeWorkbench({
             {observedSessionRefreshing ? 'Refreshing…' : 'Refresh Session'}
           </button>
         )}
-        {!isObservedNode && node.kind === 'search' && (
+        {!isObservedNode && isSearchNode && (
           <button
             type="button"
             className="vibe-secondary-btn"
@@ -366,7 +368,7 @@ function VibeNodeWorkbench({
             )}
           </article>
 
-          {node.kind === 'search' && (
+          {isSearchNode && (
             <article>
               <h4>Search Leaderboard</h4>
               {!searchData || !Array.isArray(searchData.trials) || searchData.trials.length === 0 ? (

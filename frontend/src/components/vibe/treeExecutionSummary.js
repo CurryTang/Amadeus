@@ -1,13 +1,11 @@
+import { hasManualGate } from './treeNodePresentation.js';
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 function normalizeStatus(status = '') {
   return cleanString(status).toUpperCase() || 'PLANNED';
-}
-
-function hasManualApproval(node = {}) {
-  return Array.isArray(node?.checks) && node.checks.some((item) => cleanString(item?.type).toLowerCase() === 'manual_approve');
 }
 
 function buildTreeExecutionSummary(plan = {}, treeState = {}) {
@@ -30,7 +28,7 @@ function buildTreeExecutionSummary(plan = {}, treeState = {}) {
     }
     if (
       status === 'BLOCKED'
-      || (hasManualApproval(node) && !nodeState?.manualApproved)
+      || (hasManualGate(node) && !nodeState?.manualApproved)
     ) {
       summary.needsReview += 1;
     }
@@ -45,7 +43,7 @@ function buildTreeExecutionSummary(plan = {}, treeState = {}) {
 
 function getPrimaryTreeAction(node = {}, nodeState = {}) {
   const status = normalizeStatus(nodeState?.status);
-  if (hasManualApproval(node) && !nodeState?.manualApproved) return 'Approve';
+  if (hasManualGate(node) && !nodeState?.manualApproved) return 'Approve';
   if (status === 'FAILED' && cleanString(nodeState?.lastRunId)) return 'Resume';
   if (status === 'RUNNING' || status === 'QUEUED' || cleanString(nodeState?.lastRunId)) return 'View Run';
   return 'Start';
