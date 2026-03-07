@@ -24,6 +24,12 @@ function formatContractStatus(value = '') {
   return '';
 }
 
+function formatContractOk(ok) {
+  if (ok === true) return 'Validated';
+  if (ok === false) return 'Validation failed';
+  return '';
+}
+
 function findArtifactById(artifacts = [], artifactId = '') {
   const targetId = cleanString(artifactId);
   if (!targetId) return null;
@@ -351,6 +357,7 @@ function buildRunCompareSummary(comparePayload = {}) {
     ? other.report.observability
     : {};
   const execution = other?.execution && typeof other.execution === 'object' ? other.execution : {};
+  const contract = other?.contract && typeof other.contract === 'object' ? other.contract : {};
   const workspaceSnapshot = other?.report?.workspaceSnapshot && typeof other.report.workspaceSnapshot === 'object'
     ? other.report.workspaceSnapshot
     : (other?.workspaceSnapshot && typeof other.workspaceSnapshot === 'object' ? other.workspaceSnapshot : {});
@@ -380,6 +387,7 @@ function buildRunCompareSummary(comparePayload = {}) {
       : '',
     otherExecutionLocation: cleanString(execution.location),
     otherExecutionRuntime: runtimeBits.length > 0 ? runtimeBits.join('/') : '',
+    otherContractStatus: formatContractOk(contract.ok),
     otherSnapshotBacked: Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)),
     sharedParentRunsLabel: sharedParentRunIds.join(', '),
     relatedRunsLabel: relatedRunIds.join(', '),

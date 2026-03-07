@@ -76,6 +76,9 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
           backend: 'container',
           runtimeClass: 'container-fast',
         },
+        contract: {
+          ok: false,
+        },
         report: {
           workspaceSnapshot: {
             localSnapshot: {
@@ -101,6 +104,7 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare Node', value: 'Same node' },
     { label: 'Compare Execution', value: 'remote' },
     { label: 'Compare Runtime', value: 'container/container-fast' },
+    { label: 'Compare Contract', value: 'Validation failed' },
     { label: 'Compare Snapshot', value: 'Snapshot-backed' },
     { label: 'Compare Evidence', value: '1 deliverable artifact' },
   ]);
@@ -122,6 +126,9 @@ test('buildNodeReviewSummary falls back to thin compare snapshot views when comp
           backend: 'container',
           runtimeClass: 'container-guarded',
         },
+        contract: {
+          ok: true,
+        },
         workspaceSnapshot: {
           localSnapshot: {
             kind: 'git_diff',
@@ -141,6 +148,7 @@ test('buildNodeReviewSummary falls back to thin compare snapshot views when comp
     { label: 'Compare Status', value: 'SUCCEEDED' },
     { label: 'Compare Execution', value: 'remote' },
     { label: 'Compare Runtime', value: 'container/container-guarded' },
+    { label: 'Compare Contract', value: 'Validated' },
     { label: 'Compare Snapshot', value: 'Snapshot-backed' },
     { label: 'Compare Evidence', value: 'No deliverable artifacts yet' },
   ]);

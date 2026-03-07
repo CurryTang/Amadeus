@@ -4,6 +4,12 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function formatContractOk(ok) {
+  if (ok === true) return 'Validated';
+  if (ok === false) return 'Validation failed';
+  return '';
+}
+
 function formatDeliverableCount(count = 0) {
   const value = Math.max(Number(count) || 0, 0);
   return value === 1 ? '1 deliverable artifact' : `${value} deliverable artifacts`;
@@ -104,6 +110,7 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       cleanString(runCompare?.other?.execution?.backend),
       cleanString(runCompare?.other?.execution?.runtimeClass),
     ].filter(Boolean).join('/');
+    const otherContractStatus = formatContractOk(runCompare?.other?.contract?.ok);
     const compareWorkspaceSnapshot = runCompare?.other?.report?.workspaceSnapshot
       && typeof runCompare.other.report.workspaceSnapshot === 'object'
       ? runCompare.other.report.workspaceSnapshot
@@ -138,6 +145,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       rows.push({
         label: 'Compare Runtime',
         value: otherExecutionRuntime,
+      });
+    }
+    if (otherContractStatus) {
+      rows.push({
+        label: 'Compare Contract',
+        value: otherContractStatus,
       });
     }
     if (cleanString(compareLocalSnapshot.kind) || cleanString(compareLocalSnapshot.note)) {

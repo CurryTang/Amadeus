@@ -396,6 +396,9 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
         backend: 'container',
         runtimeClass: 'container-fast',
       },
+      contract: {
+        ok: false,
+      },
     },
     relation: {
       sameNode: true,
@@ -413,6 +416,7 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherWarnings: '2 warnings',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-fast',
+    otherContractStatus: 'Validation failed',
     otherSnapshotBacked: true,
     sharedParentRunsLabel: 'run_seed',
     relatedRunsLabel: 'run_seed, run_other',
@@ -432,6 +436,9 @@ test('buildRunCompareSummary falls back to thin compare run views when report de
         location: 'remote',
         backend: 'container',
         runtimeClass: 'container-guarded',
+      },
+      contract: {
+        ok: true,
       },
       workspaceSnapshot: {
         localSnapshot: {
@@ -454,6 +461,7 @@ test('buildRunCompareSummary falls back to thin compare run views when report de
     otherWarnings: '',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-guarded',
+    otherContractStatus: 'Validated',
     otherSnapshotBacked: true,
     sharedParentRunsLabel: '',
     relatedRunsLabel: 'run_other_thin',
