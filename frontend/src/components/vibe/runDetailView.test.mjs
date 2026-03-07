@@ -64,3 +64,25 @@ test('buildRunDetailOutput surfaces summary, final output artifact, and figures'
   assert.equal(output.deliverables.length, 1);
   assert.deepEqual(output.deliverableArtifacts.map((item) => item.id), ['art_summary', 'art_final']);
 });
+
+test('buildRunDetailContext falls back to attempt metadata when run metadata is sparse', () => {
+  const context = buildRunDetailContext({
+    id: 'run_sparse',
+    serverId: 'chatdse',
+    status: 'RUNNING',
+    metadata: {
+      sourceType: 'tree',
+      runWorkspacePath: '',
+    },
+  }, {
+    workspace: {
+      path: '/tmp/researchops-runs/run_sparse',
+    },
+    attempt: {
+      treeNodeTitle: 'Recovered Tree Title',
+    },
+  });
+
+  assert.equal(context.treeNodeTitle, 'Recovered Tree Title');
+  assert.equal(context.workspacePath, '/tmp/researchops-runs/run_sparse');
+});

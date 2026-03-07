@@ -25,9 +25,10 @@ function findFinalOutputArtifact(artifacts = [], highlights = {}) {
 
 function buildRunDetailContext(run = {}, runReport = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+  const attempt = runReport?.attempt && typeof runReport.attempt === 'object' ? runReport.attempt : {};
   return {
     sourceLabel: getRunSourceLabel(run),
-    treeNodeTitle: cleanString(metadata.treeNodeTitle),
+    treeNodeTitle: cleanString(metadata.treeNodeTitle) || cleanString(attempt.treeNodeTitle),
     todoTitle: cleanString(metadata.todoTitle),
     parentRunId: cleanString(metadata.parentRunId),
     serverId: cleanString(run?.serverId),
