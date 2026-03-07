@@ -5,6 +5,7 @@ import { buildNodeBridgeSummary } from './nodeBridgePresentation.js';
 
 test('buildNodeBridgeSummary summarizes bridge runtime, transports, and task readiness', () => {
   const rows = buildNodeBridgeSummary({
+    resolvedTransport: 'daemon-task',
     bridgeRuntime: {
       executionTarget: 'client-daemon',
       serverId: 'srv_client_1',
@@ -31,6 +32,7 @@ test('buildNodeBridgeSummary summarizes bridge runtime, transports, and task rea
   assert.deepEqual(rows, [
     { label: 'Runtime', value: 'client-daemon' },
     { label: 'Server', value: 'srv_client_1' },
+    { label: 'Resolved Transport', value: 'daemon-task' },
     { label: 'Preferred Transport', value: 'daemon-task' },
     { label: 'Available Transports', value: 'http, daemon-task, rust-daemon' },
     { label: 'Bridge Workflow', value: 'Ready' },

@@ -14,6 +14,7 @@ function buildNodeBridgeSummary(payload = {}) {
 
   const executionTarget = cleanString(bridgeRuntime.executionTarget);
   const serverId = cleanString(bridgeRuntime.serverId);
+  const resolvedTransport = cleanString(payload?.resolvedTransport);
   const preferredTransport = cleanString(bridgeRuntime.preferredTransport);
   const availableTransports = Array.isArray(bridgeRuntime.availableTransports)
     ? bridgeRuntime.availableTransports.map((item) => cleanString(item)).filter(Boolean)
@@ -42,6 +43,7 @@ function buildNodeBridgeSummary(payload = {}) {
 
   if (executionTarget) rows.push({ label: 'Runtime', value: executionTarget });
   if (serverId) rows.push({ label: 'Server', value: serverId });
+  if (resolvedTransport) rows.push({ label: 'Resolved Transport', value: resolvedTransport });
   if (preferredTransport) rows.push({ label: 'Preferred Transport', value: preferredTransport });
   if (availableTransports.length > 0) {
     rows.push({ label: 'Available Transports', value: availableTransports.join(', ') });

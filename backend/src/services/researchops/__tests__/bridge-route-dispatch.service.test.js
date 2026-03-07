@@ -24,7 +24,7 @@ test('dispatchBridgeTransport routes daemon-task transport through the daemon ex
     },
   });
 
-  assert.deepEqual(result, { ok: true, serverId: 'srv_client_1' });
+  assert.deepEqual(result, { ok: true, serverId: 'srv_client_1', resolvedTransport: 'daemon-task' });
   assert.deepEqual(calls, [{ mode: 'daemon', serverId: 'srv_client_1' }]);
 });
 
@@ -43,7 +43,7 @@ test('dispatchBridgeTransport falls back to http transport by default', async ()
     },
   });
 
-  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(result, { ok: true, resolvedTransport: 'http' });
   assert.deepEqual(calls, [{ mode: 'http' }]);
 });
 
@@ -70,7 +70,7 @@ test('dispatchBridgeTransport prefers daemon-task transport by default when brid
     },
   });
 
-  assert.deepEqual(result, { ok: true, serverId: 'srv_client_1' });
+  assert.deepEqual(result, { ok: true, serverId: 'srv_client_1', resolvedTransport: 'daemon-task' });
   assert.deepEqual(calls, [{ mode: 'daemon', serverId: 'srv_client_1' }]);
 });
 
@@ -100,7 +100,7 @@ test('dispatchBridgeTransport prefers rust-daemon transport by default when rust
     },
   });
 
-  assert.deepEqual(result, { ok: true, transport: 'http' });
+  assert.deepEqual(result, { ok: true, transport: 'http', resolvedTransport: 'rust-daemon' });
   assert.deepEqual(calls, [{ mode: 'rust', transport: 'http' }]);
 });
 
@@ -125,7 +125,7 @@ test('dispatchBridgeTransport routes rust-daemon transport through the rust exec
     },
   });
 
-  assert.deepEqual(result, { ok: true, transport: 'http' });
+  assert.deepEqual(result, { ok: true, transport: 'http', resolvedTransport: 'rust-daemon' });
   assert.deepEqual(calls, [{ mode: 'rust', transport: 'http' }]);
 });
 
