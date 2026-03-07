@@ -63,6 +63,45 @@ test('buildRecentRunCards can read linked node titles from attempt-shaped runs',
   assert.equal(cards[0].linkedNodeTitle, 'Evaluation branch');
 });
 
+test('buildRecentRunCards surfaces execution and snapshot labels from normalized run views', () => {
+  const cards = buildRecentRunCards([
+    {
+      id: 'run_remote_snapshot',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T11:00:00.000Z',
+      metadata: {
+        prompt: 'Inspect remote eval',
+      },
+      execution: {
+        location: 'remote',
+      },
+      workspaceSnapshot: {
+        localSnapshot: {
+          kind: 'git_diff',
+        },
+      },
+    },
+    {
+      id: 'run_local',
+      status: 'RUNNING',
+      runType: 'EXPERIMENT',
+      createdAt: '2026-03-05T09:00:00.000Z',
+      metadata: {
+        experimentCommand: 'python local.py',
+      },
+      execution: {
+        location: 'local',
+      },
+    },
+  ]);
+
+  assert.equal(cards[0].executionLabel, 'Remote');
+  assert.equal(cards[0].snapshotLabel, 'Snapshot-backed');
+  assert.equal(cards[1].executionLabel, '');
+  assert.equal(cards[1].snapshotLabel, '');
+});
+
 test('getRunSourceLabel falls back to linked entities when sourceType is absent', () => {
   assert.equal(getRunSourceLabel({ metadata: { treeNodeId: 'node_a' } }), 'Tree');
   assert.equal(getRunSourceLabel({ metadata: { todoId: 'todo_a' } }), 'TODO');

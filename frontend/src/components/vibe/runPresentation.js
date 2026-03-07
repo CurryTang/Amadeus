@@ -34,6 +34,22 @@ function formatTimestamp(createdAt = '') {
   });
 }
 
+function getExecutionLabel(run = {}) {
+  const execution = run?.execution && typeof run.execution === 'object' ? run.execution : {};
+  return cleanString(execution.location) === 'remote' ? 'Remote' : '';
+}
+
+function getSnapshotLabel(run = {}) {
+  const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
+  const workspaceSnapshot = run?.workspaceSnapshot && typeof run.workspaceSnapshot === 'object'
+    ? run.workspaceSnapshot
+    : {};
+  const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
+    ? workspaceSnapshot.localSnapshot
+    : (metadata.localSnapshot && typeof metadata.localSnapshot === 'object' ? metadata.localSnapshot : {});
+  return cleanString(localSnapshot.kind) || cleanString(localSnapshot.note) ? 'Snapshot-backed' : '';
+}
+
 function buildRecentRunCards(runs = []) {
   if (!Array.isArray(runs)) return [];
   return [...runs]
@@ -54,6 +70,8 @@ function buildRecentRunCards(runs = []) {
         title: getRunTitle(run),
         linkedNodeTitle: cleanString(metadata.treeNodeTitle) || cleanString(attempt.treeNodeTitle),
         snippet: cleanString(run?.resultSnippet),
+        executionLabel: getExecutionLabel(run),
+        snapshotLabel: getSnapshotLabel(run),
         timestamp: formatTimestamp(run?.createdAt),
         raw: run,
       };
