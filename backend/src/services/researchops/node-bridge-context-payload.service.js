@@ -49,6 +49,7 @@ function buildNodeBridgeContextPayload({
       hasWorkspaceSnapshot: Boolean(workspaceSnapshot.path || workspaceSnapshot.runSpecArtifactId || workspaceSnapshot.sourceServerId),
       hasLocalSnapshot: Boolean(localSnapshot.kind || localSnapshot.note),
       hasEnvSnapshot: Boolean(envSnapshot.backend || envSnapshot.runtimeClass || envSnapshot.resources),
+      hasContractFailures: normalizedBridgeReport?.flags?.hasContractFailures === true,
       canRun: true,
     },
   };

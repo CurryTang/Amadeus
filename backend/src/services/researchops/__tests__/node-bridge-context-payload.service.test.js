@@ -47,6 +47,9 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
       bridgeVersion: 'v0',
       runId: 'run_eval',
       status: 'SUCCEEDED',
+      flags: {
+        hasContractFailures: true,
+      },
       snapshots: {
         workspace: {
           path: '/tmp/researchops-runs/run_eval',
@@ -80,4 +83,5 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
   assert.equal(payload.capabilities.hasWorkspaceSnapshot, true);
   assert.equal(payload.capabilities.hasLocalSnapshot, true);
   assert.equal(payload.capabilities.hasEnvSnapshot, true);
+  assert.equal(payload.capabilities.hasContractFailures, true);
 });
