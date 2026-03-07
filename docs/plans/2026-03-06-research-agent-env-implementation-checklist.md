@@ -97,3 +97,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Project-scoped observed-session payloads now expose `list/detail/refresh` action descriptors, so observed-session consumers can follow current APIs without reconstructing those routes
   - Project create/detail/update responses now use a normalized project payload with derived capabilities, location summary, and follow-up action descriptors while keeping the existing `project` object shape intact
   - Daemon list responses now use the normalized daemon payload with list metadata and discovery actions, so `/daemons` no longer remains a raw `{ items }` exception in the execution-control surface
+  - Run checkpoint list and decision responses now use a normalized checkpoint payload with filters, checkpoint action descriptors, and list follow-up actions, so the run evidence family no longer leaves checkpoints on ad-hoc raw response shapes

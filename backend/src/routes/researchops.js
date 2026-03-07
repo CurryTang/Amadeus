@@ -66,6 +66,10 @@ const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge
 const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const { buildRunComparePayload } = require('../services/researchops/run-compare-payload.service');
 const { buildRunArtifactListPayload } = require('../services/researchops/run-artifact-list-payload.service');
+const {
+  buildRunCheckpointDecisionPayload,
+  buildRunCheckpointListPayload,
+} = require('../services/researchops/run-checkpoint-payload.service');
 const { buildRunEventListPayload } = require('../services/researchops/run-event-list-payload.service');
 const { buildRunStepListPayload } = require('../services/researchops/run-step-list-payload.service');
 const {
@@ -5638,11 +5642,17 @@ router.get('/runs/:runId/artifacts/:artifactId/download', async (req, res) => {
 
 router.get('/runs/:runId/checkpoints', async (req, res) => {
   try {
+    const status = String(req.query.status || '').trim();
+    const limit = parseLimit(req.query.limit, 200, 1000);
     const items = await researchOpsStore.listRunCheckpoints(getUserId(req), req.params.runId, {
-      status: String(req.query.status || '').trim(),
-      limit: parseLimit(req.query.limit, 200, 1000),
+      status,
+      limit,
     });
-    return res.json({ items });
+    return res.json(buildRunCheckpointListPayload({
+      runId: req.params.runId,
+      status,
+      items,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listRunCheckpoints failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
@@ -5701,7 +5711,10 @@ router.post('/runs/:runId/checkpoints/:checkpointId/decision', async (req, res) 
       }
     }
 
-    return res.json({ checkpoint });
+    return res.json(buildRunCheckpointDecisionPayload({
+      runId: req.params.runId,
+      checkpoint,
+    }));
   } catch (error) {
     console.error('[ResearchOps] decideRunCheckpoint failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
