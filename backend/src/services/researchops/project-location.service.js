@@ -140,8 +140,51 @@ function assertProjectExecutionAllowed(project = {}, action = 'execution') {
   throw new Error(`Browser-backed client projects do not support ${action}`);
 }
 
+function buildProjectPayload({ project = null, git = undefined } = {}) {
+  const normalizedProject = project && typeof project === 'object' ? project : null;
+  const projectId = cleanString(normalizedProject?.id);
+  const payload = {
+    projectId,
+    project: normalizedProject,
+    capabilities: deriveProjectCapabilities(normalizedProject || {}),
+    location: {
+      locationType: cleanString(normalizedProject?.locationType).toLowerCase() || 'local',
+      clientMode: cleanString(normalizedProject?.clientMode).toLowerCase() || null,
+      clientDeviceId: cleanString(normalizedProject?.clientDeviceId) || null,
+      clientWorkspaceId: cleanString(normalizedProject?.clientWorkspaceId) || null,
+      serverId: cleanString(normalizedProject?.serverId) || null,
+      projectPath: cleanString(normalizedProject?.projectPath) || null,
+    },
+    actions: projectId ? {
+      detail: {
+        method: 'GET',
+        path: `/researchops/projects/${encodeURIComponent(projectId)}`,
+      },
+      agentSessions: {
+        method: 'GET',
+        path: `/researchops/projects/${encodeURIComponent(projectId)}/agent-sessions`,
+      },
+      observedSessions: {
+        method: 'GET',
+        path: `/researchops/projects/${encodeURIComponent(projectId)}/observed-sessions`,
+      },
+      treePlan: {
+        method: 'GET',
+        path: `/researchops/projects/${encodeURIComponent(projectId)}/tree/plan`,
+      },
+    } : {},
+  };
+
+  if (git !== undefined) {
+    payload.git = git;
+  }
+
+  return payload;
+}
+
 module.exports = {
   normalizeProjectLocationPayload,
   deriveProjectCapabilities,
   assertProjectExecutionAllowed,
+  buildProjectPayload,
 };

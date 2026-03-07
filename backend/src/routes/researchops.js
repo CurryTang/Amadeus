@@ -51,6 +51,9 @@ const {
 const {
   buildObservedSessionListPayload,
 } = require('../services/researchops/observed-session-payload.service');
+const {
+  buildProjectPayload,
+} = require('../services/researchops/project-location.service');
 const { buildNodeBridgeView } = require('../services/researchops/node-bridge-view.service');
 const { normalizeEnqueueRunPayload } = require('../services/researchops/enqueue-run-payload.service');
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
@@ -3255,7 +3258,10 @@ router.post('/projects', async (req, res) => {
       serverId: locationType === 'ssh' ? ensuredServerId : undefined,
       projectPath: ensuredPath,
     });
-    res.status(201).json({ project, git: gitInit });
+    res.status(201).json(buildProjectPayload({
+      project,
+      git: gitInit,
+    }));
   } catch (error) {
     console.error('[ResearchOps] createProject failed:', error);
     res.status(400).json({ error: sanitizeError(error, 'Failed to create project') });
@@ -3466,7 +3472,7 @@ router.patch('/projects/:projectId', async (req, res) => {
 
     const project = await researchOpsStore.updateProject(getUserId(req), projectId, allowed);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    res.json({ project });
+    res.json(buildProjectPayload({ project }));
   } catch (error) {
     console.error('[ResearchOps] updateProject failed:', error);
     res.status(400).json({ error: sanitizeError(error, 'Failed to update project') });
@@ -4041,7 +4047,7 @@ router.get('/projects/:projectId', async (req, res) => {
   try {
     const project = await researchOpsStore.getProject(getUserId(req), req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    return res.json({ project });
+    return res.json(buildProjectPayload({ project }));
   } catch (error) {
     console.error('[ResearchOps] getProject failed:', error);
     res.status(500).json({ error: 'Failed to fetch project' });

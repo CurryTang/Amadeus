@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   normalizeProjectLocationPayload,
   deriveProjectCapabilities,
+  buildProjectPayload,
 } = require('../project-location.service');
 
 test('normalizes client agent projects with clientDeviceId and path', () => {
@@ -66,5 +67,50 @@ test('derives client agent capabilities as daemon-backed execution flow', () => 
     runArtifacts: '/researchops/runs/{runId}/artifacts',
     runBridgeReport: '/researchops/runs/{runId}/bridge-report',
     runBridgeNote: '/researchops/runs/{runId}/bridge-note',
+  });
+});
+
+test('buildProjectPayload exposes capabilities, location, and follow-up actions', () => {
+  const payload = buildProjectPayload({
+    project: {
+      id: 'proj_1',
+      name: 'Auto Research',
+      locationType: 'client',
+      clientMode: 'agent',
+      clientDeviceId: 'srv_client_1',
+      projectPath: '/Users/alice/my-project',
+    },
+    git: {
+      mode: 'initialized',
+      branch: 'main',
+    },
+  });
+
+  assert.equal(payload.projectId, 'proj_1');
+  assert.equal(payload.project.id, 'proj_1');
+  assert.equal(payload.capabilities.executionTarget, 'client-daemon');
+  assert.equal(payload.location.locationType, 'client');
+  assert.equal(payload.location.clientMode, 'agent');
+  assert.equal(payload.location.clientDeviceId, 'srv_client_1');
+  assert.equal(payload.location.projectPath, '/Users/alice/my-project');
+  assert.deepEqual(payload.actions.detail, {
+    method: 'GET',
+    path: '/researchops/projects/proj_1',
+  });
+  assert.deepEqual(payload.actions.agentSessions, {
+    method: 'GET',
+    path: '/researchops/projects/proj_1/agent-sessions',
+  });
+  assert.deepEqual(payload.actions.observedSessions, {
+    method: 'GET',
+    path: '/researchops/projects/proj_1/observed-sessions',
+  });
+  assert.deepEqual(payload.actions.treePlan, {
+    method: 'GET',
+    path: '/researchops/projects/proj_1/tree/plan',
+  });
+  assert.deepEqual(payload.git, {
+    mode: 'initialized',
+    branch: 'main',
   });
 });
