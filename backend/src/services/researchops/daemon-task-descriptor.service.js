@@ -186,6 +186,16 @@ function normalizeDaemonTaskTypes(taskTypes = []) {
   return normalized;
 }
 
+function daemonSupportsTaskTypes(daemon = null, taskTypes = []) {
+  const required = normalizeDaemonTaskTypes(taskTypes);
+  if (required.length === 0) return true;
+  const advertised = normalizeDaemonTaskTypes(daemon && typeof daemon === 'object' ? daemon.supportedTaskTypes : []);
+  if (advertised.length === 0) {
+    return required.every((taskType) => BUILT_IN_DAEMON_TASK_TYPES.includes(taskType));
+  }
+  return required.every((taskType) => advertised.includes(taskType));
+}
+
 function buildDaemonTaskDescriptor(taskType = '') {
   const key = String(taskType || '').trim();
   return cloneDescriptor(TASK_DESCRIPTOR_MAP[key]);
@@ -202,6 +212,7 @@ module.exports = {
   BUILT_IN_DAEMON_TASK_TYPES,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
+  daemonSupportsTaskTypes,
   normalizeDaemonTaskTypes,
   buildDaemonTaskDescriptor,
   listDaemonTaskDescriptors,

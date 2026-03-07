@@ -51,3 +51,29 @@ test('rejects server-side path check for browser client projects', async () => {
     clientWorkspaceId: 'cw_123',
   }, {}), /validated in the browser/i);
 });
+
+test('rejects client agent path-check when daemon does not advertise the required task', async () => {
+  await assert.rejects(() => projectsRouter.buildProjectPathCheckResponse({
+    locationType: 'client',
+    clientMode: 'agent',
+    clientDeviceId: 'srv_client_1',
+    projectPath: '/Users/alice/my-project',
+  }, {
+    getClientDevice: async () => ({
+      id: 'srv_client_1',
+      status: 'ONLINE',
+      supportedTaskTypes: ['project.ensurePath', 'project.ensureGit'],
+    }),
+    requestDaemonRpc: async () => {
+      throw new Error('rpc should not be called');
+    },
+  }), /does not support required tasks: project\.checkPath/i);
+});
+
+test('rejects client agent project bootstrap when daemon misses required ensure tasks', async () => {
+  assert.throws(() => projectsRouter.assertClientDaemonSupportsProjectBootstrap({
+    id: 'srv_client_1',
+    status: 'ONLINE',
+    supportedTaskTypes: ['project.ensurePath'],
+  }), /does not support required tasks: project\.ensureGit/i);
+});

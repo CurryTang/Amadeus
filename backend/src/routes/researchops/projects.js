@@ -95,6 +95,7 @@ const {
   buildProjectPayload,
   buildProjectListPayload,
 } = require('../../services/researchops/project-location.service');
+const { daemonSupportsTaskTypes } = require('../../services/researchops/daemon-task-descriptor.service');
 const { buildProjectPathCheckPayload } = require('../../services/researchops/project-path-check-payload.service');
 const {
   buildKnowledgeGroupDeletePayload,
@@ -1252,6 +1253,23 @@ function isDaemonOnlineStatus(status = '') {
   return !['OFFLINE', 'DISCONNECTED', 'ERROR'].includes(normalized);
 }
 
+function assertClientDaemonSupportsTasks(device = null, requiredTaskTypes = []) {
+  if (daemonSupportsTaskTypes(device, requiredTaskTypes)) return;
+  const missing = (Array.isArray(requiredTaskTypes) ? requiredTaskTypes : [])
+    .filter((taskType) => !daemonSupportsTaskTypes(device, [taskType]));
+  const serverId = cleanString(device?.id) || cleanString(device?.serverId) || 'unknown-daemon';
+  const error = new Error(`Client device ${serverId} does not support required tasks: ${missing.join(', ')}`);
+  error.code = 'CLIENT_DEVICE_UNSUPPORTED_TASK';
+  throw error;
+}
+
+function assertClientDaemonSupportsProjectBootstrap(device = null) {
+  return assertClientDaemonSupportsTasks(device, [
+    'project.ensurePath',
+    'project.ensureGit',
+  ]);
+}
+
 async function getClientDeviceById(userId, clientDeviceId) {
   const targetId = cleanString(clientDeviceId);
   if (!targetId) return null;
@@ -1283,6 +1301,7 @@ async function buildProjectPathCheckResponse(input = {}, deps = {}) {
       error.code = 'CLIENT_DEVICE_OFFLINE';
       throw error;
     }
+    assertClientDaemonSupportsTasks(device, ['project.checkPath']);
     const remoteResult = rpc
       ? await rpc({
         userId: deps.userId,
@@ -3440,6 +3459,7 @@ router.post('/projects', async (req, res) => {
       if (!isDaemonOnlineStatus(device.status)) {
         return res.status(409).json({ error: `Client device ${normalizedLocation.clientDeviceId} is offline` });
       }
+      assertClientDaemonSupportsProjectBootstrap(device);
       const ensured = await requestDaemonRpc({
         userId: getUserId(req),
         serverId: normalizedLocation.clientDeviceId,
@@ -7594,5 +7614,7 @@ router.shouldBootstrapCodebaseRoot = shouldBootstrapCodebaseRoot;
 router.listObservedSessionsForProject = listObservedSessionsForProject;
 router.getObservedSessionForProject = getObservedSessionForProject;
 router.refreshObservedSessionForProject = refreshObservedSessionForProject;
+router.assertClientDaemonSupportsTasks = assertClientDaemonSupportsTasks;
+router.assertClientDaemonSupportsProjectBootstrap = assertClientDaemonSupportsProjectBootstrap;
 
 module.exports = router;

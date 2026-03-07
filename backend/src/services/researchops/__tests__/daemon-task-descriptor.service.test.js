@@ -9,6 +9,7 @@ const {
   DAEMON_TASK_CATALOG_VERSION,
   buildDaemonTaskDescriptor,
   listDaemonTaskDescriptors,
+  daemonSupportsTaskTypes,
 } = require('../daemon-task-descriptor.service');
 
 test('buildDaemonTaskDescriptor returns the current built-in project task contract', () => {
@@ -66,4 +67,23 @@ test('listDaemonTaskDescriptors exposes built-in and optional bridge task types 
   ]);
   assert.ok(taskTypes.includes('project.checkPath'));
   assert.ok(taskTypes.includes('bridge.fetchRunReport'));
+});
+
+test('daemonSupportsTaskTypes falls back to built-in project tasks and respects advertised support', () => {
+  assert.equal(
+    daemonSupportsTaskTypes({ supportedTaskTypes: ['project.checkPath'] }, ['project.checkPath']),
+    true,
+  );
+  assert.equal(
+    daemonSupportsTaskTypes({ supportedTaskTypes: ['project.checkPath'] }, ['project.ensureGit']),
+    false,
+  );
+  assert.equal(
+    daemonSupportsTaskTypes({}, ['project.ensureGit']),
+    true,
+  );
+  assert.equal(
+    daemonSupportsTaskTypes({}, ['bridge.fetchRunReport']),
+    false,
+  );
 });
