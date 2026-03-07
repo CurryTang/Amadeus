@@ -393,6 +393,7 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
         id: 'run_other',
         status: 'FAILED',
       },
+      resolvedTransport: 'daemon-task',
       attempt: {
         treeNodeTitle: 'Evaluation branch',
       },
@@ -442,6 +443,7 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherSinkProviders: 'wandb, tensorboard',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-fast',
+    otherResolvedTransport: 'daemon-task',
     otherContractStatus: 'Validation failed',
     otherSnapshotBacked: true,
     sharedParentRunsLabel: 'run_seed',
@@ -458,6 +460,7 @@ test('buildRunCompareSummary falls back to thin compare run views when report de
         id: 'run_other_thin',
         status: 'SUCCEEDED',
       },
+      resolvedTransport: 'rust-daemon',
       execution: {
         location: 'remote',
         backend: 'container',
@@ -488,6 +491,7 @@ test('buildRunCompareSummary falls back to thin compare run views when report de
     otherSinkProviders: '',
     otherExecutionLocation: 'remote',
     otherExecutionRuntime: 'container/container-guarded',
+    otherResolvedTransport: 'rust-daemon',
     otherContractStatus: 'Validated',
     otherSnapshotBacked: true,
     sharedParentRunsLabel: '',

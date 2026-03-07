@@ -395,6 +395,7 @@ function buildRunCompareSummary(comparePayload = {}) {
     otherSinkProviders: formatSinkProviders(observability?.sinkProviders),
     otherExecutionLocation: cleanString(execution.location),
     otherExecutionRuntime: runtimeBits.length > 0 ? runtimeBits.join('/') : '',
+    otherResolvedTransport: cleanString(other?.resolvedTransport),
     otherContractStatus: formatContractOk(contract.ok),
     otherSnapshotBacked: Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)),
     sharedParentRunsLabel: sharedParentRunIds.join(', '),

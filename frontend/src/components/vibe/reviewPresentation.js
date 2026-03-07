@@ -129,6 +129,7 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       cleanString(runCompare?.other?.execution?.backend),
       cleanString(runCompare?.other?.execution?.runtimeClass),
     ].filter(Boolean).join('/');
+    const otherResolvedTransport = cleanString(runCompare?.other?.resolvedTransport);
     const otherContractStatus = formatContractOk(runCompare?.other?.contract?.ok);
     const otherReadiness = formatReadiness(compareObservability?.statuses?.readiness);
     const otherWarningsCount = Math.max(Number(compareObservability?.counts?.warnings) || 0, 0);
@@ -185,6 +186,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       rows.push({
         label: 'Compare Runtime',
         value: otherExecutionRuntime,
+      });
+    }
+    if (otherResolvedTransport) {
+      rows.push({
+        label: 'Compare Transport',
+        value: otherResolvedTransport,
       });
     }
     if (otherContractStatus) {
