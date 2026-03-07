@@ -61,6 +61,9 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
       highlights: {
         deliverableArtifactIds: ['art_summary'],
       },
+      bridgeRuntime: {
+        supportsLocalBridgeWorkflow: true,
+      },
     },
     {
       other: {
@@ -82,6 +85,7 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
 
   assert.deepEqual(rows, [
     { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Bridge', value: 'Local bridge ready' },
     { label: 'Compare', value: 'run_alt' },
     { label: 'Compare Status', value: 'FAILED' },
     { label: 'Compare Node', value: 'Same node' },

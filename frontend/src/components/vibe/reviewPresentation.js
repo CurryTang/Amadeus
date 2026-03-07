@@ -38,6 +38,24 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       : 'No deliverable artifacts yet',
   });
 
+  const bridgeRuntime = runReport?.bridgeRuntime && typeof runReport.bridgeRuntime === 'object'
+    ? runReport.bridgeRuntime
+    : {};
+  const missingBridgeTaskTypes = Array.isArray(bridgeRuntime.missingBridgeTaskTypes)
+    ? bridgeRuntime.missingBridgeTaskTypes.filter((item) => cleanString(item))
+    : [];
+  if (bridgeRuntime.supportsLocalBridgeWorkflow === true) {
+    rows.push({
+      label: 'Bridge',
+      value: 'Local bridge ready',
+    });
+  } else if (missingBridgeTaskTypes.length > 0) {
+    rows.push({
+      label: 'Bridge',
+      value: `Missing ${missingBridgeTaskTypes.length} tasks`,
+    });
+  }
+
   const otherRunId = cleanString(runCompare?.other?.run?.id);
   if (otherRunId) {
     rows.push({
