@@ -6,6 +6,7 @@ const { buildRunFollowUpView } = require('./follow-up-view.service');
 const { buildRunOutputContractView } = require('./output-contract-view.service');
 const { buildWorkspaceSnapshotView, buildEnvSnapshotView } = require('./snapshot-view.service');
 const { buildThinRunObservabilityView } = require('./run-thin-observability-view.service');
+const { buildThinRunOutputView } = require('./run-thin-output-view.service');
 
 function buildRunPayload({ run = null } = {}) {
   return {
@@ -17,6 +18,7 @@ function buildRunPayload({ run = null } = {}) {
     workspaceSnapshot: buildWorkspaceSnapshotView(run || {}),
     envSnapshot: buildEnvSnapshotView(run || {}),
     observability: buildThinRunObservabilityView(run || {}),
+    output: buildThinRunOutputView(run || {}),
     resolvedTransport: run?.resolvedTransport || run?.metadata?.resolvedTransport || null,
   };
 }

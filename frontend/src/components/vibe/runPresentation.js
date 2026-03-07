@@ -93,6 +93,16 @@ function getTransportLabel(run = {}) {
   return `via ${resolvedTransport}`;
 }
 
+function getSummaryLabel(run = {}) {
+  const output = run?.output && typeof run.output === 'object' ? run.output : {};
+  return output.hasSummary ? 'Summary' : '';
+}
+
+function getFinalOutputLabel(run = {}) {
+  const output = run?.output && typeof run.output === 'object' ? run.output : {};
+  return output.hasFinalOutput ? 'Final output' : '';
+}
+
 function buildRecentRunCards(runs = []) {
   if (!Array.isArray(runs)) return [];
   return [...runs]
@@ -121,6 +131,8 @@ function buildRecentRunCards(runs = []) {
         warningsLabel: getWarningsLabel(run),
         sinkProvidersLabel: getSinkProvidersLabel(run),
         transportLabel: getTransportLabel(run),
+        summaryLabel: getSummaryLabel(run),
+        finalOutputLabel: getFinalOutputLabel(run),
         timestamp: formatTimestamp(run?.createdAt),
         raw: run,
       };

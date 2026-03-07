@@ -238,3 +238,30 @@ test('buildRunPayload preserves resolved bridge transport when present on the ru
 
   assert.equal(payload.resolvedTransport, 'daemon-task');
 });
+
+test('buildRunPayload exposes thin output flags when run carries highlights', () => {
+  const run = {
+    id: 'run_output',
+    projectId: 'proj_1',
+    serverId: 'srv_remote_1',
+    provider: 'codex',
+    runType: 'AGENT',
+    status: 'SUCCEEDED',
+    summary: 'Completed summary',
+    highlights: {
+      summaryArtifactId: 'art_summary',
+      finalOutputArtifactId: 'art_final',
+      deliverableArtifactIds: ['art_summary', 'art_final'],
+    },
+  };
+
+  const payload = buildRunPayload({ run });
+
+  assert.deepEqual(payload.output, {
+    hasSummary: true,
+    hasFinalOutput: true,
+    deliverableArtifactIds: ['art_summary', 'art_final'],
+    summaryArtifactId: 'art_summary',
+    finalOutputArtifactId: 'art_final',
+  });
+});

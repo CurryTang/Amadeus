@@ -227,3 +227,34 @@ test('buildRunListPayload preserves resolved bridge transport on list items', ()
 
   assert.equal(payload.items[0].resolvedTransport, 'rust-daemon');
 });
+
+test('buildRunListPayload includes thin output flags on list items', () => {
+  const payload = buildRunListPayload({
+    page: {
+      items: [{
+        id: 'run_output',
+        projectId: 'proj_1',
+        serverId: 'srv_remote_1',
+        provider: 'codex',
+        runType: 'AGENT',
+        status: 'SUCCEEDED',
+        summary: 'Completed summary',
+        highlights: {
+          summaryArtifactId: 'art_summary',
+          finalOutputArtifactId: 'art_final',
+          deliverableArtifactIds: ['art_summary', 'art_final'],
+        },
+      }],
+      hasMore: false,
+    },
+    limit: 20,
+  });
+
+  assert.deepEqual(payload.items[0].output, {
+    hasSummary: true,
+    hasFinalOutput: true,
+    deliverableArtifactIds: ['art_summary', 'art_final'],
+    summaryArtifactId: 'art_summary',
+    finalOutputArtifactId: 'art_final',
+  });
+});

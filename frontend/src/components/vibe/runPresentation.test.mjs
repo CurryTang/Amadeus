@@ -223,6 +223,27 @@ test('buildRecentRunCards surfaces resolved bridge transport labels from normali
   assert.equal(cards[0].transportLabel, 'via daemon-task');
 });
 
+test('buildRecentRunCards surfaces thin output labels from normalized run views', () => {
+  const cards = buildRecentRunCards([
+    {
+      id: 'run_output',
+      status: 'SUCCEEDED',
+      runType: 'AGENT',
+      createdAt: '2026-03-05T11:00:00.000Z',
+      metadata: {
+        prompt: 'Inspect output presence',
+      },
+      output: {
+        hasSummary: true,
+        hasFinalOutput: true,
+      },
+    },
+  ]);
+
+  assert.equal(cards[0].summaryLabel, 'Summary');
+  assert.equal(cards[0].finalOutputLabel, 'Final output');
+});
+
 test('getRunSourceLabel falls back to linked entities when sourceType is absent', () => {
   assert.equal(getRunSourceLabel({ metadata: { treeNodeId: 'node_a' } }), 'Tree');
   assert.equal(getRunSourceLabel({ metadata: { todoId: 'todo_a' } }), 'TODO');

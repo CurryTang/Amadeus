@@ -102,6 +102,8 @@ test('buildRunCardMetaLabels keeps execution and observability labels in activit
     readinessLabel: 'Needs attention',
     warningsLabel: '2 warnings',
     sinkProvidersLabel: 'wandb, tensorboard',
+    summaryLabel: 'Summary',
+    finalOutputLabel: 'Final output',
   });
 
   assert.deepEqual(labels, [
@@ -113,5 +115,7 @@ test('buildRunCardMetaLabels keeps execution and observability labels in activit
     'Needs attention',
     '2 warnings',
     'wandb, tensorboard',
+    'Summary',
+    'Final output',
   ]);
 });

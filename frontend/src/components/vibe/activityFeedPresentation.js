@@ -32,6 +32,8 @@ export function buildRunCardMetaLabels(card = {}) {
     card?.readinessLabel,
     card?.warningsLabel,
     card?.sinkProvidersLabel,
+    card?.summaryLabel,
+    card?.finalOutputLabel,
   ];
   return values
     .map((value) => (typeof value === 'string' ? value.trim() : ''))

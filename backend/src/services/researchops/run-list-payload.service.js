@@ -6,6 +6,7 @@ const { buildRunFollowUpView } = require('./follow-up-view.service');
 const { buildRunOutputContractView } = require('./output-contract-view.service');
 const { buildWorkspaceSnapshotView, buildEnvSnapshotView } = require('./snapshot-view.service');
 const { buildThinRunObservabilityView } = require('./run-thin-observability-view.service');
+const { buildThinRunOutputView } = require('./run-thin-output-view.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -33,6 +34,7 @@ function buildRunListItem(run = {}) {
     workspaceSnapshot: buildWorkspaceSnapshotView(run),
     envSnapshot: buildEnvSnapshotView(run),
     observability: buildThinRunObservabilityView(run),
+    output: buildThinRunOutputView(run),
     resolvedTransport: run?.resolvedTransport || run?.metadata?.resolvedTransport || null,
     resultSnippet: deriveResultSnippet(run),
   };
