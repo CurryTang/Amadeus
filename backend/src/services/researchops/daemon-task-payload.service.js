@@ -1,7 +1,7 @@
 'use strict';
 
 const { buildBridgeDaemonTaskRequest } = require('./bridge-daemon-task-request.service');
-const { buildDaemonTaskDescriptor } = require('./daemon-task-descriptor.service');
+const { contextualizeDaemonTaskDescriptor } = require('./daemon-task-descriptor.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -14,6 +14,7 @@ function asObject(value) {
 function normalizeTask(task = null) {
   const source = asObject(task);
   const taskType = cleanString(source.taskType) || null;
+  const request = buildBridgeDaemonTaskRequest(taskType, source.payload);
   return {
     ...source,
     id: cleanString(source.id) || null,
@@ -27,8 +28,11 @@ function normalizeTask(task = null) {
     updatedAt: cleanString(source.updatedAt) || null,
     leasedAt: cleanString(source.leasedAt) || null,
     completedAt: cleanString(source.completedAt) || null,
-    descriptor: buildDaemonTaskDescriptor(taskType),
-    request: buildBridgeDaemonTaskRequest(taskType, source.payload),
+    descriptor: contextualizeDaemonTaskDescriptor(taskType, {
+      supportedTaskTypes: [taskType],
+      request,
+    }),
+    request,
   };
 }
 

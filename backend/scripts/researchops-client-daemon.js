@@ -33,6 +33,7 @@ async function main() {
     hostname,
     heartbeatMs,
     pollMs,
+    advertiseBridgeTasks: true,
     logger: console,
   });
   if (!daemon.enabled) {

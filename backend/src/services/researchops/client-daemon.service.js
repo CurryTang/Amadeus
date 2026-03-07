@@ -5,6 +5,7 @@ const projectInsightsService = require('../project-insights.service');
 const {
   BUILT_IN_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
+  OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   normalizeDaemonTaskTypes,
 } = require('./daemon-task-descriptor.service');
 
@@ -39,9 +40,10 @@ function appendQuery(path, query = null) {
   return `${source}${source.includes('?') ? '&' : '?'}${params.join('&')}`;
 }
 
-function buildAdvertisedTaskTypes(handlers = {}) {
+function buildAdvertisedTaskTypes(handlers = {}, { advertiseBridgeTasks = false } = {}) {
   return normalizeDaemonTaskTypes([
     ...BUILT_IN_DAEMON_TASK_TYPES,
+    ...(advertiseBridgeTasks ? OPTIONAL_BRIDGE_DAEMON_TASK_TYPES : []),
     ...Object.keys(asObject(handlers)),
   ]);
 }
@@ -127,6 +129,7 @@ function startClientDaemon({
   hostname = os.hostname(),
   heartbeatMs = 30000,
   pollMs = 1500,
+  advertiseBridgeTasks = false,
   handlers = {},
   onRegistered = null,
   logger = console,
@@ -138,7 +141,7 @@ function startClientDaemon({
 
   const executeTask = createTaskExecutor(handlers);
   const executeBridgeTask = createBridgeTaskExecutor(normalizedApiBaseUrl, adminToken);
-  const supportedTaskTypes = buildAdvertisedTaskTypes(handlers);
+  const supportedTaskTypes = buildAdvertisedTaskTypes(handlers, { advertiseBridgeTasks });
   let stopped = false;
   let heartbeatTimer = null;
 

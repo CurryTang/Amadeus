@@ -206,6 +206,21 @@ function buildDaemonTaskDescriptor(taskType = '') {
   return cloneDescriptor(TASK_DESCRIPTOR_MAP[key]);
 }
 
+function contextualizeDaemonTaskDescriptor(taskType = '', {
+  supportedTaskTypes = [],
+  request = null,
+} = {}) {
+  const descriptor = buildDaemonTaskDescriptor(taskType);
+  if (!descriptor) return null;
+  const normalizedSupportedTaskTypes = normalizeDaemonTaskTypes(supportedTaskTypes);
+  const hasRequest = request && typeof request === 'object' && typeof request.path === 'string' && request.path.trim();
+  const isBridgeTask = String(taskType || '').trim().startsWith('bridge.');
+  if (isBridgeTask && (normalizedSupportedTaskTypes.includes(taskType) || hasRequest)) {
+    descriptor.handlerMode = 'builtin-http-proxy';
+  }
+  return descriptor;
+}
+
 function listDaemonTaskDescriptors() {
   return [
     ...BUILT_IN_DAEMON_TASK_TYPES,
@@ -221,5 +236,6 @@ module.exports = {
   missingDaemonTaskTypes,
   normalizeDaemonTaskTypes,
   buildDaemonTaskDescriptor,
+  contextualizeDaemonTaskDescriptor,
   listDaemonTaskDescriptors,
 };

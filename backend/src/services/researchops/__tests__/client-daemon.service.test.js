@@ -379,6 +379,81 @@ test('startClientDaemon advertises custom bridge handlers during registration', 
   }
 });
 
+test('startClientDaemon advertises built-in bridge task family when enabled', async () => {
+  const requests = [];
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    requests.push({
+      url: String(url),
+      method: options.method || 'GET',
+      body,
+    });
+
+    if (String(url).endsWith('/researchops/daemons/register')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ serverId: 'srv_client_bridge_builtin' }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/heartbeat')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ ok: true }),
+      };
+    }
+
+    if (String(url).endsWith('/researchops/daemons/tasks/claim')) {
+      return {
+        ok: true,
+        status: 204,
+        headers: { get: () => '' },
+        text: async () => '',
+      };
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const daemon = startClientDaemon({
+      apiBaseUrl: 'http://127.0.0.1:3000/api',
+      hostname: 'client-host',
+      heartbeatMs: 5000,
+      pollMs: 1,
+      advertiseBridgeTasks: true,
+      logger: { log() {}, error() {} },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await daemon.stop();
+    await Promise.race([
+      daemon.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('daemon did not stop')), 800)),
+    ]);
+
+    const register = requests.find((request) => request.url.endsWith('/researchops/daemons/register'));
+    assert.deepEqual(register.body.supportedTaskTypes, [
+      'project.checkPath',
+      'project.ensurePath',
+      'project.ensureGit',
+      'bridge.fetchNodeContext',
+      'bridge.fetchContextPack',
+      'bridge.submitNodeRun',
+      'bridge.fetchRunReport',
+      'bridge.submitRunNote',
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('startClientDaemon executes bridge tasks via backend request metadata when no custom handler exists', async () => {
   const requests = [];
   let claimCount = 0;

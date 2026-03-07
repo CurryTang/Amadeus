@@ -109,6 +109,10 @@ test('buildDaemonRegistrationPayload keeps legacy top-level fields while exposin
     'bridge.submitNodeRun',
     'bridge.submitRunNote',
   ]);
+  assert.equal(
+    payload.daemon.capabilities.taskDescriptors.find((item) => item.taskType === 'bridge.fetchRunReport')?.handlerMode,
+    'builtin-http-proxy',
+  );
 });
 
 test('buildDaemonListPayload normalizes each daemon item', () => {

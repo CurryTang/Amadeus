@@ -428,6 +428,7 @@ async function startServer() {
         hostname: researchOpsDaemonHostname,
         heartbeatMs: researchOpsHeartbeatMs,
         pollMs: researchOpsPollMs,
+        advertiseBridgeTasks: true,
         onRegistered: async ({ usedBootstrap }) => {
           if (!usedBootstrap) return;
           await persistResearchOpsClientEnv({

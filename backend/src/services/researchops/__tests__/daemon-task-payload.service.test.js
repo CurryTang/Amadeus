@@ -85,7 +85,7 @@ test('buildDaemonTaskPayload carries optional bridge task descriptors for custom
 
   assert.equal(payload.task.descriptor.taskType, 'bridge.fetchRunReport');
   assert.equal(payload.task.descriptor.builtIn, false);
-  assert.equal(payload.task.descriptor.handlerMode, 'custom');
+  assert.equal(payload.task.descriptor.handlerMode, 'builtin-http-proxy');
   assert.deepEqual(payload.task.request, {
     method: 'GET',
     path: '/researchops/runs/run_123/bridge-report',

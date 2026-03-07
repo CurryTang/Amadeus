@@ -7,6 +7,7 @@ const {
   missingDaemonTaskTypes,
   normalizeDaemonTaskTypes,
   listDaemonTaskDescriptors,
+  contextualizeDaemonTaskDescriptor,
 } = require('./daemon-task-descriptor.service');
 
 function cleanString(value) {
@@ -74,7 +75,11 @@ function buildDaemonCapabilities(daemon = null) {
     missingProjectTaskTypes,
     supportsLocalBridgeWorkflow: missingBridgeTaskTypes.length === 0,
     missingBridgeTaskTypes,
-    taskDescriptors: listDaemonTaskDescriptors(),
+    taskDescriptors: listDaemonTaskDescriptors()
+      .map((descriptor) => contextualizeDaemonTaskDescriptor(descriptor?.taskType, {
+        supportedTaskTypes: effectiveSupportedTaskTypes,
+      }))
+      .filter(Boolean),
   };
 }
 
