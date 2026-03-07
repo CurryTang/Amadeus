@@ -50,6 +50,11 @@ const {
   buildTreeRootNodePayload,
   buildTreeStatePayload,
 } = require('../../services/researchops/tree-structure-payload.service');
+const {
+  buildTreeQueueControlPayload,
+  buildTreeSearchPayload,
+  buildTreeSearchPromotionPayload,
+} = require('../../services/researchops/tree-control-search-payload.service');
 const { buildBridgeTreeRunPayload } = require('../../services/researchops/bridge-tree-run-payload.service');
 const {
   readBridgeContextOptions,
@@ -6975,11 +6980,11 @@ router.post('/projects/:projectId/tree/control/pause', async (req, res) => {
       server,
       mutate: (state) => treeStateService.setQueuePaused(state, true, reason),
     });
-    return res.json({
+    return res.json(buildTreeQueueControlPayload({
       projectId: project.id,
       state: result.state,
       paused: true,
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to pause tree queue'));
   }
@@ -6995,11 +7000,11 @@ router.post('/projects/:projectId/tree/control/resume', async (req, res) => {
       server,
       mutate: (state) => treeStateService.setQueuePaused(state, false, ''),
     });
-    return res.json({
+    return res.json(buildTreeQueueControlPayload({
       projectId: project.id,
       state: result.state,
       paused: false,
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to resume tree queue'));
   }
@@ -7030,12 +7035,13 @@ router.post('/projects/:projectId/tree/control/abort', async (req, res) => {
         return next;
       },
     });
-    return res.json({
+    return res.json(buildTreeQueueControlPayload({
       projectId: project.id,
       state: result.state,
+      paused: true,
       cancelledRunIds: cancelled,
       cancelledCount: cancelled.length,
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to abort tree queue'));
   }
@@ -7082,11 +7088,11 @@ router.get('/projects/:projectId/tree/nodes/:nodeId/search', async (req, res) =>
       await treeStateService.writeProjectState({ project, server, state: nextState });
     }
 
-    return res.json({
+    return res.json(buildTreeSearchPayload({
       projectId: project.id,
       nodeId,
       search: nextSearch,
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to load node search state'));
   }
@@ -7198,7 +7204,7 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/promote/:trialId', async (r
       patches: [patch],
       state,
     });
-    return res.json({
+    return res.json(buildTreeSearchPromotionPayload({
       projectId: project.id,
       nodeId,
       trialId,
@@ -7206,7 +7212,7 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/promote/:trialId', async (r
       plan: result.plan,
       impact: result.impact,
       validation: result.validation,
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to promote search trial'));
   }
