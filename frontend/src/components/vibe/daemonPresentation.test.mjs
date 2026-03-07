@@ -23,12 +23,13 @@ test('buildClientDeviceOption includes hostname, status, location, and bridge re
     },
     capabilities: {
       supportsLocalBridgeWorkflow: true,
+      supportsWorkspaceSnapshotCapture: true,
     },
   });
 
   assert.deepEqual(option, {
     value: 'srv_1',
-    label: 'client-host (ONLINE · client · bridge ready)',
+    label: 'client-host (ONLINE · client · bridge ready · snapshot ready)',
   });
 });
 

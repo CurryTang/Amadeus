@@ -14,9 +14,11 @@ function buildClientDeviceOption(device = {}) {
   const status = cleanString(device?.status).toUpperCase() || 'UNKNOWN';
   const location = cleanString(device?.execution?.location).toLowerCase();
   const bridgeReady = device?.capabilities?.supportsLocalBridgeWorkflow === true;
+  const snapshotReady = device?.capabilities?.supportsWorkspaceSnapshotCapture === true;
   const parts = [status];
   if (location) parts.push(location);
   if (bridgeReady) parts.push('bridge ready');
+  if (snapshotReady) parts.push('snapshot ready');
   return {
     value: id,
     label: `${hostname} (${parts.join(' · ')})`,

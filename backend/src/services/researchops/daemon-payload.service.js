@@ -66,6 +66,7 @@ function buildDaemonCapabilities(daemon = null) {
     { supportedTaskTypes: effectiveSupportedTaskTypes },
     OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   );
+  const supportsWorkspaceSnapshotCapture = effectiveSupportedTaskTypes.includes('bridge.captureWorkspaceSnapshot');
   return {
     canClaimTasks: true,
     taskCatalogVersion: cleanString(source.taskCatalogVersion) || DAEMON_TASK_CATALOG_VERSION,
@@ -75,6 +76,7 @@ function buildDaemonCapabilities(daemon = null) {
     supportsProjectBootstrap: missingProjectTaskTypes.length === 0,
     missingProjectTaskTypes,
     supportsLocalBridgeWorkflow: missingBridgeTaskTypes.length === 0,
+    supportsWorkspaceSnapshotCapture,
     missingBridgeTaskTypes,
     taskDescriptors: listDaemonTaskDescriptors()
       .map((descriptor) => contextualizeDaemonTaskDescriptor(descriptor?.taskType, {
