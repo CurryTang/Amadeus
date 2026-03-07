@@ -28,6 +28,16 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
         relatedRunIds: ['run_parent', 'run_alt'],
         isContinuation: true,
       },
+      contract: {
+        requiredArtifacts: ['metrics', 'table'],
+        tables: ['accuracy_summary'],
+        figures: [],
+        metricKeys: ['accuracy'],
+        summaryRequired: true,
+        ok: false,
+        missingTables: ['accuracy_summary'],
+        missingFigures: [],
+      },
       workspaceSnapshot: {
         path: '/tmp/researchops-runs/run_123',
         sourceServerId: 'srv_remote_1',
@@ -67,6 +77,8 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   assert.equal(payload.status, 'SUCCEEDED');
   assert.equal(payload.attempt.treeNodeId, 'node_eval');
   assert.equal(payload.execution.location, 'remote');
+  assert.equal(payload.contract.summaryRequired, true);
+  assert.equal(payload.contract.ok, false);
   assert.equal(payload.snapshots.workspace.path, '/tmp/researchops-runs/run_123');
   assert.equal(payload.snapshots.workspace.localSnapshot.kind, 'workspace_patch');
   assert.equal(payload.highlights.deliverableArtifactIds.length, 2);
@@ -75,5 +87,6 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   assert.equal(payload.counts.pendingCheckpoints, 1);
   assert.equal(payload.flags.hasSummary, true);
   assert.equal(payload.flags.hasFinalOutput, false);
+  assert.equal(payload.flags.hasContractFailures, true);
   assert.equal(payload.followUp.relatedRunIds.length, 2);
 });

@@ -25,6 +25,7 @@ function buildBridgeRunReportPayload({ report = null } = {}) {
     attempt: source.attempt || null,
     execution: source.execution || null,
     followUp: source.followUp || null,
+    contract: source.contract || null,
     snapshots: {
       workspace: source.workspaceSnapshot || null,
       env: source.envSnapshot || null,
@@ -40,6 +41,7 @@ function buildBridgeRunReportPayload({ report = null } = {}) {
     flags: {
       hasSummary: Boolean(highlights.summaryArtifactId || cleanString(source.summary)),
       hasFinalOutput: Boolean(highlights.finalOutputArtifactId),
+      hasContractFailures: source?.contract?.ok === false,
     },
     report: source,
   };
