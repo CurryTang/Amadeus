@@ -140,9 +140,21 @@
 
 - Phase A：基本完成
 - Phase B：大部分完成
-- Phase C：已开始，但仍处于前半段
+- Phase C：已越过中段，managed runtime / control-surface 收敛主干已经落地，但 stronger isolation 和默认化运营路径仍未完成
 
 因此后续不再建议把剩余工作拆成很多新的小 phase，而是统一按 **Target-State Convergence** 这一最终步骤推进。
+
+### 当前已经落地的 Target-State Convergence 主干
+
+本轮收敛已经把下面几件事从“payload seam”推进到了真实可运行边界：
+
+- Rust daemon 已经拥有明确的 executor plane，而不是只有 prototype task catalog
+- Node 和 Rust 之间已经共享标准化的 execution request / result contract
+- 本地 managed runtime 健康状态已经投影成真实 executor readiness（`hostReady`、`containerReady`、`healthState`、`lastFailureReason`）
+- `container-fast` / `container-guarded` 已经对应到 Docker-compatible container backend v1 的真实策略
+- project-level 和 node-level control surface 已经在 backend aggregate + frontend workbench 中贯通
+
+这意味着后续 Phase C 的重点，不再是“证明这条路径能不能存在”，而是把它继续做成默认、稳定、可恢复的运行面。
 
 ## 8.5 当前推荐并行切分
 
@@ -180,3 +192,10 @@
 - tree / run / session / context / report 的命名边界清晰
 - 前端描述与现有 UI 一致
 - review / evidence 描述与 `RunReport + RunArtifacts` 一致
+- managed runtime / bridge / review control surface 已经具备端到端主干：可探测、可管理、可执行、可在 project/node workbench 中消费
+
+## 8.7 下一阶段最值得追的剩余点
+
+- 把 managed Rust daemon 进一步推向默认执行路径，而不是“可选但健康可见”的路径
+- 在 container backend v1 之上继续补强更强隔离等级，而不推翻已经落地的 contract/read-model/UI
+- 围绕重启、失败恢复、follow-up action 再补操作面细节，减少当前仍需人工判断的部分
