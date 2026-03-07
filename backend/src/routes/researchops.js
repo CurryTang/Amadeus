@@ -53,6 +53,7 @@ const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge
 const { buildBridgeTreeRunPayload } = require('../services/researchops/bridge-tree-run-payload.service');
 const { buildRunComparePayload } = require('../services/researchops/run-compare-payload.service');
 const { buildRunArtifactListPayload } = require('../services/researchops/run-artifact-list-payload.service');
+const { buildRunStepListPayload } = require('../services/researchops/run-step-list-payload.service');
 const {
   readBridgeContextOptions,
   readBridgeRunOptions,
@@ -5536,8 +5537,9 @@ router.get('/runs/:runId/events', async (req, res) => {
 
 router.get('/runs/:runId/steps', async (req, res) => {
   try {
+    const runId = String(req.params.runId || '').trim();
     const items = await researchOpsStore.listRunSteps(getUserId(req), req.params.runId);
-    return res.json({ items });
+    return res.json(buildRunStepListPayload({ runId, items }));
   } catch (error) {
     console.error('[ResearchOps] listRunSteps failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
