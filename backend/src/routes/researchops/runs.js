@@ -417,7 +417,7 @@ router.post('/runs/:runId/workflow/insert', async (req, res) => {
       beforeStepId: req.body?.beforeStepId,
       index: req.body?.index,
     });
-    return res.json({ run });
+    return res.json(buildRunPayload({ run }));
   } catch (error) {
     console.error('[ResearchOps] insertRunWorkflowStep failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
