@@ -68,6 +68,7 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
       contractFailureCount: 1,
       remoteExecutionCount: 1,
       snapshotBackedCount: 1,
+      instrumentedCount: 1,
       status: 'needs_attention',
     },
   });
@@ -82,6 +83,7 @@ test('buildActivityFeed preserves run review summary metadata when provided', ()
     contractFailureCount: 1,
     remoteExecutionCount: 1,
     snapshotBackedCount: 1,
+    instrumentedCount: 1,
     status: 'needs_attention',
   });
 });

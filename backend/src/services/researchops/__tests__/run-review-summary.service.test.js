@@ -7,8 +7,8 @@ const { buildRunReviewSummary } = require('../run-review-summary.service');
 
 test('buildRunReviewSummary groups active, completed, and attention runs', () => {
   const payload = buildRunReviewSummary([
-    { id: 'run_active', status: 'RUNNING', execution: { location: 'remote' }, metadata: { localSnapshot: { kind: 'workspace_patch' } } },
-    { id: 'run_done', status: 'SUCCEEDED', execution: { location: 'local' } },
+    { id: 'run_active', status: 'RUNNING', execution: { location: 'remote' }, metadata: { localSnapshot: { kind: 'workspace_patch' } }, observability: { sinkProviders: ['wandb'] } },
+    { id: 'run_done', status: 'SUCCEEDED', execution: { location: 'local' }, observability: { sinkProviders: ['tensorboard'] } },
     { id: 'run_failed', status: 'FAILED', execution: { location: 'remote' } },
     { id: 'run_contract', status: 'SUCCEEDED', contract: { ok: false }, metadata: { localSnapshot: { kind: 'workspace_patch' } } },
     { id: 'run_cancelled', status: 'CANCELLED' },
@@ -24,6 +24,7 @@ test('buildRunReviewSummary groups active, completed, and attention runs', () =>
     contractFailureCount: 1,
     remoteExecutionCount: 2,
     snapshotBackedCount: 2,
+    instrumentedCount: 2,
     status: 'needs_attention',
   });
 });

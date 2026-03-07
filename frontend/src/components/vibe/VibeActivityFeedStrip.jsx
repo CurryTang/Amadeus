@@ -34,6 +34,9 @@ function VibeActivityFeedStrip({
   if (reviewSummary && Number(reviewSummary.snapshotBackedCount) > 0) {
     reviewBits.push(`${Number(reviewSummary.snapshotBackedCount)} snapshot-backed`);
   }
+  if (reviewSummary && Number(reviewSummary.instrumentedCount) > 0) {
+    reviewBits.push(`${Number(reviewSummary.instrumentedCount)} instrumented`);
+  }
   if (reviewSummary && Number(reviewSummary.failedCount) > 0) {
     reviewBits.push(`${Number(reviewSummary.failedCount)} failed`);
   }

@@ -22,12 +22,14 @@ function buildRunReviewSummary(runs = []) {
   let contractFailureCount = 0;
   let remoteExecutionCount = 0;
   let snapshotBackedCount = 0;
+  let instrumentedCount = 0;
 
   items.forEach((run) => {
     const status = normalizeStatus(run?.status);
     const execution = readObject(run?.execution);
     const metadata = readObject(run?.metadata);
     const workspaceSnapshot = readObject(run?.workspaceSnapshot);
+    const observability = readObject(run?.observability);
     const localSnapshot = readObject(workspaceSnapshot.localSnapshot || metadata.localSnapshot);
     if (['RUNNING', 'QUEUED', 'PENDING'].includes(status)) {
       activeCount += 1;
@@ -52,6 +54,9 @@ function buildRunReviewSummary(runs = []) {
     if (cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)) {
       snapshotBackedCount += 1;
     }
+    if (Array.isArray(observability.sinkProviders) && observability.sinkProviders.some((item) => cleanString(item))) {
+      instrumentedCount += 1;
+    }
   });
 
   let status = 'idle';
@@ -73,6 +78,7 @@ function buildRunReviewSummary(runs = []) {
     contractFailureCount,
     remoteExecutionCount,
     snapshotBackedCount,
+    instrumentedCount,
     status,
   };
 }
