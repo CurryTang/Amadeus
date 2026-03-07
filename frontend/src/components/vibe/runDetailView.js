@@ -183,6 +183,46 @@ function buildRunCompareSummary(comparePayload = {}) {
   };
 }
 
+function getRunOptionLabel(run = {}) {
+  return cleanString(run?.metadata?.prompt)
+    || cleanString(run?.metadata?.experimentCommand)
+    || cleanString(run?.metadata?.command)
+    || cleanString(run?.metadata?.treeNodeTitle)
+    || cleanString(run?.attempt?.treeNodeTitle)
+    || cleanString(run?.id);
+}
+
+function buildRunCompareOptions(run = {}, runReport = {}, visibleRuns = []) {
+  const currentRunId = cleanString(run?.id);
+  const optionById = new Map();
+  const visibleRunMap = new Map(
+    (Array.isArray(visibleRuns) ? visibleRuns : [])
+      .map((item) => [cleanString(item?.id), item])
+      .filter(([id]) => id)
+  );
+  const followUpSources = [
+    run?.followUp && typeof run.followUp === 'object' ? run.followUp : {},
+    runReport?.followUp && typeof runReport.followUp === 'object' ? runReport.followUp : {},
+  ];
+  followUpSources.forEach((followUp) => {
+    const candidates = [
+      ...(Array.isArray(followUp.relatedRunIds) ? followUp.relatedRunIds : []),
+      followUp.parentRunId,
+      followUp.continuationOfRunId,
+    ];
+    candidates.forEach((candidate) => {
+      const value = cleanString(candidate);
+      if (!value || value === currentRunId || optionById.has(value)) return;
+      const knownRun = visibleRunMap.get(value) || { id: value };
+      optionById.set(value, {
+        value,
+        label: getRunOptionLabel(knownRun),
+      });
+    });
+  });
+  return [...optionById.values()];
+}
+
 function buildRunDetailPrompt(run = {}) {
   const metadata = run?.metadata && typeof run.metadata === 'object' ? run.metadata : {};
   const promptText = cleanString(metadata.prompt);
@@ -226,6 +266,7 @@ function buildRunDetailOutput(run = {}, runReport = {}) {
 }
 
 export {
+  buildRunCompareOptions,
   buildRunCompareSummary,
   buildRunDetailContext,
   buildRunExecutionSummary,

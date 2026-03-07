@@ -13,6 +13,9 @@ function VibeRunDetailModal({
   run,
   runReport,
   runCompare,
+  compareOptions = [],
+  selectedCompareRunId = '',
+  onSelectCompareRunId,
   loading = false,
   compareLoading = false,
   onClose,
@@ -161,6 +164,20 @@ function VibeRunDetailModal({
                 <h4>Compare</h4>
                 <span className="vibe-card-note">current run vs related run</span>
               </div>
+              {compareOptions.length > 1 && (
+                <label className="vibe-inline-field">
+                  <span className="vibe-card-note">Compare Target</span>
+                  <select
+                    value={selectedCompareRunId}
+                    onChange={(event) => onSelectCompareRunId?.(event.target.value)}
+                    disabled={compareLoading}
+                  >
+                    {compareOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {compareLoading && !compareSummary ? (
                 <p className="vibe-empty">Loading compare summary…</p>
               ) : (

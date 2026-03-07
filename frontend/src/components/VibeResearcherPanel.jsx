@@ -29,7 +29,7 @@ import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
 import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
-import { deriveRunCompareTargetId } from './vibe/runDetailView';
+import { buildRunCompareOptions, deriveRunCompareTargetId } from './vibe/runDetailView';
 import { getTreeExecutionErrorMessage } from './vibe/treeExecutionErrorPresentation';
 import { buildTreeNodeActionMessage } from './vibe/treeNodeActionPresentation';
 import { buildTreeQueueActionMessage } from './vibe/treeQueueActionPresentation';
@@ -527,6 +527,7 @@ function VibeResearcherPanel({
   const [runReasoningEffort, setRunReasoningEffort] = useState('high'); // low | medium | high | extra-high
 
   const [selectedRunId, setSelectedRunId] = useState('');
+  const [selectedCompareRunId, setSelectedCompareRunId] = useState('');
   const [runReport, setRunReport] = useState(null);
   const [runReportLoading, setRunReportLoading] = useState(false);
   const [runCompare, setRunCompare] = useState(null);
@@ -3168,6 +3169,10 @@ function VibeResearcherPanel({
     () => getContextPackViewForRun(runContextPack, selectedRunId),
     [runContextPack, selectedRunId]
   );
+  const runCompareOptions = useMemo(
+    () => buildRunCompareOptions(selectedRun || {}, activeRunReport || {}, visibleRuns),
+    [activeRunReport, selectedRun, visibleRuns]
+  );
   const effectiveTreeState = useMemo(() => {
     const base = treeState && typeof treeState === 'object' ? treeState : createEmptyTreeState();
     const baseNodes = base?.nodes && typeof base.nodes === 'object' ? base.nodes : {};
@@ -3741,6 +3746,7 @@ function VibeResearcherPanel({
 
   useEffect(() => {
     if (!selectedRunId) {
+      setSelectedCompareRunId('');
       setRunCompare(null);
       setRunCompareLoading(false);
       setRunContextPack(null);
@@ -3753,24 +3759,39 @@ function VibeResearcherPanel({
 
   useEffect(() => {
     if (!selectedRunId) {
+      setSelectedCompareRunId('');
       setRunCompare(null);
       setRunCompareLoading(false);
       return;
     }
-    const otherRunId = deriveRunCompareTargetId(selectedRun || {}, activeRunReport || {});
+    setSelectedCompareRunId((prev) => {
+      if (prev && runCompareOptions.some((item) => item.value === prev)) return prev;
+      return runCompareOptions[0]?.value || '';
+    });
+  }, [runCompareOptions, selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setRunCompare(null);
+      setRunCompareLoading(false);
+      return;
+    }
+    const otherRunId = cleanString(selectedCompareRunId)
+      || deriveRunCompareTargetId(selectedRun || {}, activeRunReport || {});
     if (!otherRunId) {
       setRunCompare(null);
       setRunCompareLoading(false);
       return;
     }
     loadRunCompare(selectedRunId, otherRunId, { silent: true });
-  }, [activeRunReport, loadRunCompare, selectedRun, selectedRunId]);
+  }, [activeRunReport, loadRunCompare, selectedCompareRunId, selectedRun, selectedRunId]);
 
   const handleRefreshRunDetail = useCallback(() => {
     if (!selectedRunId) return;
     loadRunReport(selectedRunId);
     loadRunContextPack(selectedRunId);
-    const otherRunId = deriveRunCompareTargetId(selectedRun || {}, activeRunReport || {});
+    const otherRunId = cleanString(selectedCompareRunId)
+      || deriveRunCompareTargetId(selectedRun || {}, activeRunReport || {});
     if (otherRunId) {
       loadRunCompare(selectedRunId, otherRunId);
     } else {
@@ -3782,6 +3803,7 @@ function VibeResearcherPanel({
     loadRunCompare,
     loadRunContextPack,
     loadRunReport,
+    selectedCompareRunId,
     selectedRun,
     selectedRunId,
   ]);
@@ -5357,6 +5379,9 @@ function VibeResearcherPanel({
         run={selectedRun}
         runReport={activeRunReport}
         runCompare={activeRunCompare}
+        compareOptions={runCompareOptions}
+        selectedCompareRunId={selectedCompareRunId}
+        onSelectCompareRunId={setSelectedCompareRunId}
         loading={runReportLoading || runCompareLoading}
         compareLoading={runCompareLoading}
         onClose={() => setShowRunDetailModal(false)}

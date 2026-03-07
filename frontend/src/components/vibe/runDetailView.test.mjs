@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildRunCompareOptions,
   buildRunDetailContext,
   buildRunCompareSummary,
   buildRunExecutionSummary,
@@ -232,4 +233,38 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     deliverableCount: 1,
     sameNode: true,
   });
+});
+
+test('buildRunCompareOptions lists related runs with visible titles and stable ids', () => {
+  const options = buildRunCompareOptions(
+    {
+      id: 'run_current',
+      metadata: {
+        parentRunId: 'run_parent',
+      },
+      followUp: {
+        relatedRunIds: ['run_alt', 'run_parent'],
+      },
+    },
+    {},
+    [
+      {
+        id: 'run_alt',
+        metadata: {
+          prompt: 'Compare ablation branch',
+        },
+      },
+      {
+        id: 'run_parent',
+        metadata: {
+          experimentCommand: 'python eval.py',
+        },
+      },
+    ]
+  );
+
+  assert.deepEqual(options, [
+    { value: 'run_alt', label: 'Compare ablation branch' },
+    { value: 'run_parent', label: 'python eval.py' },
+  ]);
 });
