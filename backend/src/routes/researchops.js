@@ -53,6 +53,7 @@ const {
   buildIdeaPayload,
 } = require('../services/researchops/idea-payload.service');
 const {
+  buildKnowledgeGroupDeletePayload,
   buildKnowledgeGroupListPayload,
   buildKnowledgeGroupPayload,
   buildProjectKnowledgeGroupsPayload,
@@ -60,8 +61,10 @@ const {
 const {
   buildKnowledgeGroupDocumentListPayload,
   buildKnowledgeGroupDocumentMutationPayload,
+  buildKnowledgeGroupDocumentUnlinkPayload,
 } = require('../services/researchops/knowledge-group-document-payload.service');
 const {
+  buildKnowledgeAssetDeletePayload,
   buildKnowledgeAssetListPayload,
   buildKnowledgeAssetPayload,
   buildKnowledgeGroupAssetsPayload,
@@ -4771,7 +4774,10 @@ router.patch('/knowledge-groups/:groupId', async (req, res) => {
 router.delete('/knowledge-groups/:groupId', async (req, res) => {
   try {
     await knowledgeGroupsService.deleteKnowledgeGroup(getUserId(req), req.params.groupId);
-    return res.json({ success: true });
+    return res.json(buildKnowledgeGroupDeletePayload({
+      groupId: req.params.groupId,
+      success: true,
+    }));
   } catch (error) {
     console.error('[ResearchOps] deleteKnowledgeGroup failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to delete knowledge group') });
@@ -4831,7 +4837,11 @@ router.delete('/knowledge-groups/:groupId/documents/:documentId', async (req, re
       req.params.groupId,
       req.params.documentId
     );
-    return res.json({ success: true });
+    return res.json(buildKnowledgeGroupDocumentUnlinkPayload({
+      groupId: req.params.groupId,
+      documentId: req.params.documentId,
+      success: true,
+    }));
   } catch (error) {
     console.error('[ResearchOps] removeDocumentFromKnowledgeGroup failed:', error);
     if (error.code === 'GROUP_NOT_FOUND') return res.status(404).json({ error: 'Knowledge group not found' });
@@ -4946,7 +4956,10 @@ router.delete('/knowledge/assets/:assetId', async (req, res) => {
   try {
     const deleted = await knowledgeAssetsService.deleteKnowledgeAsset(getUserId(req), req.params.assetId);
     if (!deleted) return res.status(404).json({ error: 'Knowledge asset not found' });
-    return res.json({ success: true });
+    return res.json(buildKnowledgeAssetDeletePayload({
+      assetId: req.params.assetId,
+      success: true,
+    }));
   } catch (error) {
     console.error('[ResearchOps] deleteKnowledgeAsset failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to delete knowledge asset') });

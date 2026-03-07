@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   buildKnowledgeGroupDocumentListPayload,
   buildKnowledgeGroupDocumentMutationPayload,
+  buildKnowledgeGroupDocumentUnlinkPayload,
 } = require('../knowledge-group-document-payload.service');
 
 test('buildKnowledgeGroupDocumentListPayload preserves document items while exposing group actions', () => {
@@ -59,5 +60,21 @@ test('buildKnowledgeGroupDocumentMutationPayload exposes list follow-up and vali
   assert.deepEqual(payload.actions.list, {
     method: 'GET',
     path: '/researchops/knowledge-groups/42/documents',
+  });
+});
+
+test('buildKnowledgeGroupDocumentUnlinkPayload exposes unlink success and follow-up actions', () => {
+  const payload = buildKnowledgeGroupDocumentUnlinkPayload({
+    groupId: 42,
+    documentId: 9,
+    success: true,
+  });
+
+  assert.equal(payload.groupId, 42);
+  assert.equal(payload.documentId, 9);
+  assert.equal(payload.success, true);
+  assert.deepEqual(payload.actions.unlink, {
+    method: 'DELETE',
+    path: '/researchops/knowledge-groups/42/documents/9',
   });
 });

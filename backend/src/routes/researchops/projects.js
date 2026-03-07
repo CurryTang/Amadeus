@@ -82,10 +82,19 @@ const {
   buildProjectListPayload,
 } = require('../../services/researchops/project-location.service');
 const {
+  buildKnowledgeGroupDeletePayload,
   buildKnowledgeGroupListPayload,
   buildKnowledgeGroupPayload,
   buildProjectKnowledgeGroupsPayload,
 } = require('../../services/researchops/knowledge-group-payload.service');
+const {
+  buildKnowledgeGroupDocumentListPayload,
+  buildKnowledgeGroupDocumentMutationPayload,
+  buildKnowledgeGroupDocumentUnlinkPayload,
+} = require('../../services/researchops/knowledge-group-document-payload.service');
+const {
+  buildKnowledgeAssetDeletePayload,
+} = require('../../services/researchops/knowledge-asset-payload.service');
 const { buildProjectFileSearchPayload } = require('../../services/researchops/project-file-search-payload.service');
 const {
   buildKbSyncJobPayload,
@@ -4732,7 +4741,10 @@ router.patch('/knowledge-groups/:groupId', async (req, res) => {
 router.delete('/knowledge-groups/:groupId', async (req, res) => {
   try {
     await knowledgeGroupsService.deleteKnowledgeGroup(getUserId(req), req.params.groupId);
-    return res.json({ success: true });
+    return res.json(buildKnowledgeGroupDeletePayload({
+      groupId: req.params.groupId,
+      success: true,
+    }));
   } catch (error) {
     console.error('[ResearchOps] deleteKnowledgeGroup failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to delete knowledge group') });
@@ -4741,16 +4753,25 @@ router.delete('/knowledge-groups/:groupId', async (req, res) => {
 
 router.get('/knowledge-groups/:groupId/documents', async (req, res) => {
   try {
+    const limit = parseLimit(req.query.limit, 12, 100);
+    const offset = parseOffset(req.query.offset, 0, 100000);
+    const q = String(req.query.q || '').trim();
     const result = await knowledgeGroupsService.listKnowledgeGroupDocuments(
       getUserId(req),
       req.params.groupId,
       {
-        limit: parseLimit(req.query.limit, 12, 100),
-        offset: parseOffset(req.query.offset, 0, 100000),
-        q: String(req.query.q || '').trim(),
+        limit,
+        offset,
+        q,
       }
     );
-    return res.json(result);
+    return res.json(buildKnowledgeGroupDocumentListPayload({
+      groupId: req.params.groupId,
+      items: result.items,
+      limit,
+      offset,
+      q,
+    }));
   } catch (error) {
     console.error('[ResearchOps] listKnowledgeGroupDocuments failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to list group documents') });
@@ -4765,7 +4786,10 @@ router.post('/knowledge-groups/:groupId/documents', async (req, res) => {
       req.params.groupId,
       docIds
     );
-    return res.json(result);
+    return res.json(buildKnowledgeGroupDocumentMutationPayload({
+      groupId: req.params.groupId,
+      result,
+    }));
   } catch (error) {
     console.error('[ResearchOps] addDocumentsToKnowledgeGroup failed:', error);
     if (error.code === 'GROUP_NOT_FOUND') return res.status(404).json({ error: 'Knowledge group not found' });
@@ -4780,7 +4804,11 @@ router.delete('/knowledge-groups/:groupId/documents/:documentId', async (req, re
       req.params.groupId,
       req.params.documentId
     );
-    return res.json({ success: true });
+    return res.json(buildKnowledgeGroupDocumentUnlinkPayload({
+      groupId: req.params.groupId,
+      documentId: req.params.documentId,
+      success: true,
+    }));
   } catch (error) {
     console.error('[ResearchOps] removeDocumentFromKnowledgeGroup failed:', error);
     if (error.code === 'GROUP_NOT_FOUND') return res.status(404).json({ error: 'Knowledge group not found' });

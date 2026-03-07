@@ -8,6 +8,7 @@ const {
   buildKnowledgeAssetPayload,
   buildKnowledgeGroupAssetsPayload,
   buildKnowledgeGroupAssetMutationPayload,
+  buildKnowledgeAssetDeletePayload,
 } = require('../knowledge-asset-payload.service');
 
 test('buildKnowledgeAssetPayload preserves the asset root while exposing detail actions', () => {
@@ -125,5 +126,23 @@ test('buildKnowledgeGroupAssetMutationPayload exposes follow-up actions for asse
   assert.deepEqual(payload.actions.removeAsset, {
     method: 'DELETE',
     path: '/researchops/knowledge/groups/42/assets/7',
+  });
+});
+
+test('buildKnowledgeAssetDeletePayload exposes delete success with follow-up actions', () => {
+  const payload = buildKnowledgeAssetDeletePayload({
+    assetId: 7,
+    success: true,
+  });
+
+  assert.equal(payload.assetId, 7);
+  assert.equal(payload.success, true);
+  assert.deepEqual(payload.actions.detail, {
+    method: 'GET',
+    path: '/researchops/knowledge/assets/7',
+  });
+  assert.deepEqual(payload.actions.delete, {
+    method: 'DELETE',
+    path: '/researchops/knowledge/assets/7',
   });
 });

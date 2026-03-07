@@ -80,7 +80,23 @@ function buildKnowledgeGroupDocumentMutationPayload({
   };
 }
 
+function buildKnowledgeGroupDocumentUnlinkPayload({
+  groupId = null,
+  documentId = null,
+  success = null,
+} = {}) {
+  const normalizedGroupId = normalizeNumericId(groupId);
+  const normalizedDocumentId = normalizeNumericId(documentId);
+  return {
+    groupId: normalizedGroupId,
+    documentId: normalizedDocumentId,
+    success: typeof success === 'boolean' ? success : null,
+    actions: buildDocumentActions(normalizedGroupId, normalizedDocumentId),
+  };
+}
+
 module.exports = {
   buildKnowledgeGroupDocumentListPayload,
   buildKnowledgeGroupDocumentMutationPayload,
+  buildKnowledgeGroupDocumentUnlinkPayload,
 };

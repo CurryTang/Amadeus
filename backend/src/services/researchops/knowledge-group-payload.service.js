@@ -104,8 +104,28 @@ function buildProjectKnowledgeGroupsPayload({
   };
 }
 
+function buildKnowledgeGroupDeletePayload({
+  groupId = null,
+  success = null,
+} = {}) {
+  const normalizedGroupId = normalizeGroupId(groupId);
+  const actions = buildKnowledgeGroupActions(normalizedGroupId);
+  if (normalizedGroupId !== null) {
+    actions.delete = {
+      method: 'DELETE',
+      path: `/researchops/knowledge-groups/${encodeURIComponent(String(normalizedGroupId))}`,
+    };
+  }
+  return {
+    groupId: normalizedGroupId,
+    success: typeof success === 'boolean' ? success : null,
+    actions,
+  };
+}
+
 module.exports = {
   buildKnowledgeGroupActions,
+  buildKnowledgeGroupDeletePayload,
   buildKnowledgeGroupListPayload,
   buildKnowledgeGroupPayload,
   buildProjectKnowledgeGroupsPayload,

@@ -152,7 +152,27 @@ function buildKnowledgeGroupAssetMutationPayload({
   };
 }
 
+function buildKnowledgeAssetDeletePayload({
+  assetId = null,
+  success = null,
+} = {}) {
+  const normalizedAssetId = normalizeAssetId(assetId);
+  const actions = buildKnowledgeAssetActions(normalizedAssetId);
+  if (normalizedAssetId !== null) {
+    actions.delete = {
+      method: 'DELETE',
+      path: `/researchops/knowledge/assets/${encodeURIComponent(String(normalizedAssetId))}`,
+    };
+  }
+  return {
+    assetId: normalizedAssetId,
+    success: typeof success === 'boolean' ? success : null,
+    actions,
+  };
+}
+
 module.exports = {
+  buildKnowledgeAssetDeletePayload,
   buildKnowledgeAssetListPayload,
   buildKnowledgeAssetPayload,
   buildKnowledgeGroupAssetsPayload,

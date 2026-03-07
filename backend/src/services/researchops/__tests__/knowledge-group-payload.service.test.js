@@ -7,6 +7,7 @@ const {
   buildKnowledgeGroupListPayload,
   buildKnowledgeGroupPayload,
   buildProjectKnowledgeGroupsPayload,
+  buildKnowledgeGroupDeletePayload,
 } = require('../knowledge-group-payload.service');
 
 test('buildKnowledgeGroupPayload preserves the group root while exposing detail actions', () => {
@@ -85,5 +86,23 @@ test('buildProjectKnowledgeGroupsPayload preserves linked group items while expo
   assert.deepEqual(payload.actions.setLinks, {
     method: 'PUT',
     path: '/researchops/projects/proj_1/knowledge-groups',
+  });
+});
+
+test('buildKnowledgeGroupDeletePayload exposes delete success with follow-up actions', () => {
+  const payload = buildKnowledgeGroupDeletePayload({
+    groupId: 42,
+    success: true,
+  });
+
+  assert.equal(payload.groupId, 42);
+  assert.equal(payload.success, true);
+  assert.deepEqual(payload.actions.detail, {
+    method: 'GET',
+    path: '/researchops/knowledge-groups/42',
+  });
+  assert.deepEqual(payload.actions.delete, {
+    method: 'DELETE',
+    path: '/researchops/knowledge-groups/42',
   });
 });
