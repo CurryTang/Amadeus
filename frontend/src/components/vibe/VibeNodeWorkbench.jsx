@@ -4,6 +4,7 @@ import EmptyState from '../ui/EmptyState';
 import ClarificationChat from './ClarificationChat';
 import { buildContextPackSummary } from './contextPackPresentation.js';
 import { buildNodeReviewSummary } from './reviewPresentation.js';
+import { buildSearchTrialRows } from './searchPresentation.js';
 import { getTreeNodeKindLabel, isObservedTreeNode, isSearchTreeNode } from './treeNodePresentation.js';
 
 const TABS = ['summary', 'commands', 'diff', 'outputs', 'deliverables', 'notes'];
@@ -190,6 +191,10 @@ function VibeNodeWorkbench({
     () => buildNodeReviewSummary(node, nodeState, runReport),
     [node, nodeState, runReport]
   );
+  const searchTrialRows = useMemo(
+    () => buildSearchTrialRows(searchData),
+    [searchData]
+  );
   const deliverables = useMemo(() => {
     const manifest = runReport?.manifest && typeof runReport.manifest === 'object' ? runReport.manifest : {};
     const items = [];
@@ -371,21 +376,17 @@ function VibeNodeWorkbench({
           {isSearchNode && (
             <article>
               <h4>Search Leaderboard</h4>
-              {!searchData || !Array.isArray(searchData.trials) || searchData.trials.length === 0 ? (
+              {searchTrialRows.length === 0 ? (
                 <p className="vibe-empty">No trials yet.</p>
               ) : (
                 <div className="vibe-list">
-                  {searchData.trials
-                    .slice()
-                    .sort((a, b) => Number(b.reward || 0) - Number(a.reward || 0))
-                    .slice(0, 8)
-                    .map((trial) => (
+                  {searchTrialRows.map((trial) => (
                       <div key={trial.id} className="vibe-list-item">
                         <div className="vibe-list-main">
-                          <strong>{trial.id}</strong>
-                          <span>{trial.status} · reward {Number(trial.reward || 0).toFixed(3)}</span>
+                          <strong>{trial.title}</strong>
+                          <span>{trial.meta}</span>
                         </div>
-                        <code>{trial.runId || '-'}</code>
+                        <code>{trial.code}</code>
                       </div>
                     ))}
                 </div>
