@@ -89,6 +89,7 @@ const {
   buildAgentCapacityPayload,
   buildRunnerRunningPayload,
 } = require('../services/researchops/runner-status-payload.service');
+const { buildResearchOpsHealthPayload } = require('../services/researchops/health-payload.service');
 const {
   buildProjectPayload,
   buildProjectListPayload,
@@ -3254,12 +3255,10 @@ router.use(requireAuth);
 router.get('/health', async (req, res) => {
   try {
     await researchOpsStore.initStore();
-    res.json({
-      status: 'ok',
+    res.json(buildResearchOpsHealthPayload({
       storeMode: researchOpsStore.getStoreMode(),
       running: researchOpsRunner.getRunningState().length,
-      timestamp: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     res.status(500).json({
       error: 'Failed to initialize ResearchOps store',

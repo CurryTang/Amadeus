@@ -136,3 +136,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Project knowledge-group link mutation now emits the `knowledgeGroups` compatibility alias directly from the payload service, so modular and monolith routes no longer re-wrap the same response differently
   - Monolith run delete and cluster resource-pool now reuse existing normalized payload services instead of layering extra route-local wrappers on top
   - Tree todo-clarify and run-clarify responses now use a normalized payload service with compatible `done/question/options` roots plus explicit clarify actions
+  - ResearchOps health, project `kb/files`, and project `context/repo-map` now also use normalized payload services; a final raw-success scan of modular + monolith `researchops` routes now returns no remaining `res.json({ ... })` success wrappers
