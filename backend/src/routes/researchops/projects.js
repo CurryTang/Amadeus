@@ -5125,14 +5125,17 @@ function evaluateNodeBlocking(node = {}, treeState = {}) {
   };
 }
 
-async function hydrateTreeStateRunStatuses(userId, treeState = {}) {
+async function hydrateTreeStateRunStatuses(userId, treeState = {}, options = {}) {
   const state = treeStateService.normalizeState(treeState);
+  const getRunFn = typeof options?.getRunFn === 'function'
+    ? options.getRunFn
+    : researchOpsStore.getRun.bind(researchOpsStore);
   const nodeEntries = Object.entries(state.nodes || {});
   for (const [nodeId, nodeState] of nodeEntries) {
     const runId = String(nodeState?.lastRunId || '').trim();
     if (!runId) continue;
     // eslint-disable-next-line no-await-in-loop
-    const run = await researchOpsStore.getRun(userId, runId).catch(() => null);
+    const run = await getRunFn(userId, runId).catch(() => null);
     if (!run) continue;
     const mapped = runStatusToNodeStatus(run.status);
     if (!mapped) continue;
@@ -7248,6 +7251,8 @@ router.queueJumpstartAutoRun = queueJumpstartAutoRun;
 router.buildJumpstartQueuedState = buildJumpstartQueuedState;
 router.shouldUseGitManagedTreeRun = shouldUseGitManagedTreeRun;
 router.extractNodeCommands = extractNodeCommands;
+router.runStatusToNodeStatus = runStatusToNodeStatus;
+router.hydrateTreeStateRunStatuses = hydrateTreeStateRunStatuses;
 router.shouldBootstrapCodebaseRoot = shouldBootstrapCodebaseRoot;
 router.listObservedSessionsForProject = listObservedSessionsForProject;
 router.getObservedSessionForProject = getObservedSessionForProject;
