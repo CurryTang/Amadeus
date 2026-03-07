@@ -13,6 +13,24 @@ test('buildRunComparePayload exposes comparable run/report summaries', () => {
     provider: 'codex',
     runType: 'AGENT',
     status: 'SUCCEEDED',
+    resolvedTransport: 'daemon-task',
+    outputContract: {
+      requiredArtifacts: ['summary'],
+      summaryRequired: true,
+      ok: false,
+    },
+    observability: {
+      statuses: {
+        readiness: 'needs_attention',
+        contract: 'failing',
+      },
+      counts: {
+        warnings: 1,
+        sinks: 1,
+      },
+      sinkProviders: ['wandb'],
+      warnings: ['contract validation failed'],
+    },
     metadata: {
       treeNodeId: 'node_eval',
       treeNodeTitle: 'Evaluate model',
@@ -79,6 +97,45 @@ test('buildRunComparePayload exposes comparable run/report summaries', () => {
   assert.equal(payload.relation.sameNode, true);
   assert.equal(payload.relation.sharedTreeNodeId, 'node_eval');
   assert.deepEqual(payload.relation.sharedParentRunIds, ['run_seed']);
+  assert.deepEqual(payload.contract, {
+    requiredArtifacts: ['summary'],
+    tables: [],
+    figures: [],
+    metricKeys: [],
+    summaryRequired: true,
+    ok: null,
+    missingTables: [],
+    missingFigures: [],
+  });
+  assert.deepEqual(payload.workspaceSnapshot, {
+    path: null,
+    sourceServerId: 'local-default',
+    runSpecArtifactId: null,
+    localSnapshot: null,
+  });
+  assert.deepEqual(payload.envSnapshot, {
+    backend: 'local',
+    runtimeClass: null,
+    resources: {
+      cpu: null,
+      gpu: null,
+      ramGb: null,
+      timeoutMin: null,
+    },
+  });
+  assert.deepEqual(payload.observability, {
+    counts: {
+      warnings: 1,
+      sinks: 1,
+    },
+    statuses: {
+      readiness: 'needs_attention',
+      contract: 'failing',
+    },
+    sinkProviders: ['wandb'],
+    warnings: ['contract validation failed'],
+  });
+  assert.equal(payload.resolvedTransport, 'daemon-task');
   assert.deepEqual(payload.report.highlights.deliverableArtifactIds, ['artifact_summary_1', 'artifact_final_1']);
   assert.equal(payload.other.report.summary, 'ablation summary');
   assert.equal(payload.other.report.observability.statuses.readiness, 'needs_attention');

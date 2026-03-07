@@ -89,6 +89,11 @@ function buildRunComparePayload({
     attempt: base.attempt,
     execution: base.execution,
     followUp: base.followUp,
+    contract: base.contract,
+    workspaceSnapshot: base.workspaceSnapshot,
+    envSnapshot: base.envSnapshot,
+    observability: base.observability,
+    resolvedTransport: base.resolvedTransport,
     report: base.report,
     actions: {
       ...buildRunActions(baseRunId),
