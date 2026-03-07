@@ -50,6 +50,10 @@ const {
   buildObservedSessionItemPayload,
   buildObservedSessionListPayload,
 } = require('../../services/researchops/observed-session-payload.service');
+const {
+  buildAutopilotSessionListPayload,
+  buildAutopilotSessionPayload,
+} = require('../../services/researchops/autopilot-session-payload.service');
 const projectInsightsProxy = require('../../services/project-insights-proxy.service');
 const projectInsightsService = require('../../services/project-insights.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
@@ -4950,7 +4954,7 @@ router.post('/projects/:projectId/autopilot/start', async (req, res) => {
     const session = await autopilotService.startSession(userId, projectId, {
       proposal, maxIterations, serverId, skill,
     });
-    return res.status(201).json({ session });
+    return res.status(201).json(buildAutopilotSessionPayload({ session }));
   } catch (error) {
     console.error('[Autopilot] start failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to start autopilot session') });
@@ -4963,7 +4967,7 @@ router.get('/projects/:projectId/autopilot/sessions', async (req, res) => {
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
     const userId = getUserId(req);
     const sessions = autopilotService.listProjectSessions(userId, projectId);
-    return res.json({ sessions });
+    return res.json(buildAutopilotSessionListPayload({ projectId, sessions }));
   } catch (error) {
     return res.status(400).json({ error: sanitizeError(error, 'Failed to list autopilot sessions') });
   }

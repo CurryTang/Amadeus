@@ -44,6 +44,10 @@ const {
   buildAgentSessionMessagesPayload,
 } = require('../services/researchops/agent-session-message-payload.service');
 const { buildContextPackPayload } = require('../services/researchops/context-pack-payload.service');
+const {
+  buildAutopilotSessionListPayload,
+  buildAutopilotSessionPayload,
+} = require('../services/researchops/autopilot-session-payload.service');
 const { buildNodeBridgeView } = require('../services/researchops/node-bridge-view.service');
 const { normalizeEnqueueRunPayload } = require('../services/researchops/enqueue-run-payload.service');
 const { buildRunListPayload } = require('../services/researchops/run-list-payload.service');
@@ -5161,7 +5165,7 @@ router.post('/projects/:projectId/autopilot/start', requireAuth, async (req, res
     const session = await autopilotService.startSession(userId, projectId, {
       proposal, maxIterations, serverId, skill,
     });
-    return res.status(201).json({ session });
+    return res.status(201).json(buildAutopilotSessionPayload({ session }));
   } catch (error) {
     console.error('[Autopilot] start failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to start autopilot session') });
@@ -5174,7 +5178,7 @@ router.get('/projects/:projectId/autopilot/sessions', requireAuth, async (req, r
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
     const userId = getUserId(req);
     const sessions = autopilotService.listProjectSessions(userId, projectId);
-    return res.json({ sessions });
+    return res.json(buildAutopilotSessionListPayload({ projectId, sessions }));
   } catch (error) {
     return res.status(400).json({ error: sanitizeError(error, 'Failed to list autopilot sessions') });
   }
@@ -5186,7 +5190,7 @@ router.post('/autopilot/:sessionId/stop', requireAuth, async (req, res) => {
     if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
     const session = await autopilotService.stopSession(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
-    return res.json({ session });
+    return res.json(buildAutopilotSessionPayload({ session }));
   } catch (error) {
     return res.status(400).json({ error: sanitizeError(error, 'Failed to stop autopilot session') });
   }
@@ -5197,7 +5201,7 @@ router.get('/autopilot/:sessionId', requireAuth, async (req, res) => {
     const sessionId = String(req.params.sessionId || '').trim();
     const session = autopilotService.getSession(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
-    return res.json({ session });
+    return res.json(buildAutopilotSessionPayload({ session }));
   } catch (error) {
     return res.status(400).json({ error: sanitizeError(error, 'Failed to get autopilot session') });
   }
