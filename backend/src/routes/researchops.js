@@ -50,6 +50,7 @@ const { buildRunListPayload } = require('../services/researchops/run-list-payloa
 const { buildRunPayload } = require('../services/researchops/run-payload.service');
 const { buildQueuedRunActionPayload } = require('../services/researchops/queued-run-action-payload.service');
 const { buildBridgeRunReportPayload } = require('../services/researchops/bridge-run-report-payload.service');
+const { buildBridgeNoteArtifactInput } = require('../services/researchops/bridge-note-payload.service');
 const { buildRunReportPayload } = require('../services/researchops/run-report-payload.service');
 const { buildRunTreePayload } = require('../services/researchops/run-tree-payload.service');
 const {
@@ -5750,6 +5751,34 @@ router.get('/runs/:runId/bridge-report', async (req, res) => {
     console.error('[ResearchOps] getBridgeRunReport failed:', error);
     if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
     return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch bridge run report') });
+  }
+});
+
+router.post('/runs/:runId/bridge-note', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const runId = String(req.params.runId || '').trim();
+    const content = typeof req.body?.content === 'string' ? req.body.content : '';
+    if (!runId) return res.status(400).json({ error: 'runId is required' });
+    if (!content.trim()) return res.status(400).json({ error: 'content is required' });
+
+    const artifact = await researchOpsStore.createRunArtifact(
+      userId,
+      runId,
+      buildBridgeNoteArtifactInput({
+        title: req.body?.title,
+        content,
+        noteType: req.body?.noteType,
+      })
+    );
+    return res.json({
+      ok: true,
+      artifact: withArtifactDownloadUrl(artifact, runId),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] createBridgeNote failed:', error);
+    if (error.code === 'RUN_NOT_FOUND') return res.status(404).json({ error: 'Run not found' });
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to create bridge note') });
   }
 });
 
