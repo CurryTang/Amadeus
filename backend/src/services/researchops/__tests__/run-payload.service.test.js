@@ -73,6 +73,8 @@ test('buildRunPayload exposes explicit execution contract fields when metadata c
     runtimeFamily: 'container',
     isolationTier: 'standard',
     executionTarget: 'managed-runner',
+    compatibilityStatus: 'compatible',
+    compatibilityWarning: '',
   });
   assert.deepEqual(payload.execution.resources, {
     cpu: 4,

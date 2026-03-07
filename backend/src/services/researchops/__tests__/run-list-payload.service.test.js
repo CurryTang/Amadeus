@@ -175,6 +175,8 @@ test('buildRunListPayload includes normalized workspace and env snapshot semanti
     runtimeFamily: 'container',
     isolationTier: 'standard',
     executionTarget: 'managed-runner',
+    compatibilityStatus: 'compatible',
+    compatibilityWarning: '',
   });
 });
 

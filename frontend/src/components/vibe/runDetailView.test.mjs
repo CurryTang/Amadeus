@@ -108,6 +108,7 @@ test('buildRunExecutionSummary prefers normalized execution view and formats res
       runtimeClass: 'container-fast',
       runtimeProfile: {
         isolationTier: 'standard',
+        compatibilityWarning: '',
       },
       resources: {
         cpu: 4,
@@ -125,8 +126,26 @@ test('buildRunExecutionSummary prefers normalized execution view and formats res
     backend: 'container',
     runtimeClass: 'container-fast',
     isolationTier: 'Standard isolation',
+    compatibilityWarning: '',
     resourcesLabel: 'cpu 4 · gpu 1 · ram 24GB · timeout 30m',
   });
+});
+
+test('buildRunExecutionSummary surfaces compatibility warnings from the runtime profile', () => {
+  const execution = buildRunExecutionSummary({
+    ...BASE_RUN,
+    execution: {
+      location: 'local',
+      backend: 'local',
+      runtimeClass: 'container-fast',
+      runtimeProfile: {
+        isolationTier: 'standard',
+        compatibilityWarning: 'Container Fast is not advertised for Local Host.',
+      },
+    },
+  });
+
+  assert.equal(execution.compatibilityWarning, 'Container Fast is not advertised for Local Host.');
 });
 
 test('buildRunSnapshotSummary exposes workspace and environment snapshot rows when present', () => {

@@ -80,3 +80,23 @@ test('buildTreeRunStepMessage includes snapshot-backed hints for preflight runs'
     'Preflight ready for node_eval with 1 command on container/container-fast (standard isolation); snapshot-backed.'
   );
 });
+
+test('buildTreeRunStepMessage includes runtime compatibility warnings when present', () => {
+  assert.equal(
+    buildTreeRunStepMessage({
+      mode: 'preflight',
+      nodeId: 'node_eval',
+      commands: ['python train.py'],
+      runPreview: {
+        execution: {
+          backend: 'local',
+          runtimeClass: 'container-fast',
+          runtimeProfile: {
+            compatibilityWarning: 'Container Fast is not advertised for Local Host.',
+          },
+        },
+      },
+    }),
+    'Preflight ready for node_eval with 1 command on local/container-fast; warning: Container Fast is not advertised for Local Host.'
+  );
+});

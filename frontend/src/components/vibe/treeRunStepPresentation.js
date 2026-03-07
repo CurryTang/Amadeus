@@ -43,12 +43,13 @@ function buildTreeRunStepMessage(payload = {}) {
       : {};
     const runtimeBits = [cleanString(execution.backend), cleanString(execution.runtimeClass)].filter(Boolean);
     const isolationTier = formatIsolationTier(runtimeProfile.isolationTier);
+    const compatibilityWarning = cleanString(runtimeProfile.compatibilityWarning);
     const requiredArtifacts = Array.isArray(contract.requiredArtifacts)
       ? contract.requiredArtifacts.filter((item) => cleanString(item))
       : [];
     const hasSnapshot = Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note));
     let message = `Preflight ready for ${nodeId} with ${pluralize(commands, 'command')}.`;
-    if (runtimeBits.length > 0 || requiredArtifacts.length > 0 || hasSnapshot) {
+    if (runtimeBits.length > 0 || requiredArtifacts.length > 0 || hasSnapshot || compatibilityWarning) {
       message = `Preflight ready for ${nodeId} with ${pluralize(commands, 'command')}`;
       if (runtimeBits.length > 0) {
         message += ` on ${runtimeBits.join('/')}`;
@@ -61,6 +62,9 @@ function buildTreeRunStepMessage(payload = {}) {
       }
       if (hasSnapshot) {
         message += '; snapshot-backed';
+      }
+      if (compatibilityWarning) {
+        message += `; warning: ${compatibilityWarning.replace(/[.]+$/, '')}`;
       }
       message += '.';
     }

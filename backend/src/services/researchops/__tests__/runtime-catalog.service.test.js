@@ -44,6 +44,8 @@ test('buildExecutionRuntimeProfile derives runtime family and isolation tier fro
     runtimeFamily: 'container',
     isolationTier: 'guarded',
     executionTarget: 'managed-runner',
+    compatibilityStatus: 'compatible',
+    compatibilityWarning: '',
   });
 });
 
@@ -63,6 +65,29 @@ test('buildExecutionRuntimeProfile falls back to local-native semantics when no 
     runtimeFamily: 'native',
     isolationTier: 'none',
     executionTarget: 'backend-host',
+    compatibilityStatus: 'compatible',
+    compatibilityWarning: '',
+  });
+});
+
+test('buildExecutionRuntimeProfile flags incompatible backend and runtime-class combinations', () => {
+  assert.deepEqual(buildExecutionRuntimeProfile({
+    backend: 'local',
+    runtimeClass: 'container-fast',
+    location: 'local',
+  }), {
+    catalogVersion: EXECUTION_RUNTIME_CATALOG_VERSION,
+    backend: 'local',
+    runtimeClass: 'container-fast',
+    backendKnown: true,
+    runtimeClassKnown: true,
+    backendLabel: 'Local Host',
+    runtimeClassLabel: 'Container Fast',
+    runtimeFamily: 'container',
+    isolationTier: 'standard',
+    executionTarget: 'backend-host',
+    compatibilityStatus: 'mismatch',
+    compatibilityWarning: 'Container Fast is not advertised for Local Host.',
   });
 });
 

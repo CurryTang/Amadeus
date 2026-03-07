@@ -133,6 +133,12 @@ function VibeRunDetailModal({
                   <dd>{execution.resourcesLabel}</dd>
                 </div>
               )}
+              {execution.compatibilityWarning && (
+                <div className="vibe-run-detail-grid-span">
+                  <dt>Runtime Warning</dt>
+                  <dd>{execution.compatibilityWarning}</dd>
+                </div>
+              )}
             </dl>
           </section>
 

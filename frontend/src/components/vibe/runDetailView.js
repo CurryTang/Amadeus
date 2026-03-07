@@ -101,6 +101,7 @@ function buildRunExecutionSummary(run = {}) {
     backend: cleanString(execution.backend),
     runtimeClass: cleanString(execution.runtimeClass),
     isolationTier: formatIsolationTier(runtimeProfile.isolationTier),
+    compatibilityWarning: cleanString(runtimeProfile.compatibilityWarning),
     resourcesLabel: resourceBits.map(([label, value]) => {
       if (label === 'ram') return `ram ${value}GB`;
       if (label === 'timeout') return `timeout ${value}m`;

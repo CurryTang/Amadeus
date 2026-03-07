@@ -7,21 +7,25 @@ const BACKEND_DESCRIPTORS = [
     id: 'local',
     label: 'Local Host',
     executionTarget: 'backend-host',
+    supportedRuntimeClasses: ['wasm-lite'],
   },
   {
     id: 'container',
     label: 'Container',
     executionTarget: 'managed-runner',
+    supportedRuntimeClasses: ['wasm-lite', 'container-fast', 'container-guarded'],
   },
   {
     id: 'k8s',
     label: 'Kubernetes',
     executionTarget: 'cluster-runner',
+    supportedRuntimeClasses: ['wasm-lite', 'container-fast', 'container-guarded', 'microvm-strong'],
   },
   {
     id: 'slurm',
     label: 'Slurm',
     executionTarget: 'batch-cluster',
+    supportedRuntimeClasses: ['container-fast', 'container-guarded'],
   },
 ];
 
@@ -108,6 +112,19 @@ function buildExecutionRuntimeProfile({
   const normalizedRuntimeClass = normalizeRuntimeClass(runtimeClass);
   const backendDescriptor = getBackendDescriptor(normalizedBackend);
   const runtimeClassDescriptor = getRuntimeClassDescriptor(normalizedRuntimeClass);
+  const supportedRuntimeClasses = Array.isArray(backendDescriptor?.supportedRuntimeClasses)
+    ? backendDescriptor.supportedRuntimeClasses
+    : [];
+  const compatibilityStatus = !normalizedRuntimeClass
+    ? 'compatible'
+    : (!backendDescriptor || !runtimeClassDescriptor)
+      ? 'unknown'
+      : supportedRuntimeClasses.includes(normalizedRuntimeClass)
+        ? 'compatible'
+        : 'mismatch';
+  const compatibilityWarning = compatibilityStatus === 'mismatch'
+    ? `${runtimeClassDescriptor.label} is not advertised for ${backendDescriptor.label}.`
+    : '';
 
   return {
     catalogVersion: EXECUTION_RUNTIME_CATALOG_VERSION,
@@ -123,6 +140,8 @@ function buildExecutionRuntimeProfile({
       || (normalizedBackend === 'local' ? 'none' : ''),
     executionTarget: backendDescriptor?.executionTarget
       || (cleanString(location).toLowerCase() === 'local' ? 'backend-host' : ''),
+    compatibilityStatus,
+    compatibilityWarning,
   };
 }
 
