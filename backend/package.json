@@ -10,6 +10,7 @@
     "processing": "node --no-deprecation processing-server.js",
     "processing:dev": "nodemon --no-deprecation processing-server.js",
     "researchops:daemon": "node --no-deprecation scripts/researchops-client-daemon.js",
+    "researchops:rust-daemon-prototype": ". \"$HOME/.cargo/env\" && cargo run --manifest-path rust/researchops-local-daemon/Cargo.toml --quiet",
     "setup:x-session": "node --no-deprecation scripts/setup-x-session.js",
     "exp:x-papers": "node --no-deprecation scripts/exp-x-paper-posts.js"
   },
