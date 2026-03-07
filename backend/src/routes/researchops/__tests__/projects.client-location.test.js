@@ -26,6 +26,13 @@ test('builds client agent path-check response via daemon target', async () => {
   assert.equal(result.exists, true);
   assert.equal(result.isDirectory, true);
   assert.equal(result.canCreate, true);
+  assert.equal(result.capabilities.canBootstrapProject, true);
+  assert.deepEqual(result.capabilities.supportedTaskTypes, [
+    'project.checkPath',
+    'project.ensurePath',
+    'project.ensureGit',
+  ]);
+  assert.deepEqual(result.capabilities.missingBootstrapTaskTypes, []);
   assert.deepEqual(result.execution, {
     location: 'client',
     transport: 'daemon-rpc',
@@ -76,4 +83,33 @@ test('rejects client agent project bootstrap when daemon misses required ensure 
     status: 'ONLINE',
     supportedTaskTypes: ['project.ensurePath'],
   }), /does not support required tasks: project\.ensureGit/i);
+});
+
+test('client agent path-check hides bootstrap actions when daemon cannot ensure path and git', async () => {
+  const result = await projectsRouter.buildProjectPathCheckResponse({
+    locationType: 'client',
+    clientMode: 'agent',
+    clientDeviceId: 'srv_client_1',
+    projectPath: '/Users/alice/my-project',
+  }, {
+    getClientDevice: async () => ({
+      id: 'srv_client_1',
+      status: 'ONLINE',
+      supportedTaskTypes: ['project.checkPath', 'project.ensurePath'],
+    }),
+    requestDaemonRpc: async () => ({
+      normalizedPath: '/Users/alice/my-project',
+      exists: false,
+      isDirectory: true,
+    }),
+  });
+
+  assert.equal(result.capabilities.canBootstrapProject, false);
+  assert.deepEqual(result.capabilities.missingBootstrapTaskTypes, ['project.ensureGit']);
+  assert.deepEqual(result.actions.ensurePath, {
+    transport: 'daemon-rpc',
+    serverId: 'srv_client_1',
+    taskType: 'project.ensurePath',
+  });
+  assert.equal(result.actions.ensureGit, undefined);
 });

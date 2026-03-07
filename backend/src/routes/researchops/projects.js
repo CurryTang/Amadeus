@@ -1270,6 +1270,26 @@ function assertClientDaemonSupportsProjectBootstrap(device = null) {
   ]);
 }
 
+function buildClientDaemonBootstrapActions(device = null, serverId = '') {
+  const safeServerId = cleanString(serverId) || cleanString(device?.id) || cleanString(device?.serverId);
+  const actions = {};
+  if (daemonSupportsTaskTypes(device, ['project.ensurePath'])) {
+    actions.ensurePath = {
+      transport: 'daemon-rpc',
+      serverId: safeServerId,
+      taskType: 'project.ensurePath',
+    };
+  }
+  if (daemonSupportsTaskTypes(device, ['project.ensureGit'])) {
+    actions.ensureGit = {
+      transport: 'daemon-rpc',
+      serverId: safeServerId,
+      taskType: 'project.ensureGit',
+    };
+  }
+  return actions;
+}
+
 async function getClientDeviceById(userId, clientDeviceId) {
   const targetId = cleanString(clientDeviceId);
   if (!targetId) return null;
@@ -1302,6 +1322,12 @@ async function buildProjectPathCheckResponse(input = {}, deps = {}) {
       throw error;
     }
     assertClientDaemonSupportsTasks(device, ['project.checkPath']);
+    const bootstrapActions = buildClientDaemonBootstrapActions(device, normalized.clientDeviceId);
+    const supportedTaskTypes = Array.isArray(device?.supportedTaskTypes) && device.supportedTaskTypes.length > 0
+      ? device.supportedTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+      : ['project.checkPath', 'project.ensurePath', 'project.ensureGit'];
+    const missingBootstrapTaskTypes = ['project.ensurePath', 'project.ensureGit']
+      .filter((taskType) => !daemonSupportsTaskTypes(device, [taskType]));
     const remoteResult = rpc
       ? await rpc({
         userId: deps.userId,
@@ -1325,17 +1351,13 @@ async function buildProjectPathCheckResponse(input = {}, deps = {}) {
         serverId: normalized.clientDeviceId,
         taskType: 'project.checkPath',
       },
+      capabilities: {
+        supportedTaskTypes,
+        canBootstrapProject: missingBootstrapTaskTypes.length === 0,
+        missingBootstrapTaskTypes,
+      },
       actions: {
-        ensurePath: {
-          transport: 'daemon-rpc',
-          serverId: normalized.clientDeviceId,
-          taskType: 'project.ensurePath',
-        },
-        ensureGit: {
-          transport: 'daemon-rpc',
-          serverId: normalized.clientDeviceId,
-          taskType: 'project.ensureGit',
-        },
+        ...bootstrapActions,
       },
       projectPath: remoteResult.normalizedPath || normalized.projectPath,
       exists: Boolean(remoteResult.exists),
