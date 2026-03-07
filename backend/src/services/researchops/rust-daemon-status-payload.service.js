@@ -1,6 +1,8 @@
 'use strict';
 
 const path = require('node:path');
+const { buildRustDaemonSupervisorPaths, buildRustDaemonSupervisorState } = require('./rust-daemon-supervisor.service');
+const { buildRustDaemonBackgroundLaunchCommand } = require('./rust-daemon-launcher.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -55,15 +57,25 @@ function buildRustDaemonEnvFileContent({
 function buildRustDaemonPrototypeRuntimeOptions({
   apiBaseUrl = '',
   cwd = process.cwd(),
+  env = process.env,
 } = {}) {
   const normalizedApiBaseUrl = cleanString(apiBaseUrl).replace(/\/+$/, '');
   const rustScriptPath = path.join(cwd, 'backend', 'scripts', 'researchops-bootstrap-rust-daemon.sh');
+  const backgroundLaunch = buildRustDaemonBackgroundLaunchCommand({
+    cwd,
+    env: {
+      ...env,
+      RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
+    },
+  });
+  const supervisorPaths = buildRustDaemonSupervisorPaths({ cwd, env });
   return {
     rustDaemonPrototype: {
       runtime: 'rust',
       status: 'prototype',
       commands: {
         launcher: 'npm --prefix backend run researchops:rust-daemon',
+        background: backgroundLaunch.command,
         http: [
           `RESEARCHOPS_API_BASE_URL=${shellQuote(normalizedApiBaseUrl)}`,
           `RESEARCHOPS_RUST_DAEMON_TRANSPORT='http'`,
@@ -76,6 +88,7 @@ function buildRustDaemonPrototypeRuntimeOptions({
         ].join(' \\\n'),
         verify: 'npm --prefix backend run researchops:verify-rust-daemon-prototype',
       },
+      supervisorPaths,
       env: {
         RESEARCHOPS_API_BASE_URL: normalizedApiBaseUrl,
         RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS: 'true',
@@ -104,10 +117,12 @@ function buildRustDaemonStatusPayload({
   rustDaemon = null,
   apiBaseUrl = '',
   cwd = process.cwd(),
+  env = process.env,
   refreshedAt = '',
 } = {}) {
-  const runtimeOptions = buildRustDaemonPrototypeRuntimeOptions({ apiBaseUrl, cwd });
+  const runtimeOptions = buildRustDaemonPrototypeRuntimeOptions({ apiBaseUrl, cwd, env });
   const source = rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {};
+  const supervisor = buildRustDaemonSupervisorState({ cwd, env });
   return {
     enabled: source.enabled === true,
     status: cleanString(source.status) || 'disabled',
@@ -138,6 +153,7 @@ function buildRustDaemonStatusPayload({
         }
       : null,
     error: cleanString(source.error) || null,
+    supervisor,
     runtimeOptions,
     debugCommands: buildRustDaemonDebugCommands({
       endpoint: source.endpoint,

@@ -67,6 +67,7 @@ test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts',
     snapshotReadyClients: 1,
     rustBridgeReady: true,
     rustSnapshotReady: true,
+    rustManagedRunning: false,
     runningCount: 3,
   });
 
@@ -76,6 +77,7 @@ test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts',
     { label: 'Snapshot-Ready Clients', value: '1' },
     { label: 'Rust Bridge Ready', value: 'yes' },
     { label: 'Rust Snapshot Ready', value: 'yes' },
+    { label: 'Rust Managed', value: 'no' },
     { label: 'Running Jobs', value: '3' },
   ]);
 });
@@ -88,6 +90,7 @@ test('buildRuntimeOverviewPanelRows preserves summary-only rows when rust status
       snapshotReadyClients: 1,
       rustBridgeReady: false,
       rustSnapshotReady: false,
+      rustManagedRunning: false,
       runningCount: 3,
     },
     rustDaemonStatus: null,
@@ -99,6 +102,7 @@ test('buildRuntimeOverviewPanelRows preserves summary-only rows when rust status
     { label: 'Snapshot-Ready Clients', value: '1' },
     { label: 'Rust Bridge Ready', value: 'no' },
     { label: 'Rust Snapshot Ready', value: 'no' },
+    { label: 'Rust Managed', value: 'no' },
     { label: 'Running Jobs', value: '3' },
   ]);
 });
@@ -183,6 +187,12 @@ test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parit
       runtime: {
         supports_workspace_snapshot_capture: true,
       },
+      supervisor: {
+        running: true,
+        pid: 43210,
+        pidFile: '/tmp/researchops-rust-daemon/rust-daemon.pid',
+        logFile: '/tmp/researchops-rust-daemon/rust-daemon.log',
+      },
       taskCatalog: {
         version: 'v0',
         tasks: [
@@ -202,6 +212,10 @@ test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parit
     { label: 'Rust Transport', value: 'unix' },
     { label: 'Rust Socket', value: '/tmp/researchops-local-daemon.sock' },
     { label: 'Rust Task Catalog', value: 'v0 (2 tasks)' },
+    { label: 'Rust Managed', value: 'yes' },
+    { label: 'Rust PID', value: '43210' },
+    { label: 'Rust PID File', value: '/tmp/researchops-rust-daemon/rust-daemon.pid' },
+    { label: 'Rust Log', value: '/tmp/researchops-rust-daemon/rust-daemon.log' },
     { label: 'Rust Snapshot Capture', value: 'ready' },
     { label: 'Rust Catalog Parity', value: 'mismatch' },
     { label: 'Rust Missing Tasks', value: 'bridge.submitRunNote' },
@@ -242,6 +256,7 @@ test('buildBootstrapRuntimeCommands returns labeled rust prototype commands', ()
       rustDaemonPrototype: {
         commands: {
           launcher: 'npm run researchops:rust-daemon',
+          background: 'nohup npm run researchops:rust-daemon >/tmp/rust.log 2>&1 &',
           http: 'npm run researchops:rust-daemon-serve',
           unix: 'npm run researchops:rust-daemon-serve-unix',
           verify: 'npm run researchops:verify-rust-daemon-prototype',
@@ -255,6 +270,11 @@ test('buildBootstrapRuntimeCommands returns labeled rust prototype commands', ()
       key: 'rust-launcher',
       label: 'Rust daemon (Launcher)',
       command: 'npm run researchops:rust-daemon',
+    },
+    {
+      key: 'rust-background',
+      label: 'Rust daemon (Managed background)',
+      command: 'nohup npm run researchops:rust-daemon >/tmp/rust.log 2>&1 &',
     },
     {
       key: 'rust-http',
@@ -331,6 +351,7 @@ test('buildBootstrapRuntimeCommands also exposes debug probe commands from rust 
 test('buildBootstrapRuntimeCommandGroups groups launcher, verify, serve, and debug commands', () => {
   const groups = buildBootstrapRuntimeCommandGroups([
     { key: 'rust-launcher', label: 'Rust daemon (Launcher)', command: 'npm run researchops:rust-daemon' },
+    { key: 'rust-background', label: 'Rust daemon (Managed background)', command: 'nohup npm run researchops:rust-daemon >/tmp/rust.log 2>&1 &' },
     { key: 'rust-verify', label: 'Rust daemon (Verify)', command: 'npm run researchops:verify-rust-daemon-prototype' },
     { key: 'rust-http', label: 'Rust daemon (HTTP)', command: 'npm run researchops:rust-daemon-serve' },
     { key: 'rust-unix', label: 'Rust daemon (Unix socket)', command: 'npm run researchops:rust-daemon-serve-unix' },
@@ -343,6 +364,7 @@ test('buildBootstrapRuntimeCommandGroups groups launcher, verify, serve, and deb
       title: 'Operate',
       items: [
         { key: 'rust-launcher', label: 'Rust daemon (Launcher)', command: 'npm run researchops:rust-daemon' },
+        { key: 'rust-background', label: 'Rust daemon (Managed background)', command: 'nohup npm run researchops:rust-daemon >/tmp/rust.log 2>&1 &' },
       ],
     },
     {

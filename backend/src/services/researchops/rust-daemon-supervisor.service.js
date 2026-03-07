@@ -1,0 +1,70 @@
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function buildRustDaemonSupervisorPaths({ cwd = process.cwd(), env = process.env } = {}) {
+  const dataDir = cleanString(env?.RESEARCHOPS_RUST_DAEMON_DATA_DIR)
+    || path.join(cwd, 'backend', 'data', 'researchops-rust-daemon');
+  return {
+    dataDir,
+    pidFile: path.join(dataDir, 'rust-daemon.pid'),
+    stateFile: path.join(dataDir, 'rust-daemon-state.json'),
+    logFile: path.join(dataDir, 'rust-daemon.log'),
+  };
+}
+
+function readJsonFile(filePath, fsImpl = fs) {
+  try {
+    return JSON.parse(fsImpl.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function readPidFile(filePath, fsImpl = fs) {
+  try {
+    const value = Number.parseInt(fsImpl.readFileSync(filePath, 'utf8'), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function isProcessRunning(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function buildRustDaemonSupervisorState({ cwd = process.cwd(), env = process.env, fsImpl = fs } = {}) {
+  const paths = buildRustDaemonSupervisorPaths({ cwd, env });
+  const state = readJsonFile(paths.stateFile, fsImpl) || {};
+  const pid = readPidFile(paths.pidFile, fsImpl);
+  const running = isProcessRunning(pid);
+
+  return {
+    mode: running ? 'managed' : 'unmanaged',
+    running,
+    pid,
+    pidFile: paths.pidFile,
+    stateFile: paths.stateFile,
+    logFile: paths.logFile,
+    startedAt: cleanString(state.startedAt) || null,
+    transport: cleanString(state.transport) || null,
+    command: cleanString(state.command) || null,
+  };
+}
+
+module.exports = {
+  buildRustDaemonSupervisorPaths,
+  buildRustDaemonSupervisorState,
+};

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   buildRustDaemonLaunchSpec,
+  buildRustDaemonBackgroundLaunchCommand,
 } = require('../rust-daemon-launcher.service');
 
 test('buildRustDaemonLaunchSpec builds http serve args by default', () => {
@@ -34,4 +35,18 @@ test('buildRustDaemonLaunchSpec rejects missing api base url', () => {
     () => buildRustDaemonLaunchSpec({}),
     /RESEARCHOPS_API_BASE_URL is required/i,
   );
+});
+
+test('buildRustDaemonBackgroundLaunchCommand exposes nohup command and supervisor paths', () => {
+  const result = buildRustDaemonBackgroundLaunchCommand({
+    cwd: '/tmp/auto-researcher',
+    env: {
+      RESEARCHOPS_API_BASE_URL: 'https://example.com/api',
+    },
+  });
+
+  assert.match(result.command, /nohup cargo .*--manifest-path/);
+  assert.match(result.command, /rust-daemon\.pid/);
+  assert.match(result.command, /rust-daemon\.log/);
+  assert.match(result.supervisorPaths.pidFile, /rust-daemon\.pid$/);
 });

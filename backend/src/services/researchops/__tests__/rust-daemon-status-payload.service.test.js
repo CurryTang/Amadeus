@@ -41,10 +41,14 @@ test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime opt
   assert.equal(payload.runtime.task_catalog_version, 'v0');
   assert.equal(payload.taskCatalog.version, 'v0');
   assert.equal(payload.catalogParity.status, 'aligned');
+  assert.equal(payload.supervisor.mode, 'unmanaged');
+  assert.equal(payload.supervisor.running, false);
   assert.equal(payload.runtimeOptions.rustDaemonPrototype.runtime, 'rust');
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.http, /researchops-bootstrap-rust-daemon\.sh/);
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.launcher, /researchops:rust-daemon/);
+  assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.background, /nohup cargo .*--manifest-path/);
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.verify, /researchops:verify-rust-daemon-prototype/);
+  assert.match(payload.runtimeOptions.rustDaemonPrototype.supervisorPaths.pidFile, /rust-daemon\.pid/);
   assert.match(payload.debugCommands.health, /curl .*\/health/);
   assert.match(payload.debugCommands.runtime, /curl .*\/runtime/);
   assert.match(payload.debugCommands.taskCatalog, /curl .*\/task-catalog/);

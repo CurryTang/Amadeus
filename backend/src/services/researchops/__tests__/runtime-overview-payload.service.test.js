@@ -41,6 +41,9 @@ test('buildRuntimeOverviewPayload aggregates daemon, rust, and runner views with
         supports_local_bridge_workflow: true,
         supports_workspace_snapshot_capture: true,
       },
+      supervisor: {
+        running: true,
+      },
     },
     runner: {
       items: [{ runId: 'run_1' }],
@@ -58,6 +61,7 @@ test('buildRuntimeOverviewPayload aggregates daemon, rust, and runner views with
     snapshotReadyClients: 1,
     rustBridgeReady: true,
     rustSnapshotReady: true,
+    rustManagedRunning: true,
     runningCount: 1,
   });
   assert.deepEqual(payload.actions.overview, {

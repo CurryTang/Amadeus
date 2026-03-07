@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const { buildRustDaemonSupervisorPaths } = require('./rust-daemon-supervisor.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -45,6 +46,21 @@ function buildRustDaemonLaunchSpec(env = process.env) {
   };
 }
 
+function buildRustDaemonBackgroundLaunchCommand({ cwd = process.cwd(), env = process.env } = {}) {
+  const spec = buildRustDaemonLaunchSpec(env);
+  const supervisorPaths = buildRustDaemonSupervisorPaths({ cwd, env });
+  const command = [
+    `mkdir -p '${supervisorPaths.dataDir.replace(/'/g, `'\"'\"'`)}'`,
+    `nohup ${spec.command} ${spec.args.map((arg) => `'${String(arg).replace(/'/g, `'\"'\"'`)}'`).join(' ')} > '${supervisorPaths.logFile.replace(/'/g, `'\"'\"'`)}' 2>&1 &`,
+    `echo $! > '${supervisorPaths.pidFile.replace(/'/g, `'\"'\"'`)}'`,
+  ].join(' && ');
+  return {
+    command,
+    supervisorPaths,
+  };
+}
+
 module.exports = {
   buildRustDaemonLaunchSpec,
+  buildRustDaemonBackgroundLaunchCommand,
 };

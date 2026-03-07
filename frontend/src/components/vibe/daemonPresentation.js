@@ -63,6 +63,9 @@ function buildRuntimeOverviewSummaryRows(summary = null) {
   if (source.rustSnapshotReady === true || source.rustSnapshotReady === false) {
     rows.push({ label: 'Rust Snapshot Ready', value: source.rustSnapshotReady ? 'yes' : 'no' });
   }
+  if (source.rustManagedRunning === true || source.rustManagedRunning === false) {
+    rows.push({ label: 'Rust Managed', value: source.rustManagedRunning ? 'yes' : 'no' });
+  }
   if (runningCount !== null) rows.push({ label: 'Running Jobs', value: String(runningCount) });
   return rows;
 }
@@ -121,6 +124,9 @@ function buildRustDaemonStatusRows(health = null) {
   const runtime = rustDaemon.runtime && typeof rustDaemon.runtime === 'object'
     ? rustDaemon.runtime
     : null;
+  const supervisor = rustDaemon.supervisor && typeof rustDaemon.supervisor === 'object'
+    ? rustDaemon.supervisor
+    : null;
   const catalogParity = rustDaemon.catalogParity && typeof rustDaemon.catalogParity === 'object'
     ? rustDaemon.catalogParity
     : null;
@@ -138,6 +144,18 @@ function buildRustDaemonStatusRows(health = null) {
   if (endpoint) rows.push({ label: 'Rust Endpoint', value: endpoint });
   if (socketPath) rows.push({ label: 'Rust Socket', value: socketPath });
   if (version) rows.push({ label: 'Rust Task Catalog', value: `${version} (${taskCount} tasks)` });
+  if (supervisor?.running === true || supervisor?.running === false) {
+    rows.push({ label: 'Rust Managed', value: supervisor.running ? 'yes' : 'no' });
+  }
+  if (Number.isFinite(Number(supervisor?.pid)) && Number(supervisor.pid) > 0) {
+    rows.push({ label: 'Rust PID', value: String(supervisor.pid) });
+  }
+  if (cleanString(supervisor?.pidFile)) {
+    rows.push({ label: 'Rust PID File', value: cleanString(supervisor.pidFile) });
+  }
+  if (cleanString(supervisor?.logFile)) {
+    rows.push({ label: 'Rust Log', value: cleanString(supervisor.logFile) });
+  }
   if (runtime?.supports_workspace_snapshot_capture === true) {
     rows.push({ label: 'Rust Snapshot Capture', value: 'ready' });
   }
@@ -164,6 +182,7 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
     : null;
   const items = [];
   const launcherCommand = cleanString(commands?.launcher);
+  const backgroundCommand = cleanString(commands?.background);
   const httpCommand = cleanString(commands?.http);
   const unixCommand = cleanString(commands?.unix);
   const verifyCommand = cleanString(commands?.verify);
@@ -172,6 +191,13 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
       key: 'rust-launcher',
       label: 'Rust daemon (Launcher)',
       command: launcherCommand,
+    });
+  }
+  if (backgroundCommand) {
+    items.push({
+      key: 'rust-background',
+      label: 'Rust daemon (Managed background)',
+      command: backgroundCommand,
     });
   }
   if (httpCommand) {
@@ -232,7 +258,7 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
 
 function buildBootstrapRuntimeCommandGroups(items = []) {
   const groups = [
-    { key: 'operate', title: 'Operate', match: (item) => item?.key === 'rust-launcher' },
+    { key: 'operate', title: 'Operate', match: (item) => item?.key === 'rust-launcher' || item?.key === 'rust-background' },
     { key: 'serve', title: 'Serve', match: (item) => item?.key === 'rust-http' || item?.key === 'rust-unix' },
     { key: 'verify', title: 'Verify', match: (item) => item?.key === 'rust-verify' },
     { key: 'debug', title: 'Debug', match: (item) => String(item?.key || '').startsWith('rust-debug-') },
