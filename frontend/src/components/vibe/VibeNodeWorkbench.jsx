@@ -206,8 +206,8 @@ function VibeNodeWorkbench({
     [nodeBridgeContext]
   );
   const reviewSummaryRows = useMemo(
-    () => buildNodeReviewSummary(node, nodeState, runReport, runCompare),
-    [node, nodeState, runCompare, runReport]
+    () => buildNodeReviewSummary(node, nodeState, runReport, runCompare, nodeBridgeContext?.bridgeReport),
+    [node, nodeBridgeContext?.bridgeReport, nodeState, runCompare, runReport]
   );
   const searchTrialRows = useMemo(
     () => buildSearchTrialRows(searchData),

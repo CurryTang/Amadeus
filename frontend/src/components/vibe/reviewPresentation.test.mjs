@@ -118,3 +118,41 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     { label: 'Warnings', value: '2 warnings' },
   ]);
 });
+
+test('buildNodeReviewSummary falls back to bridge report data when no active run report is loaded', () => {
+  const rows = buildNodeReviewSummary(
+    {},
+    {},
+    {},
+    {},
+    {
+      bridgeRuntime: {
+        supportsLocalBridgeWorkflow: true,
+      },
+      report: {
+        checkpoints: [
+          { id: 'cp_pending', status: 'PENDING' },
+          { id: 'cp_done', status: 'APPROVED' },
+        ],
+        highlights: {
+          deliverableArtifactIds: ['art_summary'],
+        },
+        observability: {
+          statuses: {
+            readiness: 'ready',
+          },
+          counts: {
+            warnings: 0,
+          },
+        },
+      },
+    }
+  );
+
+  assert.deepEqual(rows, [
+    { label: 'Checkpoints', value: '1 pending · 1 resolved' },
+    { label: 'Evidence', value: '1 deliverable artifact' },
+    { label: 'Readiness', value: 'Ready' },
+    { label: 'Bridge', value: 'Local bridge ready' },
+  ]);
+});

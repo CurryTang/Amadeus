@@ -9,7 +9,18 @@ function formatDeliverableCount(count = 0) {
   return value === 1 ? '1 deliverable artifact' : `${value} deliverable artifacts`;
 }
 
-function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCompare = {}) {
+function resolveNodeReport(runReport = {}, bridgeReport = {}) {
+  const primaryReport = runReport && typeof runReport === 'object' ? runReport : {};
+  if (Object.keys(primaryReport).length > 0) return primaryReport;
+  const fallbackReport = bridgeReport?.report && typeof bridgeReport.report === 'object'
+    ? bridgeReport.report
+    : {};
+  if (Object.keys(fallbackReport).length > 0) return fallbackReport;
+  return {};
+}
+
+function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCompare = {}, bridgeReport = {}) {
+  const effectiveRunReport = resolveNodeReport(runReport, bridgeReport);
   const rows = [];
   if (hasManualGate(node)) {
     rows.push({
@@ -18,7 +29,7 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     });
   }
 
-  const checkpoints = Array.isArray(runReport?.checkpoints) ? runReport.checkpoints : [];
+  const checkpoints = Array.isArray(effectiveRunReport?.checkpoints) ? effectiveRunReport.checkpoints : [];
   if (checkpoints.length > 0) {
     const pendingCount = checkpoints.filter((item) => cleanString(item?.status).toUpperCase() === 'PENDING').length;
     const resolvedCount = Math.max(checkpoints.length - pendingCount, 0);
@@ -28,8 +39,8 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     });
   }
 
-  const deliverableArtifactIds = Array.isArray(runReport?.highlights?.deliverableArtifactIds)
-    ? runReport.highlights.deliverableArtifactIds.filter((item) => cleanString(item))
+  const deliverableArtifactIds = Array.isArray(effectiveRunReport?.highlights?.deliverableArtifactIds)
+    ? effectiveRunReport.highlights.deliverableArtifactIds.filter((item) => cleanString(item))
     : [];
   rows.push({
     label: 'Evidence',
@@ -38,8 +49,8 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       : 'No deliverable artifacts yet',
   });
 
-  const observability = runReport?.observability && typeof runReport.observability === 'object'
-    ? runReport.observability
+  const observability = effectiveRunReport?.observability && typeof effectiveRunReport.observability === 'object'
+    ? effectiveRunReport.observability
     : {};
   const readiness = cleanString(observability?.statuses?.readiness).toLowerCase();
   const warningCount = Math.max(Number(observability?.counts?.warnings) || 0, 0);
@@ -66,9 +77,11 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
     });
   }
 
-  const bridgeRuntime = runReport?.bridgeRuntime && typeof runReport.bridgeRuntime === 'object'
-    ? runReport.bridgeRuntime
-    : {};
+  const bridgeRuntime = effectiveRunReport?.bridgeRuntime && typeof effectiveRunReport.bridgeRuntime === 'object'
+    ? effectiveRunReport.bridgeRuntime
+    : (bridgeReport?.bridgeRuntime && typeof bridgeReport.bridgeRuntime === 'object'
+      ? bridgeReport.bridgeRuntime
+      : {});
   const missingBridgeTaskTypes = Array.isArray(bridgeRuntime.missingBridgeTaskTypes)
     ? bridgeRuntime.missingBridgeTaskTypes.filter((item) => cleanString(item))
     : [];
