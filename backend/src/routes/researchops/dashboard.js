@@ -15,6 +15,10 @@ const {
 } = require('../../services/researchops/idea-payload.service');
 const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const { buildSkillListPayload } = require('../../services/researchops/skill-payload.service');
+const {
+  buildGeneratedPlanPayload,
+  buildEnqueuedPlanPayload,
+} = require('../../services/researchops/plan-payload.service');
 const { normalizeEnqueueRunPayload } = require('../../services/researchops/enqueue-run-payload.service');
 const workflowSchemaService = require('../../services/researchops/workflow-schema.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
@@ -375,15 +379,15 @@ router.post('/plan/generate', async (req, res) => {
         workflow: [],
         generated_at: new Date().toISOString(),
       };
-      return res.json({
+      return res.json(buildGeneratedPlanPayload({
         plan,
         todoCandidates,
         todoDsl: generated.todoDsl || null,
         referenceSummary: generated.referenceSummary || null,
-      });
+      }));
     }
     const plan = planAgentService.generatePlan({ instruction, instructionType });
-    return res.json({ plan });
+    return res.json(buildGeneratedPlanPayload({ plan }));
   } catch (error) {
     console.error('[ResearchOps] plan generate failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to generate plan') });
@@ -431,7 +435,7 @@ router.post('/plan/enqueue-v2', async (req, res) => {
       },
     });
     const run = await researchOpsStore.enqueueRun(getUserId(req), normalizedPlanRun);
-    return res.status(201).json({ plan, run });
+    return res.status(201).json(buildEnqueuedPlanPayload({ plan, run }));
   } catch (error) {
     console.error('[ResearchOps] plan enqueue-v2 failed:', error);
     if (error.code === 'PROJECT_NOT_FOUND') {
