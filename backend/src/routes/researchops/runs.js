@@ -40,6 +40,10 @@ const {
 const { buildRunEventListPayload } = require('../../services/researchops/run-event-list-payload.service');
 const { buildRunReportPayload } = require('../../services/researchops/run-report-payload.service');
 const { buildRunObservabilityPayload } = require('../../services/researchops/run-observability-payload.service');
+const {
+  loadRunReportInlineData,
+  loadRunReportResources,
+} = require('../../services/researchops/run-report-resource.service');
 const { buildRunStepListPayload } = require('../../services/researchops/run-step-list-payload.service');
 const { buildQueueListPayload } = require('../../services/researchops/queue-payload.service');
 const {
@@ -665,62 +669,15 @@ router.post('/runs/:runId/checkpoints/:checkpointId/decision', async (req, res) 
 // Report
 // ---------------------------------------------------------------------------
 
-async function loadRunReportResources(userId, runId) {
-  const [run, steps, artifacts, checkpoints] = await Promise.all([
-    researchOpsStore.getRun(userId, runId),
-    researchOpsStore.listRunSteps(userId, runId),
-    researchOpsStore.listRunArtifacts(userId, runId, { limit: 1000 }),
-    researchOpsStore.listRunCheckpoints(userId, runId, { limit: 500 }),
-  ]);
-  return {
-    run,
-    steps,
-    artifacts,
-    checkpoints,
-  };
-}
-
-async function loadRunReportInlineData(artifacts = [], includeInline = false) {
-  let summaryText = null;
-  let manifest = null;
-  if (!includeInline) {
-    return { summaryText, manifest };
-  }
-  const summaryArtifact = artifacts.find((item) => item.kind === 'run_summary_md') || null;
-  const manifestArtifact = artifacts.find((item) => item.kind === 'result_manifest') || null;
-  if (summaryArtifact?.objectKey) {
-    const buffer = await s3Service.downloadBuffer(summaryArtifact.objectKey).catch(() => null);
-    summaryText = buffer ? buffer.toString('utf8') : null;
-  } else {
-    summaryText = summaryArtifact?.metadata?.inlinePreview || null;
-  }
-  if (manifestArtifact?.objectKey) {
-    const buffer = await s3Service.downloadBuffer(manifestArtifact.objectKey).catch(() => null);
-    if (buffer) {
-      try {
-        manifest = JSON.parse(buffer.toString('utf8'));
-      } catch (_) {
-        manifest = null;
-      }
-    }
-  } else {
-    const preview = manifestArtifact?.metadata?.inlinePreview;
-    if (preview) {
-      try {
-        manifest = JSON.parse(preview);
-      } catch (_) {
-        manifest = null;
-      }
-    }
-  }
-  return { summaryText, manifest };
-}
-
 router.get('/runs/:runId/report', async (req, res) => {
   try {
     const userId = getUserId(req);
     const runId = String(req.params.runId || '').trim();
-    const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
+    const { run, steps, artifacts, checkpoints } = await loadRunReportResources({
+      userId,
+      runId,
+      store: researchOpsStore,
+    });
     if (!run) return res.status(404).json({ error: 'Run not found' });
     const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
       userId,
@@ -728,7 +685,11 @@ router.get('/runs/:runId/report', async (req, res) => {
       store: researchOpsStore,
     });
 
-    const { summaryText, manifest } = await loadRunReportInlineData(artifacts, req.query.inline === 'true');
+    const { summaryText, manifest } = await loadRunReportInlineData({
+      artifacts,
+      includeInline: req.query.inline === 'true',
+      downloadBuffer: (objectKey) => s3Service.downloadBuffer(objectKey),
+    });
 
     return res.json(buildRunReportPayload({
       run,
@@ -751,14 +712,22 @@ router.get('/runs/:runId/observability', async (req, res) => {
   try {
     const userId = getUserId(req);
     const runId = String(req.params.runId || '').trim();
-    const { run, steps, artifacts, checkpoints } = await loadRunReportResources(userId, runId);
+    const { run, steps, artifacts, checkpoints } = await loadRunReportResources({
+      userId,
+      runId,
+      store: researchOpsStore,
+    });
     if (!run) return res.status(404).json({ error: 'Run not found' });
     const bridgeRuntime = await loadProjectBridgeRuntimeForRun({
       userId,
       run,
       store: researchOpsStore,
     });
-    const { summaryText, manifest } = await loadRunReportInlineData(artifacts, req.query.inline === 'true');
+    const { summaryText, manifest } = await loadRunReportInlineData({
+      artifacts,
+      includeInline: req.query.inline === 'true',
+      downloadBuffer: (objectKey) => s3Service.downloadBuffer(objectKey),
+    });
     const report = buildRunReportPayload({
       run,
       steps,
