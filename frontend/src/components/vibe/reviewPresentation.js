@@ -275,6 +275,21 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
         value: 'Snapshot-backed',
       });
     }
+    if (
+      cleanString(runCompare?.other?.report?.summary)
+      || cleanString(runCompare?.other?.report?.highlights?.summaryArtifactId)
+    ) {
+      rows.push({
+        label: 'Compare Summary',
+        value: 'Present',
+      });
+    }
+    if (cleanString(runCompare?.other?.report?.highlights?.finalOutputArtifactId)) {
+      rows.push({
+        label: 'Compare Final Output',
+        value: 'Present',
+      });
+    }
     const otherDeliverableArtifactIds = Array.isArray(runCompare?.other?.report?.highlights?.deliverableArtifactIds)
       ? runCompare.other.report.highlights.deliverableArtifactIds.filter((item) => cleanString(item))
       : [];

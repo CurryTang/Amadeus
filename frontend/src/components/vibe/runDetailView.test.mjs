@@ -415,6 +415,8 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
         },
         highlights: {
           deliverableArtifactIds: ['art_summary'],
+          summaryArtifactId: 'art_summary',
+          finalOutputArtifactId: 'art_final',
         },
       },
       execution: {
@@ -446,6 +448,8 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherResolvedTransport: 'daemon-task',
     otherContractStatus: 'Validation failed',
     otherSnapshotBacked: true,
+    otherHasSummary: true,
+    otherHasFinalOutput: true,
     sharedParentRunsLabel: 'run_seed',
     relatedRunsLabel: 'run_seed, run_other',
     deliverableCount: 1,

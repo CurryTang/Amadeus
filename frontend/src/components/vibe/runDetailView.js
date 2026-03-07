@@ -381,6 +381,11 @@ function buildRunCompareSummary(comparePayload = {}) {
   const deliverableArtifactIds = Array.isArray(other?.report?.highlights?.deliverableArtifactIds)
     ? other.report.highlights.deliverableArtifactIds.map((item) => cleanString(item)).filter(Boolean)
     : [];
+  const otherHasSummary = Boolean(
+    cleanString(other?.report?.summary)
+    || cleanString(other?.report?.highlights?.summaryArtifactId)
+  );
+  const otherHasFinalOutput = Boolean(cleanString(other?.report?.highlights?.finalOutputArtifactId));
   const otherRunId = cleanString(other?.run?.id);
   if (!otherRunId) return null;
   return {
@@ -398,6 +403,8 @@ function buildRunCompareSummary(comparePayload = {}) {
     otherResolvedTransport: cleanString(other?.resolvedTransport),
     otherContractStatus: formatContractOk(contract.ok),
     otherSnapshotBacked: Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)),
+    ...(otherHasSummary ? { otherHasSummary: true } : {}),
+    ...(otherHasFinalOutput ? { otherHasFinalOutput: true } : {}),
     sharedParentRunsLabel: sharedParentRunIds.join(', '),
     relatedRunsLabel: relatedRunIds.join(', '),
     deliverableCount: deliverableArtifactIds.length,

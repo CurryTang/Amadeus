@@ -83,6 +83,7 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
           ok: false,
         },
         report: {
+          summary: 'Compared run summary',
           observability: {
             statuses: {
               readiness: 'needs_attention',
@@ -99,6 +100,8 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
           },
           highlights: {
             deliverableArtifactIds: ['art_alt'],
+            summaryArtifactId: 'art_alt',
+            finalOutputArtifactId: 'art_final',
           },
         },
       },
@@ -122,6 +125,8 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare Transport', value: 'daemon-task' },
     { label: 'Compare Contract', value: 'Validation failed' },
     { label: 'Compare Snapshot', value: 'Snapshot-backed' },
+    { label: 'Compare Summary', value: 'Present' },
+    { label: 'Compare Final Output', value: 'Present' },
     { label: 'Compare Evidence', value: '1 deliverable artifact' },
   ]);
 });

@@ -273,6 +273,18 @@ function VibeRunDetailModal({
                         <dd>Yes</dd>
                       </div>
                     )}
+                    {compareSummary.otherHasSummary && (
+                      <div>
+                        <dt>Summary</dt>
+                        <dd>Present</dd>
+                      </div>
+                    )}
+                    {compareSummary.otherHasFinalOutput && (
+                      <div>
+                        <dt>Final Output</dt>
+                        <dd>Present</dd>
+                      </div>
+                    )}
                     {compareSummary.otherWarnings && (
                       <div>
                         <dt>Warnings</dt>
