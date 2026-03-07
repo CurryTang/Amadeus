@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildBootstrapRuntimeCommands,
+  buildBootstrapRuntimeCommandGroups,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
   buildRustDaemonStatusRows,
@@ -247,6 +248,48 @@ test('buildBootstrapRuntimeCommands also exposes debug probe commands from rust 
       key: 'rust-debug-task-catalog',
       label: 'Rust debug (Task Catalog)',
       command: 'curl http://127.0.0.1:7788/task-catalog',
+    },
+  ]);
+});
+
+test('buildBootstrapRuntimeCommandGroups groups launcher, verify, serve, and debug commands', () => {
+  const groups = buildBootstrapRuntimeCommandGroups([
+    { key: 'rust-launcher', label: 'Rust daemon (Launcher)', command: 'npm run researchops:rust-daemon' },
+    { key: 'rust-verify', label: 'Rust daemon (Verify)', command: 'npm run researchops:verify-rust-daemon-prototype' },
+    { key: 'rust-http', label: 'Rust daemon (HTTP)', command: 'npm run researchops:rust-daemon-serve' },
+    { key: 'rust-unix', label: 'Rust daemon (Unix socket)', command: 'npm run researchops:rust-daemon-serve-unix' },
+    { key: 'rust-debug-health', label: 'Rust debug (Health)', command: 'curl http://127.0.0.1:7788/health' },
+  ]);
+
+  assert.deepEqual(groups, [
+    {
+      key: 'operate',
+      title: 'Operate',
+      items: [
+        { key: 'rust-launcher', label: 'Rust daemon (Launcher)', command: 'npm run researchops:rust-daemon' },
+      ],
+    },
+    {
+      key: 'serve',
+      title: 'Serve',
+      items: [
+        { key: 'rust-http', label: 'Rust daemon (HTTP)', command: 'npm run researchops:rust-daemon-serve' },
+        { key: 'rust-unix', label: 'Rust daemon (Unix socket)', command: 'npm run researchops:rust-daemon-serve-unix' },
+      ],
+    },
+    {
+      key: 'verify',
+      title: 'Verify',
+      items: [
+        { key: 'rust-verify', label: 'Rust daemon (Verify)', command: 'npm run researchops:verify-rust-daemon-prototype' },
+      ],
+    },
+    {
+      key: 'debug',
+      title: 'Debug',
+      items: [
+        { key: 'rust-debug-health', label: 'Rust debug (Health)', command: 'curl http://127.0.0.1:7788/health' },
+      ],
     },
   ]);
 });

@@ -24,6 +24,7 @@ import { buildObservedSessionActionMessage } from './vibe/observedSessionActionP
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { getContextPackViewForRun } from './vibe/contextPackApiResponse';
 import {
+  buildBootstrapRuntimeCommandGroups,
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,
@@ -1615,6 +1616,10 @@ function VibeResearcherPanel({
   const clientBootstrapRuntimeCommands = useMemo(
     () => buildBootstrapRuntimeCommands(rustDaemonRuntimeSource),
     [rustDaemonRuntimeSource],
+  );
+  const clientBootstrapRuntimeCommandGroups = useMemo(
+    () => buildBootstrapRuntimeCommandGroups(clientBootstrapRuntimeCommands),
+    [clientBootstrapRuntimeCommands],
   );
   const clientBootstrapRuntimeEnvFiles = useMemo(
     () => buildBootstrapRuntimeEnvFiles(rustDaemonRuntimeSource),
@@ -5844,21 +5849,26 @@ function VibeResearcherPanel({
                               </div>
                             </>
                           )}
-                          {clientBootstrapRuntimeCommands.length > 0 && (
+                          {clientBootstrapRuntimeCommandGroups.length > 0 && (
                             <>
                               <p className="vibe-empty">
                                 Optional: run the Rust prototype daemon directly for local bridge/runtime testing.
                               </p>
-                              {clientBootstrapRuntimeCommands.map((item) => (
-                                <div key={item.key} className="vibe-inline-actions">
-                                  <code className="vibe-inline-code">{item.command}</code>
-                                  <button
-                                    type="button"
-                                    className="vibe-secondary-btn"
-                                    onClick={() => handleCopyRuntimeCommand(item.command, item.label)}
-                                  >
-                                    Copy {item.label}
-                                  </button>
+                              {clientBootstrapRuntimeCommandGroups.map((group) => (
+                                <div key={group.key}>
+                                  <p className="vibe-empty"><strong>{group.title}</strong></p>
+                                  {group.items.map((item) => (
+                                    <div key={item.key} className="vibe-inline-actions">
+                                      <code className="vibe-inline-code">{item.command}</code>
+                                      <button
+                                        type="button"
+                                        className="vibe-secondary-btn"
+                                        onClick={() => handleCopyRuntimeCommand(item.command, item.label)}
+                                      >
+                                        Copy {item.label}
+                                      </button>
+                                    </div>
+                                  ))}
                                 </div>
                               ))}
                             </>

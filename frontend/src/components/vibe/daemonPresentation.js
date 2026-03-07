@@ -167,6 +167,22 @@ function buildBootstrapRuntimeCommands(bootstrap = null) {
   return items;
 }
 
+function buildBootstrapRuntimeCommandGroups(items = []) {
+  const groups = [
+    { key: 'operate', title: 'Operate', match: (item) => item?.key === 'rust-launcher' },
+    { key: 'serve', title: 'Serve', match: (item) => item?.key === 'rust-http' || item?.key === 'rust-unix' },
+    { key: 'verify', title: 'Verify', match: (item) => item?.key === 'rust-verify' },
+    { key: 'debug', title: 'Debug', match: (item) => String(item?.key || '').startsWith('rust-debug-') },
+  ];
+  return groups
+    .map((group) => ({
+      key: group.key,
+      title: group.title,
+      items: (Array.isArray(items) ? items : []).filter((item) => group.match(item)),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
 function buildBootstrapRuntimeEnvFiles(bootstrap = null) {
   const runtimeOptions = bootstrap && typeof bootstrap === 'object' ? bootstrap.runtimeOptions : null;
   const rustPrototype = runtimeOptions && typeof runtimeOptions === 'object'
@@ -200,6 +216,7 @@ function buildBootstrapRuntimeEnvFiles(bootstrap = null) {
 }
 
 export {
+  buildBootstrapRuntimeCommandGroups,
   buildBootstrapRuntimeCommands,
   buildBootstrapRuntimeEnvFiles,
   buildClientDeviceOption,

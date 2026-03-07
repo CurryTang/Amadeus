@@ -85,6 +85,7 @@ test('bootstrap status payload keeps discovery metadata without leaking install 
 test('rust daemon status response exposes runtime probe data and reusable runtime options', async () => {
   const response = buildRustDaemonStatusResponse({
     apiBaseUrl: 'https://example.com/api',
+    refreshedAt: '2026-03-07T12:00:00.000Z',
     rustDaemon: {
       enabled: true,
       status: 'ok',
@@ -108,6 +109,7 @@ test('rust daemon status response exposes runtime probe data and reusable runtim
 
   assert.equal(response.enabled, true);
   assert.equal(response.status, 'ok');
+  assert.equal(response.refreshedAt, '2026-03-07T12:00:00.000Z');
   assert.equal(response.transport, 'unix');
   assert.equal(response.socketPath, '/tmp/researchops-local-daemon.sock');
   assert.equal(response.runtime.task_catalog_version, 'v0');
@@ -124,4 +126,7 @@ test('rust daemon status response exposes runtime probe data and reusable runtim
   assert.equal(response.runtimeOptions?.rustDaemonPrototype?.runtime, 'rust');
   assert.match(response.runtimeOptions?.rustDaemonPrototype?.commands?.http || '', /researchops-bootstrap-rust-daemon\.sh/);
   assert.match(response.runtimeOptions?.rustDaemonPrototype?.envFiles?.unix?.content || '', /RESEARCHOPS_RUST_DAEMON_TRANSPORT=unix/);
+  assert.match(response.debugCommands?.health || '', /curl --unix-socket .* http:\/\/localhost\/health/);
+  assert.match(response.debugCommands?.runtime || '', /curl --unix-socket .* http:\/\/localhost\/runtime/);
+  assert.match(response.debugCommands?.taskCatalog || '', /curl --unix-socket .* http:\/\/localhost\/task-catalog/);
 });
