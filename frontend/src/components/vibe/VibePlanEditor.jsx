@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import yaml from 'js-yaml';
+import { buildPlanImpactRows } from './planImpactPresentation.js';
 import { buildPlanValidationIssues } from './planValidationPresentation.js';
 
 const MODES = ['view', 'edit', 'run'];
@@ -20,6 +21,7 @@ function safeDumpYaml(plan) {
 function VibePlanEditor({
   plan,
   validation,
+  impact,
   mode,
   viewMode,
   queueState,
@@ -46,6 +48,10 @@ function VibePlanEditor({
   const validationIssues = useMemo(
     () => buildPlanValidationIssues(validation, { limit: 4 }),
     [validation]
+  );
+  const impactRows = useMemo(
+    () => buildPlanImpactRows(impact),
+    [impact]
   );
 
   useEffect(() => {
@@ -129,6 +135,18 @@ function VibePlanEditor({
                     <span>{issue.message}</span>
                   </div>
                   <code>{issue.severity}</code>
+                </div>
+              ))}
+            </div>
+          )}
+          {impactRows.length > 0 && (
+            <div className="vibe-list">
+              {impactRows.map((row) => (
+                <div key={row.label} className="vibe-list-item">
+                  <div className="vibe-list-main">
+                    <strong>{row.label}</strong>
+                    <span>{row.value}</span>
+                  </div>
                 </div>
               ))}
             </div>

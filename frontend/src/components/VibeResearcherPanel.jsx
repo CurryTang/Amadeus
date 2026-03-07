@@ -565,6 +565,7 @@ function VibeResearcherPanel({
 
   const [treePlan, setTreePlan] = useState(null);
   const [treeValidation, setTreeValidation] = useState(null);
+  const [treePlanImpact, setTreePlanImpact] = useState(null);
   const [treeState, setTreeState] = useState(null);
   const [treeWorkspaceReady, setTreeWorkspaceReady] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
@@ -1299,6 +1300,7 @@ function VibeResearcherPanel({
       const nextPlan = response.data?.plan || null;
       setTreePlan(nextPlan);
       setTreeValidation(response.data?.validation || null);
+      setTreePlanImpact(response.data?.impact || null);
       setTreeError('');
       await loadTreeWorkspace(projectId, { silent: true });
       return response.data || null;
@@ -1323,6 +1325,7 @@ function VibeResearcherPanel({
       );
       setTreePlan(response.data?.plan || null);
       setTreeValidation(response.data?.validation || null);
+      setTreePlanImpact(null);
       setTreeError('');
       await loadTreeWorkspace(projectId, { silent: true });
       return response.data || null;
@@ -1346,6 +1349,7 @@ function VibeResearcherPanel({
         { headers }
       );
       setTreeValidation(response.data?.validation || null);
+      setTreePlanImpact(null);
       setTreeError('');
       return response.data || null;
     } catch (err) {
@@ -3596,6 +3600,7 @@ function VibeResearcherPanel({
       setKbFileContentError('');
       setTreePlan(null);
       setTreeValidation(null);
+      setTreePlanImpact(null);
       setTreeState(null);
       setTreeEnvironmentDetected(null);
       setTreeWorkspaceReady(false);
@@ -3638,6 +3643,7 @@ function VibeResearcherPanel({
       setSelectedRunId('');
       setRunReport(null);
       setRunContextPack(null);
+      setTreePlanImpact(null);
       setShowRunDetailModal(false);
       return;
     }
@@ -3645,6 +3651,7 @@ function VibeResearcherPanel({
       setSelectedRunId('');
       setRunReport(null);
       setRunContextPack(null);
+      setTreePlanImpact(null);
       setShowRunDetailModal(false);
       return;
     }
@@ -4221,6 +4228,7 @@ function VibeResearcherPanel({
                   <VibePlanEditor
                     plan={treePlan}
                     validation={treeValidation}
+                    impact={treePlanImpact}
                     mode={planMode}
                     viewMode={planViewMode}
                     queueState={effectiveTreeState?.queue || null}
