@@ -22,6 +22,7 @@ import { buildPayloadWithContinuation, addContinuationChip } from './vibe/launch
 import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
 import { buildObservedSessionActionMessage } from './vibe/observedSessionActionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
+import { getContextPackViewForRun } from './vibe/contextPackApiResponse';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
 import { getRunFromApiResponse, getRunIdFromApiResponse } from './vibe/runApiResponse';
@@ -3132,13 +3133,10 @@ function VibeResearcherPanel({
   const activeRunReport = useMemo(() => (
     runReport?.run?.id === selectedRunId ? runReport : null
   ), [runReport, selectedRunId]);
-  const activeRunContextView = useMemo(() => (
-    runContextPack?.pack?.runId === selectedRunId
-    && runContextPack?.view
-    && typeof runContextPack.view === 'object'
-      ? runContextPack.view
-      : null
-  ), [runContextPack, selectedRunId]);
+  const activeRunContextView = useMemo(
+    () => getContextPackViewForRun(runContextPack, selectedRunId),
+    [runContextPack, selectedRunId]
+  );
   const effectiveTreeState = useMemo(() => {
     const base = treeState && typeof treeState === 'object' ? treeState : createEmptyTreeState();
     const baseNodes = base?.nodes && typeof base.nodes === 'object' ? base.nodes : {};
