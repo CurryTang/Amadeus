@@ -53,6 +53,7 @@ function deriveProjectCapabilities(project = {}) {
       daemonTaskTypes: BUILT_IN_DAEMON_TASK_TYPES,
       optionalDaemonTaskTypes: OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
       daemonTaskDescriptors: listDaemonTaskDescriptors(),
+      bridgeTransportModes: ['http', 'daemon-task'],
       bridgeRouteTemplates: CLIENT_AGENT_BRIDGE_ROUTE_TEMPLATES,
     };
   }
