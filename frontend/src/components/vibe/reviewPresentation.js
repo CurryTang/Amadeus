@@ -100,6 +100,10 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
   const otherRunId = cleanString(runCompare?.other?.run?.id);
   if (otherRunId) {
     const otherExecutionLocation = cleanString(runCompare?.other?.execution?.location);
+    const otherExecutionRuntime = [
+      cleanString(runCompare?.other?.execution?.backend),
+      cleanString(runCompare?.other?.execution?.runtimeClass),
+    ].filter(Boolean).join('/');
     const compareWorkspaceSnapshot = runCompare?.other?.report?.workspaceSnapshot
       && typeof runCompare.other.report.workspaceSnapshot === 'object'
       ? runCompare.other.report.workspaceSnapshot
@@ -126,6 +130,12 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       rows.push({
         label: 'Compare Execution',
         value: otherExecutionLocation,
+      });
+    }
+    if (otherExecutionRuntime) {
+      rows.push({
+        label: 'Compare Runtime',
+        value: otherExecutionRuntime,
       });
     }
     if (cleanString(compareLocalSnapshot.kind) || cleanString(compareLocalSnapshot.note)) {

@@ -393,6 +393,8 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
       },
       execution: {
         location: 'remote',
+        backend: 'container',
+        runtimeClass: 'container-fast',
       },
     },
     relation: {
@@ -410,6 +412,7 @@ test('buildRunCompareSummary surfaces other-run status, relation info, and summa
     otherReadiness: 'Needs attention',
     otherWarnings: '2 warnings',
     otherExecutionLocation: 'remote',
+    otherExecutionRuntime: 'container/container-fast',
     otherSnapshotBacked: true,
     sharedParentRunsLabel: 'run_seed',
     relatedRunsLabel: 'run_seed, run_other',

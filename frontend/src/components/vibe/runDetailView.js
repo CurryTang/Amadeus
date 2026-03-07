@@ -357,6 +357,7 @@ function buildRunCompareSummary(comparePayload = {}) {
   const localSnapshot = workspaceSnapshot?.localSnapshot && typeof workspaceSnapshot.localSnapshot === 'object'
     ? workspaceSnapshot.localSnapshot
     : {};
+  const runtimeBits = [cleanString(execution.backend), cleanString(execution.runtimeClass)].filter(Boolean);
   const relatedRunIds = Array.isArray(relation.relatedRunIds)
     ? relation.relatedRunIds.map((item) => cleanString(item)).filter(Boolean)
     : [];
@@ -378,6 +379,7 @@ function buildRunCompareSummary(comparePayload = {}) {
       ? `${Math.max(Number(observability?.counts?.warnings) || 0, 0)} warnings`
       : '',
     otherExecutionLocation: cleanString(execution.location),
+    otherExecutionRuntime: runtimeBits.length > 0 ? runtimeBits.join('/') : '',
     otherSnapshotBacked: Boolean(cleanString(localSnapshot.kind) || cleanString(localSnapshot.note)),
     sharedParentRunsLabel: sharedParentRunIds.join(', '),
     relatedRunsLabel: relatedRunIds.join(', '),

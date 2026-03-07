@@ -73,6 +73,8 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
         },
         execution: {
           location: 'remote',
+          backend: 'container',
+          runtimeClass: 'container-fast',
         },
         report: {
           workspaceSnapshot: {
@@ -98,6 +100,7 @@ test('buildNodeReviewSummary includes thin compare rows when compare payload is 
     { label: 'Compare Status', value: 'FAILED' },
     { label: 'Compare Node', value: 'Same node' },
     { label: 'Compare Execution', value: 'remote' },
+    { label: 'Compare Runtime', value: 'container/container-fast' },
     { label: 'Compare Snapshot', value: 'Snapshot-backed' },
     { label: 'Compare Evidence', value: '1 deliverable artifact' },
   ]);

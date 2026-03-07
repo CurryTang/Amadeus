@@ -249,6 +249,12 @@ function VibeRunDetailModal({
                         <dd>{compareSummary.otherExecutionLocation}</dd>
                       </div>
                     )}
+                    {compareSummary.otherExecutionRuntime && (
+                      <div>
+                        <dt>Runtime</dt>
+                        <dd>{compareSummary.otherExecutionRuntime}</dd>
+                      </div>
+                    )}
                     {compareSummary.otherSnapshotBacked && (
                       <div>
                         <dt>Snapshot Backed</dt>
