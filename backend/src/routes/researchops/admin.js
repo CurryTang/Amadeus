@@ -21,6 +21,7 @@ const {
   buildSchedulerRecoveryPayload,
   buildSchedulerStatusPayload,
 } = require('../../services/researchops/scheduler-payload.service');
+const { buildExperimentExecutePayload } = require('../../services/researchops/experiment-execute-payload.service');
 const { buildResourcePoolPayload } = require('../../services/researchops/resource-pool-payload.service');
 const { parseLimit, getUserId, sanitizeError, cleanString } = require('./shared');
 
@@ -847,7 +848,12 @@ router.post('/experiments/execute', async (req, res) => {
         },
         20000
       );
-      return res.json(result);
+      return res.json(buildExperimentExecutePayload({
+        projectId,
+        serverId,
+        mode: 'remote-proxy',
+        result,
+      }));
     } catch (error) {
       console.error('[ResearchOps] Experiment proxy failed:', error);
       return res.status(502).json({ error: sanitizeError(error, 'Experiment service unavailable') });
@@ -869,10 +875,12 @@ router.post('/experiments/execute', async (req, res) => {
 
     await researchOpsRunner.executeRun(getUserId(req), run);
 
-    return res.status(202).json({
+    return res.status(202).json(buildExperimentExecutePayload({
+      projectId,
+      serverId,
       mode: 'local-backend-runner',
       run,
-    });
+    }));
   } catch (error) {
     console.error('[ResearchOps] Local experiment execution failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to execute experiment') });

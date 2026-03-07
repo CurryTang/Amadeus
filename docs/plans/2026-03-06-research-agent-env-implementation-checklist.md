@@ -116,3 +116,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Knowledge delete/unlink mutations now use compatible success payloads with follow-up actions across modular/project/monolith routes, so the remaining knowledge mutation seams no longer depend on raw `{ success: true }` wrappers
   - Project path-check responses now use a normalized payload with compatible root fields plus explicit `checkPath` actions, so local/ssh/client path validation no longer mixes typed and raw response shapes
   - Tree node approval and todo-generated node responses now use normalized action payloads with compatible roots plus follow-up action descriptors, so those tree-node mutations no longer depend on raw `{ ok, nodeId }` or `{ node, provider }` wrappers
+  - Experiment execute responses now use a normalized payload across admin/monolith paths, preserving proxied result roots and local `run` roots while adding follow-up actions and run views
