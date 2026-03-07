@@ -56,6 +56,10 @@ const {
   buildTreeSearchPromotionPayload,
 } = require('../../services/researchops/tree-control-search-payload.service');
 const { buildTreeJumpstartPayload } = require('../../services/researchops/tree-jumpstart-payload.service');
+const {
+  buildTodoClarifyPayload,
+  buildTreeRunClarifyPayload,
+} = require('../../services/researchops/tree-clarify-payload.service');
 const { buildBridgeTreeRunPayload } = require('../../services/researchops/bridge-tree-run-payload.service');
 const {
   readBridgeContextOptions,
@@ -130,6 +134,8 @@ const {
   buildProjectTodoNextActionsPayload,
 } = require('../../services/researchops/project-todo-payload.service');
 const { buildProjectKbAddPaperPayload } = require('../../services/researchops/project-kb-paper-payload.service');
+const { buildProjectKbFilesPayload } = require('../../services/researchops/project-kb-files-payload.service');
+const { buildProjectRepoMapPayload } = require('../../services/researchops/repo-map-payload.service');
 const {
   buildKbSyncJobPayload,
   buildKbSyncJobAcceptedPayload,
@@ -4266,28 +4272,28 @@ router.get('/projects/:projectId/kb/files', async (req, res) => {
       || `${String(project.projectPath || '').replace(/\/+$/, '')}/resource`;
 
     if (!kbFolderPath) {
-      return res.json({
+      return res.json(buildProjectKbFilesPayload({
         projectId: project.id,
         kbFolderPath: '',
-        rootPath: '',
-        items: [],
-        totalFiles: 0,
-        offset,
-        limit,
-        hasMore: false,
-        refreshedAt: new Date().toISOString(),
-      });
+        listing: {
+          rootPath: '',
+          items: [],
+          totalFiles: 0,
+          offset,
+          limit,
+          hasMore: false,
+        },
+      }));
     }
 
     const listing = project.locationType === 'ssh'
       ? await listSshKnowledgeBaseFiles(server, kbFolderPath, { offset, limit })
       : await listLocalKnowledgeBaseFiles(kbFolderPath, { offset, limit });
-    return res.json({
+    return res.json(buildProjectKbFilesPayload({
       projectId: project.id,
       kbFolderPath,
-      ...listing,
-      refreshedAt: new Date().toISOString(),
-    });
+      listing,
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json(toErrorPayload(error, 'SSH server not found'));
@@ -4716,10 +4722,7 @@ router.put('/projects/:projectId/knowledge-groups', async (req, res) => {
       items: groups,
       project,
     });
-    return res.json({
-      ...payload,
-      knowledgeGroups: groups,
-    });
+    return res.json(payload);
   } catch (error) {
     console.error('[ResearchOps] setProjectKnowledgeGroups failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to update project knowledge groups') });
@@ -7294,10 +7297,12 @@ router.get('/projects/:projectId/context/repo-map', async (req, res) => {
       commit,
       force: false,
     });
-    return res.json({
+    return res.json(buildProjectRepoMapPayload({
       projectId: project.id,
-      ...result,
-    });
+      commit,
+      force: false,
+      result,
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to build repo map'));
   }
@@ -7315,10 +7320,12 @@ router.post('/projects/:projectId/context/repo-map/rebuild', async (req, res) =>
       commit,
       force: true,
     });
-    return res.json({
+    return res.json(buildProjectRepoMapPayload({
       projectId: project.id,
-      ...result,
-    });
+      commit,
+      force: true,
+      result,
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to rebuild repo map'));
   }
@@ -7464,11 +7471,10 @@ or if open-ended:
     }
     if (!parsed) return res.status(422).json({ error: 'Failed to parse clarification response', raw: rawText.slice(0, 300) });
 
-    return res.json({
-      done: parsed.done === true,
-      question: parsed.done ? null : String(parsed.question || ''),
-      options: Array.isArray(parsed.options) ? parsed.options.map(String) : [],
-    });
+    return res.json(buildTodoClarifyPayload({
+      projectId,
+      result: parsed,
+    }));
   } catch (error) {
     console.error('[from-todo/clarify] Error:', error);
     return res.status(500).json({ error: error.message });
@@ -7562,11 +7568,11 @@ Otherwise respond with ONLY valid JSON: {"question": "...", "options": ["A", "B"
     }
     if (!parsed) return res.status(422).json({ error: 'Failed to parse clarification response', raw: rawText.slice(0, 300) });
 
-    return res.json({
-      done: parsed.done === true,
-      question: parsed.done ? null : String(parsed.question || ''),
-      options: Array.isArray(parsed.options) ? parsed.options.map(String) : [],
-    });
+    return res.json(buildTreeRunClarifyPayload({
+      projectId,
+      nodeId,
+      result: parsed,
+    }));
   } catch (error) {
     console.error('[run-clarify] Error:', error);
     return res.status(500).json({ error: error.message });

@@ -78,7 +78,9 @@ test('buildProjectKnowledgeGroupsPayload preserves linked group items while expo
   assert.equal(payload.projectId, 'proj_1');
   assert.deepEqual(payload.groupIds, [42]);
   assert.equal(payload.items.length, 1);
+  assert.equal(payload.knowledgeGroups.length, 1);
   assert.equal(payload.items[0].id, 42);
+  assert.equal(payload.knowledgeGroups[0].id, 42);
   assert.deepEqual(payload.actions.linkedList, {
     method: 'GET',
     path: '/researchops/projects/proj_1/knowledge-groups',

@@ -84,12 +84,14 @@ function buildProjectKnowledgeGroupsPayload({
 } = {}) {
   const safeProjectId = cleanString(projectId);
   const encodedProjectId = encodeURIComponent(safeProjectId);
+  const normalizedItems = (Array.isArray(items) ? items : []).map((item) => normalizeKnowledgeGroup(item));
   return {
     projectId: safeProjectId || null,
     groupIds: (Array.isArray(groupIds) ? groupIds : [])
       .map((item) => normalizeGroupId(item))
       .filter((item) => item !== null),
-    items: (Array.isArray(items) ? items : []).map((item) => normalizeKnowledgeGroup(item)),
+    items: normalizedItems,
+    knowledgeGroups: normalizedItems,
     project: project && typeof project === 'object' ? project : null,
     actions: safeProjectId ? {
       linkedList: {

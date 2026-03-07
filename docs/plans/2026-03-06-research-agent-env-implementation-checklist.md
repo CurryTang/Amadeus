@@ -132,3 +132,7 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Tree `jumpstart` now uses a normalized payload with compatible roots plus follow-up actions on the modular route, matching the current architecture where this endpoint is not exposed in the monolith router
   - Horizon status now uses a normalized run payload with compatible status/log roots plus follow-up actions across modular and monolith routes
   - Tree `run-all` payloads now include follow-up actions and the monolith route now reuses the same normalized response shape as the modular route
+  - Project `kb/files` and `context/repo-map` now use normalized payload services with compatible roots plus follow-up actions across modular and monolith routes instead of route-local wrappers
+  - Project knowledge-group link mutation now emits the `knowledgeGroups` compatibility alias directly from the payload service, so modular and monolith routes no longer re-wrap the same response differently
+  - Monolith run delete and cluster resource-pool now reuse existing normalized payload services instead of layering extra route-local wrappers on top
+  - Tree todo-clarify and run-clarify responses now use a normalized payload service with compatible `done/question/options` roots plus explicit clarify actions
