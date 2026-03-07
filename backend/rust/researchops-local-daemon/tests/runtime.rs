@@ -16,10 +16,12 @@ fn runtime_summary_marks_bridge_ready_when_all_bridge_tasks_are_advertised() {
         "bridge.submitNodeRun",
         "bridge.fetchRunReport",
         "bridge.submitRunNote",
+        "bridge.captureWorkspaceSnapshot",
     ]);
 
     assert_eq!(summary.task_catalog_version, "v0");
     assert!(summary.supports_local_bridge_workflow);
+    assert!(summary.supports_workspace_snapshot_capture);
     assert!(summary.missing_bridge_task_types.is_empty());
 }
 
@@ -32,6 +34,7 @@ fn runtime_summary_reports_missing_bridge_tasks_when_only_project_tasks_exist() 
     ]);
 
     assert!(!summary.supports_local_bridge_workflow);
+    assert!(!summary.supports_workspace_snapshot_capture);
     assert_eq!(summary.missing_bridge_task_types, OPTIONAL_BRIDGE_TASK_TYPES);
 }
 

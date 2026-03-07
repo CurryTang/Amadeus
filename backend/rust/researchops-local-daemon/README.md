@@ -6,6 +6,7 @@ Current scope:
 
 - mirror the v0 trait contracts from `docs/research_agent_env_spec/contracts/rust_traits.rs`
 - provide a typed runtime summary for the current daemon task catalog
+  - including bridge-workflow readiness and workspace-snapshot-capture readiness
 - provide a typed task catalog view for built-in and bridge task families
 - expose a tiny CLI that prints the runtime summary as JSON
 - expose localhost HTTP and Unix socket prototypes for `/health`, `/runtime`, and `/task-catalog`

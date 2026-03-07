@@ -64,6 +64,7 @@ pub struct RuntimeSummary {
     pub task_catalog_version: &'static str,
     pub supported_task_types: Vec<String>,
     pub supports_local_bridge_workflow: bool,
+    pub supports_workspace_snapshot_capture: bool,
     pub missing_bridge_task_types: Vec<String>,
 }
 
@@ -103,6 +104,7 @@ pub fn build_runtime_summary(task_types: &[&str]) -> RuntimeSummary {
         task_catalog_version: TASK_CATALOG_VERSION,
         supported_task_types,
         supports_local_bridge_workflow: missing_bridge_task_types.is_empty(),
+        supports_workspace_snapshot_capture: task_types.iter().any(|task_type| *task_type == "bridge.captureWorkspaceSnapshot"),
         missing_bridge_task_types,
     }
 }

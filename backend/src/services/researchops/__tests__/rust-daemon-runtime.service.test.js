@@ -40,6 +40,7 @@ function buildRuntimeBody() {
     task_catalog_version: 'v0',
     supported_task_types: ['project.checkPath', 'bridge.fetchRunReport'],
     supports_local_bridge_workflow: false,
+    supports_workspace_snapshot_capture: true,
     missing_bridge_task_types: ['bridge.fetchNodeContext'],
   });
 }
@@ -78,6 +79,7 @@ test('probeRustDaemonRuntime reads runtime summary over http', async () => {
         { task_type: 'bridge.submitNodeRun' },
         { task_type: 'bridge.fetchRunReport' },
         { task_type: 'bridge.submitRunNote' },
+        { task_type: 'bridge.captureWorkspaceSnapshot' },
       ],
     });
     res.writeHead(200, {
@@ -103,6 +105,7 @@ test('probeRustDaemonRuntime reads runtime summary over http', async () => {
     assert.equal(result.transport, 'http');
     assert.equal(result.runtime.task_catalog_version, 'v0');
     assert.deepEqual(result.runtime.supported_task_types, ['project.checkPath', 'bridge.fetchRunReport']);
+    assert.equal(result.runtime.supports_workspace_snapshot_capture, true);
     assert.equal(result.taskCatalog.version, 'v0');
     assert.equal(result.catalogParity.status, 'aligned');
     assert.deepEqual(result.catalogParity.missingTaskTypes, []);
@@ -157,6 +160,7 @@ test('probeRustDaemonRuntime reads runtime summary over unix socket', async () =
     assert.equal(result.socketPath, socketPath);
     assert.equal(result.catalogParity.status, 'mismatch');
     assert.deepEqual(result.catalogParity.missingTaskTypes, [
+      'bridge.captureWorkspaceSnapshot',
       'bridge.fetchContextPack',
       'bridge.fetchNodeContext',
       'bridge.fetchRunReport',

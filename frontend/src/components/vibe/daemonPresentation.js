@@ -56,6 +56,7 @@ function buildRustDaemonStatusNote(health = null) {
     const catalogVersion = cleanString(runtime.task_catalog_version);
     if (catalogVersion) parts.push(`catalog ${catalogVersion}`);
     if (runtime.supports_local_bridge_workflow === true) parts.push('bridge ready');
+    if (runtime.supports_workspace_snapshot_capture === true) parts.push('snapshot ready');
     if (cleanString(catalogParity?.status).toLowerCase() === 'mismatch') {
       const missing = Array.isArray(catalogParity?.missingTaskTypes)
         ? catalogParity.missingTaskTypes.map((item) => cleanString(item)).filter(Boolean)
@@ -82,6 +83,9 @@ function buildRustDaemonStatusRows(health = null) {
   const taskCatalog = rustDaemon.taskCatalog && typeof rustDaemon.taskCatalog === 'object'
     ? rustDaemon.taskCatalog
     : null;
+  const runtime = rustDaemon.runtime && typeof rustDaemon.runtime === 'object'
+    ? rustDaemon.runtime
+    : null;
   const catalogParity = rustDaemon.catalogParity && typeof rustDaemon.catalogParity === 'object'
     ? rustDaemon.catalogParity
     : null;
@@ -99,6 +103,9 @@ function buildRustDaemonStatusRows(health = null) {
   if (endpoint) rows.push({ label: 'Rust Endpoint', value: endpoint });
   if (socketPath) rows.push({ label: 'Rust Socket', value: socketPath });
   if (version) rows.push({ label: 'Rust Task Catalog', value: `${version} (${taskCount} tasks)` });
+  if (runtime?.supports_workspace_snapshot_capture === true) {
+    rows.push({ label: 'Rust Snapshot Capture', value: 'ready' });
+  }
   if (cleanString(catalogParity?.status)) {
     rows.push({ label: 'Rust Catalog Parity', value: cleanString(catalogParity.status) });
   }

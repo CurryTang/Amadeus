@@ -66,6 +66,7 @@ test('buildRustDaemonStatusNote summarizes an active rust daemon runtime', () =>
       runtime: {
         task_catalog_version: 'v0',
         supports_local_bridge_workflow: true,
+        supports_workspace_snapshot_capture: true,
       },
       catalogParity: {
         status: 'aligned',
@@ -73,7 +74,7 @@ test('buildRustDaemonStatusNote summarizes an active rust daemon runtime', () =>
     },
   });
 
-  assert.equal(note, 'Rust daemon ready via unix (catalog v0 · bridge ready).');
+  assert.equal(note, 'Rust daemon ready via unix (catalog v0 · bridge ready · snapshot ready).');
 });
 
 test('buildRustDaemonStatusNote calls out task catalog drift when parity mismatches', () => {
@@ -116,13 +117,14 @@ test('buildRustDaemonStatusNote also accepts dedicated rust status payloads', ()
     runtime: {
       task_catalog_version: 'v0',
       supports_local_bridge_workflow: true,
+      supports_workspace_snapshot_capture: true,
     },
     catalogParity: {
       status: 'aligned',
     },
   });
 
-  assert.equal(note, 'Rust daemon ready via http (catalog v0 · bridge ready).');
+  assert.equal(note, 'Rust daemon ready via http (catalog v0 · bridge ready · snapshot ready).');
 });
 
 test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parity gaps', () => {
@@ -132,6 +134,9 @@ test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parit
       status: 'ok',
       transport: 'unix',
       socketPath: '/tmp/researchops-local-daemon.sock',
+      runtime: {
+        supports_workspace_snapshot_capture: true,
+      },
       taskCatalog: {
         version: 'v0',
         tasks: [
@@ -151,6 +156,7 @@ test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parit
     { label: 'Rust Transport', value: 'unix' },
     { label: 'Rust Socket', value: '/tmp/researchops-local-daemon.sock' },
     { label: 'Rust Task Catalog', value: 'v0 (2 tasks)' },
+    { label: 'Rust Snapshot Capture', value: 'ready' },
     { label: 'Rust Catalog Parity', value: 'mismatch' },
     { label: 'Rust Missing Tasks', value: 'bridge.submitRunNote' },
     { label: 'Rust Extra Tasks', value: 'bridge.extraTask' },
