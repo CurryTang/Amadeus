@@ -29,6 +29,27 @@ function normalizeResources(resources = {}) {
   };
 }
 
+function hasAnyResource(resources = {}) {
+  return Object.values(readObject(resources)).some((value) => value !== null);
+}
+
+function buildExecutionJobSpec(run = {}) {
+  const metadata = readObject(run?.metadata);
+  const jobSpec = readObject(metadata.jobSpec);
+  const execution = buildRunExecutionView(run);
+  const resources = normalizeResources(jobSpec.resources || execution.resources);
+  const backend = normalizeExecutionBackend(execution.backend || jobSpec.backend);
+  const runtimeClass = normalizeRuntimeClass(execution.runtimeClass || jobSpec.runtimeClass);
+  if (!backend && !runtimeClass && !hasAnyResource(resources)) {
+    return null;
+  }
+  return {
+    ...(backend ? { backend } : {}),
+    ...(runtimeClass ? { runtimeClass } : {}),
+    resources,
+  };
+}
+
 function buildRunExecutionView(run = {}) {
   const metadata = readObject(run?.metadata);
   const jobSpec = readObject(metadata.jobSpec);
@@ -54,5 +75,7 @@ function buildRunExecutionView(run = {}) {
 }
 
 module.exports = {
+  buildExecutionJobSpec,
   buildRunExecutionView,
+  normalizeResources,
 };
