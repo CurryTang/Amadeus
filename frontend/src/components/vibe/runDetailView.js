@@ -211,6 +211,12 @@ function buildRunBridgeSummary(run = {}, runReport = {}) {
   if (noteTaskType) {
     rows.push({ label: 'Bridge Note Task', value: noteTaskType });
   }
+  const snapshotTaskType = cleanString(taskActions?.captureWorkspaceSnapshot?.taskType);
+  if (snapshotTaskType) {
+    rows.push({ label: 'Snapshot Capture', value: snapshotTaskType });
+  } else if (bridgeRuntime?.capabilities?.canCaptureWorkspaceSnapshot === true) {
+    rows.push({ label: 'Snapshot Capture', value: 'Available' });
+  }
   return rows;
 }
 

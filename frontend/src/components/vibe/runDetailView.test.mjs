@@ -186,6 +186,11 @@ test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task s
         serverId: 'srv_client_1',
         taskType: 'bridge.submitRunNote',
       },
+      captureWorkspaceSnapshot: {
+        transport: 'daemon-task',
+        serverId: 'srv_client_1',
+        taskType: 'bridge.captureWorkspaceSnapshot',
+      },
     },
   });
 
@@ -198,6 +203,7 @@ test('buildRunBridgeSummary exposes bridge runtime, transport, and daemon task s
     { label: 'Missing Bridge Tasks', value: 'bridge.submitRunNote' },
     { label: 'Bridge Report Task', value: 'bridge.fetchRunReport' },
     { label: 'Bridge Note Task', value: 'bridge.submitRunNote' },
+    { label: 'Snapshot Capture', value: 'bridge.captureWorkspaceSnapshot' },
   ]);
 });
 

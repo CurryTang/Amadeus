@@ -149,6 +149,17 @@ test('buildRunReportPayload exposes attempt semantics while staying run-centered
       runId: 'run_123',
     },
   });
+  assert.deepEqual(payload.taskActions.captureWorkspaceSnapshot, {
+    transport: 'daemon-task',
+    serverId: 'srv_client_1',
+    taskType: 'bridge.captureWorkspaceSnapshot',
+    payload: {
+      workspacePath: null,
+      sourceServerId: 'srv_remote_1',
+      kind: 'workspace_patch',
+      note: null,
+    },
+  });
   assert.equal('bundle' in payload, false);
   assert.equal('reviewQueue' in payload, false);
 });
