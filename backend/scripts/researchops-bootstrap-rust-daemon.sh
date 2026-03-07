@@ -50,16 +50,20 @@ if [ "$TRANSPORT" = "unix" ]; then
   nohup env \
     RESEARCHOPS_API_BASE_URL="$RESEARCHOPS_API_BASE_URL" \
     RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS="${RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS:-true}" \
+    RESEARCHOPS_RUST_DAEMON_TRANSPORT="$TRANSPORT" \
+    RESEARCHOPS_RUST_DAEMON_UNIX_SOCKET="$UNIX_SOCKET" \
     ADMIN_TOKEN="${ADMIN_TOKEN:-}" \
-    npm run researchops:rust-daemon-serve-unix >>"$LOG_FILE" 2>&1 &
+    npm run researchops:rust-daemon >>"$LOG_FILE" 2>&1 &
   echo "[ResearchOpsRustBootstrap] started rust daemon over unix socket (log: $LOG_FILE)"
   echo "[ResearchOpsRustBootstrap] socket: $UNIX_SOCKET"
 else
   nohup env \
     RESEARCHOPS_API_BASE_URL="$RESEARCHOPS_API_BASE_URL" \
     RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS="${RESEARCHOPS_DAEMON_ENABLE_BRIDGE_TASKS:-true}" \
+    RESEARCHOPS_RUST_DAEMON_TRANSPORT="$TRANSPORT" \
+    RESEARCHOPS_RUST_DAEMON_HTTP_ADDR="$HTTP_ADDR" \
     ADMIN_TOKEN="${ADMIN_TOKEN:-}" \
-    npm run researchops:rust-daemon-serve >>"$LOG_FILE" 2>&1 &
+    npm run researchops:rust-daemon >>"$LOG_FILE" 2>&1 &
   echo "[ResearchOpsRustBootstrap] started rust daemon over http (log: $LOG_FILE)"
   echo "[ResearchOpsRustBootstrap] address: $HTTP_ADDR"
 fi
