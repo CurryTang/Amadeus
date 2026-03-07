@@ -76,6 +76,28 @@ function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCo
       value: contractStatus,
     });
   }
+  const execution = effectiveRunReport?.execution && typeof effectiveRunReport.execution === 'object'
+    ? effectiveRunReport.execution
+    : (bridgeReport?.execution && typeof bridgeReport.execution === 'object'
+      ? bridgeReport.execution
+      : {});
+  const executionLocation = cleanString(execution.location);
+  const executionRuntime = [
+    cleanString(execution.backend),
+    cleanString(execution.runtimeClass),
+  ].filter(Boolean).join('/');
+  if (executionLocation) {
+    rows.push({
+      label: 'Execution',
+      value: executionLocation,
+    });
+  }
+  if (executionRuntime) {
+    rows.push({
+      label: 'Runtime',
+      value: executionRuntime,
+    });
+  }
 
   const observability = effectiveRunReport?.observability && typeof effectiveRunReport.observability === 'object'
     ? effectiveRunReport.observability

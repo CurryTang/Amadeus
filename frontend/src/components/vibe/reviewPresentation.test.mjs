@@ -175,6 +175,11 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
     {},
     {},
     {
+      execution: {
+        location: 'remote',
+        backend: 'container',
+        runtimeClass: 'container-fast',
+      },
       resolvedTransport: 'daemon-task',
       contract: {
         ok: false,
@@ -202,6 +207,8 @@ test('buildNodeReviewSummary surfaces observability readiness and warning counts
   assert.deepEqual(rows, [
     { label: 'Evidence', value: '1 deliverable artifact' },
     { label: 'Contract', value: 'Validation failed' },
+    { label: 'Execution', value: 'remote' },
+    { label: 'Runtime', value: 'container/container-fast' },
     { label: 'Readiness', value: 'Needs attention' },
     { label: 'Warnings', value: '2 warnings' },
     { label: 'Sinks', value: 'wandb, tensorboard' },
@@ -217,6 +224,11 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     {},
     {},
     {
+      execution: {
+        location: 'remote',
+        backend: 'container',
+        runtimeClass: 'container-guarded',
+      },
       resolvedTransport: 'rust-daemon',
       contract: {
         ok: true,
@@ -254,6 +266,8 @@ test('buildNodeReviewSummary falls back to bridge report data when no active run
     { label: 'Checkpoints', value: '1 pending · 1 resolved' },
     { label: 'Evidence', value: '1 deliverable artifact' },
     { label: 'Contract', value: 'Validated' },
+    { label: 'Execution', value: 'remote' },
+    { label: 'Runtime', value: 'container/container-guarded' },
     { label: 'Readiness', value: 'Ready' },
     { label: 'Sinks', value: 'wandb' },
     { label: 'Snapshot', value: 'Snapshot-backed' },
