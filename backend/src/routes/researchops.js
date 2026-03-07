@@ -7664,10 +7664,10 @@ router.post('/projects/:projectId/tree/run-all', async (req, res) => {
       currentState = treeStateService.normalizeState(next.state);
     }
 
-    return res.status(202).json({
+    return res.status(202).json(buildTreeRunAllPayload({
       projectId: project.id,
       scope,
-      fromNodeId: fromNodeId || null,
+      fromNodeId,
       queued,
       blocked,
       summary: {
@@ -7675,7 +7675,7 @@ router.post('/projects/:projectId/tree/run-all', async (req, res) => {
         queued: queued.length,
         blocked: blocked.length,
       },
-    });
+    }));
   } catch (error) {
     return res.status(400).json(toErrorPayload(error, 'Failed to run all tree steps'));
   }

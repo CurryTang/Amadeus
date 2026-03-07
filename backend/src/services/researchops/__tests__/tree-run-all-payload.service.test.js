@@ -80,4 +80,12 @@ test('buildTreeRunAllPayload preserves summary and leaves non-run items lightwei
     queued: 1,
     blocked: 1,
   });
+  assert.deepEqual(payload.actions.runAll, {
+    method: 'POST',
+    path: '/researchops/projects/proj_1/tree/run-all',
+  });
+  assert.deepEqual(payload.actions.state, {
+    method: 'GET',
+    path: '/researchops/projects/proj_1/tree/state',
+  });
 });

@@ -30,13 +30,25 @@ function buildTreeRunAllPayload({
   blocked = [],
   summary = {},
 } = {}) {
+  const safeProjectId = String(projectId || '').trim();
+  const encodedProjectId = encodeURIComponent(safeProjectId);
   return {
-    projectId,
+    projectId: safeProjectId || null,
     scope,
     fromNodeId: fromNodeId || null,
     queued: Array.isArray(queued) ? queued : [],
     blocked: Array.isArray(blocked) ? blocked : [],
     summary: summary && typeof summary === 'object' ? summary : {},
+    actions: safeProjectId ? {
+      runAll: {
+        method: 'POST',
+        path: `/researchops/projects/${encodedProjectId}/tree/run-all`,
+      },
+      state: {
+        method: 'GET',
+        path: `/researchops/projects/${encodedProjectId}/tree/state`,
+      },
+    } : {},
   };
 }
 

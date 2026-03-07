@@ -131,3 +131,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Tree queue pause/resume/abort plus search read/promote now use normalized payload services with compatible roots plus follow-up actions across modular and monolith routes
   - Tree `jumpstart` now uses a normalized payload with compatible roots plus follow-up actions on the modular route, matching the current architecture where this endpoint is not exposed in the monolith router
   - Horizon status now uses a normalized run payload with compatible status/log roots plus follow-up actions across modular and monolith routes
+  - Tree `run-all` payloads now include follow-up actions and the monolith route now reuses the same normalized response shape as the modular route
