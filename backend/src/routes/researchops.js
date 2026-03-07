@@ -90,6 +90,7 @@ const {
   buildProjectGitRestorePayload,
   buildProjectKbSetupPayload,
 } = require('../services/researchops/project-control-payload.service');
+const { buildProjectKbAddPaperPayload } = require('../services/researchops/project-kb-paper-payload.service');
 const {
   buildKbSyncJobPayload,
   buildKbSyncJobAcceptedPayload,
@@ -4432,7 +4433,13 @@ router.post('/projects/:projectId/kb/add-paper', requireAuth, async (req, res) =
       paperFolder = `${kbFolder}/${sanitizedTitle}`;
     }
 
-    return res.json({ ok: true, results, paperFolder, documentTitle: doc.title });
+    return res.json(buildProjectKbAddPaperPayload({
+      projectId,
+      documentId: String(documentId),
+      results,
+      paperFolder,
+      documentTitle: doc.title,
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
