@@ -176,6 +176,18 @@ function buildRustDaemonStatusPayload({
         method: 'POST',
         path: '/researchops/daemons/rust/stop',
       },
+      enableManaged: {
+        method: 'POST',
+        path: '/researchops/daemons/rust/enable-managed',
+      },
+      disableManaged: {
+        method: 'POST',
+        path: '/researchops/daemons/rust/disable-managed',
+      },
+      reconcileManaged: {
+        method: 'POST',
+        path: '/researchops/daemons/rust/reconcile',
+      },
       restart: {
         method: 'POST',
         path: '/researchops/daemons/rust/restart',

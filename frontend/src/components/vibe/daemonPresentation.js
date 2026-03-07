@@ -69,6 +69,9 @@ function buildRuntimeOverviewSummaryRows(summary = null) {
   if (source.rustManagedRunning === true || source.rustManagedRunning === false) {
     rows.push({ label: 'Rust Managed', value: source.rustManagedRunning ? 'yes' : 'no' });
   }
+  if (source.rustManagedDesired === true || source.rustManagedDesired === false) {
+    rows.push({ label: 'Rust Desired', value: source.rustManagedDesired ? 'running' : 'stopped' });
+  }
   if (runningCount !== null) rows.push({ label: 'Running Jobs', value: String(runningCount) });
   if (runtimeCatalogVersion && backendCount !== null && runtimeClassCount !== null) {
     rows.push({
@@ -87,6 +90,59 @@ function buildRuntimeOverviewPanelRows({
     ...buildRuntimeOverviewSummaryRows(runtimeOverviewSummary),
     ...buildRustDaemonStatusRows(rustDaemonStatus),
   ];
+}
+
+function buildUnifiedControlSurfaceRows({
+  reviewSummary = null,
+  runtimeSummary = null,
+} = {}) {
+  const review = reviewSummary && typeof reviewSummary === 'object' ? reviewSummary : {};
+  const runtime = runtimeSummary && typeof runtimeSummary === 'object' ? runtimeSummary : {};
+  const rows = [];
+  const reviewStatus = cleanString(review.status).replace(/_/g, ' ');
+  if (reviewStatus) rows.push({ label: 'Control Status', value: reviewStatus });
+  if (Number.isFinite(Number(review.attentionCount))) {
+    rows.push({ label: 'Attention Runs', value: String(Number(review.attentionCount)) });
+  }
+  if (runtime.rustManagedDesired === true && runtime.rustManagedRunning !== true) {
+    rows.push({ label: 'Runtime Drift', value: 'managed desired, runtime down' });
+  } else if (runtime.rustManagedRunning === true) {
+    rows.push({ label: 'Runtime Drift', value: 'managed runtime ready' });
+  }
+  if (Number.isFinite(Number(review.remoteExecutionCount)) && Number(review.remoteExecutionCount) > 0) {
+    rows.push({ label: 'Remote Runs', value: String(Number(review.remoteExecutionCount)) });
+  }
+  if (Number.isFinite(Number(review.snapshotBackedCount)) && Number(review.snapshotBackedCount) > 0) {
+    rows.push({ label: 'Snapshot-Backed Runs', value: String(Number(review.snapshotBackedCount)) });
+  }
+  if (Number.isFinite(Number(review.instrumentedCount)) && Number(review.instrumentedCount) > 0) {
+    rows.push({ label: 'Instrumented Runs', value: String(Number(review.instrumentedCount)) });
+  }
+  const telemetry = Array.isArray(review.instrumentedProviders)
+    ? review.instrumentedProviders.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  if (telemetry.length > 0) {
+    rows.push({ label: 'Telemetry', value: telemetry.join(', ') });
+  }
+  const transports = Array.isArray(review.resolvedTransports)
+    ? review.resolvedTransports.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  if (transports.length > 0) {
+    rows.push({ label: 'Transports', value: transports.join(', ') });
+  }
+  const onlineClients = Number.isFinite(Number(runtime.onlineClients)) ? Number(runtime.onlineClients) : null;
+  const bridgeReadyClients = Number.isFinite(Number(runtime.bridgeReadyClients)) ? Number(runtime.bridgeReadyClients) : null;
+  const snapshotReadyClients = Number.isFinite(Number(runtime.snapshotReadyClients)) ? Number(runtime.snapshotReadyClients) : null;
+  if (onlineClients !== null && bridgeReadyClients !== null && snapshotReadyClients !== null && onlineClients > 0) {
+    rows.push({
+      label: 'Client Coverage',
+      value: `${bridgeReadyClients}/${onlineClients} bridge-ready · ${snapshotReadyClients}/${onlineClients} snapshot-ready`,
+    });
+  }
+  if (Number.isFinite(Number(runtime.runningCount))) {
+    rows.push({ label: 'Running Jobs', value: String(Number(runtime.runningCount)) });
+  }
+  return rows;
 }
 
 function buildRustDaemonStatusNote(health = null) {
@@ -155,6 +211,9 @@ function buildRustDaemonStatusRows(health = null) {
   if (version) rows.push({ label: 'Rust Task Catalog', value: `${version} (${taskCount} tasks)` });
   if (supervisor?.running === true || supervisor?.running === false) {
     rows.push({ label: 'Rust Managed', value: supervisor.running ? 'yes' : 'no' });
+  }
+  if (cleanString(supervisor?.desiredState)) {
+    rows.push({ label: 'Rust Desired', value: cleanString(supervisor.desiredState) });
   }
   if (Number.isFinite(Number(supervisor?.pid)) && Number(supervisor.pid) > 0) {
     rows.push({ label: 'Rust PID', value: String(supervisor.pid) });
@@ -320,6 +379,9 @@ function buildRustDaemonActionItems(statusPayload = null, { busyAction = '', ref
   const startPath = cleanString(actions?.start?.path);
   const stopPath = cleanString(actions?.stop?.path);
   const restartPath = cleanString(actions?.restart?.path);
+  const enableManagedPath = cleanString(actions?.enableManaged?.path);
+  const disableManagedPath = cleanString(actions?.disableManaged?.path);
+  const reconcileManagedPath = cleanString(actions?.reconcileManaged?.path);
   if (startPath) {
     items.push({
       key: 'start',
@@ -347,6 +409,33 @@ function buildRustDaemonActionItems(statusPayload = null, { busyAction = '', ref
       disabled: refreshing || Boolean(busyAction && busyAction !== 'restart'),
     });
   }
+  if (enableManagedPath) {
+    items.push({
+      key: 'enable-managed',
+      label: busyAction === 'enable-managed' ? 'Enabling Managed…' : 'Enable Managed Mode',
+      path: enableManagedPath,
+      method: cleanString(actions?.enableManaged?.method) || 'POST',
+      disabled: refreshing || Boolean(busyAction && busyAction !== 'enable-managed'),
+    });
+  }
+  if (disableManagedPath) {
+    items.push({
+      key: 'disable-managed',
+      label: busyAction === 'disable-managed' ? 'Disabling Managed…' : 'Disable Managed Mode',
+      path: disableManagedPath,
+      method: cleanString(actions?.disableManaged?.method) || 'POST',
+      disabled: refreshing || Boolean(busyAction && busyAction !== 'disable-managed'),
+    });
+  }
+  if (reconcileManagedPath) {
+    items.push({
+      key: 'reconcile-managed',
+      label: busyAction === 'reconcile-managed' ? 'Reconciling Managed…' : 'Reconcile Managed State',
+      path: reconcileManagedPath,
+      method: cleanString(actions?.reconcileManaged?.method) || 'POST',
+      disabled: refreshing || Boolean(busyAction && busyAction !== 'reconcile-managed'),
+    });
+  }
   return items;
 }
 
@@ -358,6 +447,7 @@ export {
   buildClientDeviceOption,
   buildRuntimeOverviewPanelRows,
   buildRuntimeOverviewSummaryRows,
+  buildUnifiedControlSurfaceRows,
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,

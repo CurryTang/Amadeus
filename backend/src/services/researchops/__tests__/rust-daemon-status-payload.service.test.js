@@ -43,6 +43,7 @@ test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime opt
   assert.equal(payload.catalogParity.status, 'aligned');
   assert.equal(payload.supervisor.mode, 'unmanaged');
   assert.equal(payload.supervisor.running, false);
+  assert.equal(payload.supervisor.desiredState, 'stopped');
   assert.equal(payload.runtimeOptions.rustDaemonPrototype.runtime, 'rust');
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.http, /researchops-bootstrap-rust-daemon\.sh/);
   assert.match(payload.runtimeOptions.rustDaemonPrototype.commands.launcher, /researchops:rust-daemon/);
@@ -56,6 +57,18 @@ test('buildRustDaemonStatusPayload preserves probe roots and exposes runtime opt
   assert.deepEqual(payload.actions.status, {
     method: 'GET',
     path: '/researchops/daemons/rust/status',
+  });
+  assert.deepEqual(payload.actions.enableManaged, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/enable-managed',
+  });
+  assert.deepEqual(payload.actions.disableManaged, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/disable-managed',
+  });
+  assert.deepEqual(payload.actions.reconcileManaged, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/reconcile',
   });
   assert.deepEqual(payload.actions.bootstrap, {
     method: 'POST',

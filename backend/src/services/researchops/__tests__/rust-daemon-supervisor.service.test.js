@@ -37,6 +37,7 @@ test('buildRustDaemonSupervisorState reports unmanaged mode when no pid/state fi
   assert.equal(state.mode, 'unmanaged');
   assert.equal(state.running, false);
   assert.equal(state.pid, null);
+  assert.equal(state.desiredState, 'stopped');
   assert.equal(state.startedAt, null);
   assert.equal(state.transport, null);
   assert.equal(state.command, null);
@@ -65,7 +66,31 @@ test('buildRustDaemonSupervisorState reports managed mode when pid file points a
   assert.equal(state.mode, 'managed');
   assert.equal(state.running, true);
   assert.equal(state.pid, currentPid);
+  assert.equal(state.desiredState, 'running');
   assert.equal(state.startedAt, '2026-03-07T12:00:00.000Z');
   assert.equal(state.transport, 'unix');
   assert.equal(state.command, 'npm --prefix backend run researchops:rust-daemon');
+});
+
+test('buildRustDaemonSupervisorState keeps managed mode when desired state is running but process is down', () => {
+  const state = buildRustDaemonSupervisorState({
+    cwd: '/tmp/auto-researcher',
+    env: {},
+    fsImpl: {
+      readFileSync(filePath) {
+        if (String(filePath).endsWith('rust-daemon.pid')) return '999999';
+        if (String(filePath).endsWith('rust-daemon-state.json')) {
+          return JSON.stringify({
+            desiredState: 'running',
+            status: 'stopped',
+          });
+        }
+        throw new Error('ENOENT');
+      },
+    },
+  });
+
+  assert.equal(state.mode, 'managed');
+  assert.equal(state.running, false);
+  assert.equal(state.desiredState, 'running');
 });

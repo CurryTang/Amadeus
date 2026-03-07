@@ -95,6 +95,9 @@ const { buildRuntimeCatalogPayload } = require('../services/researchops/runtime-
 const { probeRustDaemonRuntime } = require('../services/researchops/rust-daemon-runtime.service');
 const { buildRustDaemonStatusPayload } = require('../services/researchops/rust-daemon-status-payload.service');
 const {
+  enableRustDaemonSupervisor,
+  disableRustDaemonSupervisor,
+  reconcileRustDaemonSupervisor,
   startRustDaemonSupervisor,
   stopRustDaemonSupervisor,
   restartRustDaemonSupervisor,
@@ -6465,6 +6468,93 @@ router.post('/daemons/rust/restart', async (req, res) => {
   } catch (error) {
     console.error('[ResearchOps] rust daemon restart failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to restart rust daemon') });
+  }
+});
+
+router.post('/daemons/rust/enable-managed', async (req, res) => {
+  try {
+    const managerResult = enableRustDaemonSupervisor({
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        RESEARCHOPS_API_BASE_URL: resolveResearchOpsApiBaseUrl(req),
+      },
+    });
+    const rustDaemon = await probeRustDaemonRuntime();
+    return res.status(managerResult.status === 'already_enabled' ? 200 : 202).json({
+      managementAction: managerResult.action,
+      managementStatus: managerResult.status,
+      ...buildRustDaemonStatusPayload({
+        rustDaemon: {
+          ...(rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {}),
+          supervisor: managerResult.supervisor,
+        },
+        apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+        cwd: process.cwd(),
+        refreshedAt: new Date().toISOString(),
+      }),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon enable-managed failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to enable rust daemon managed mode') });
+  }
+});
+
+router.post('/daemons/rust/disable-managed', async (req, res) => {
+  try {
+    const managerResult = disableRustDaemonSupervisor({
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        RESEARCHOPS_API_BASE_URL: resolveResearchOpsApiBaseUrl(req),
+      },
+    });
+    return res.json({
+      managementAction: managerResult.action,
+      managementStatus: managerResult.status,
+      ...buildRustDaemonStatusPayload({
+        rustDaemon: {
+          enabled: true,
+          status: 'disabled',
+          supervisor: managerResult.supervisor,
+        },
+        apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+        cwd: process.cwd(),
+        refreshedAt: new Date().toISOString(),
+      }),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon disable-managed failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to disable rust daemon managed mode') });
+  }
+});
+
+router.post('/daemons/rust/reconcile', async (req, res) => {
+  try {
+    const managerResult = reconcileRustDaemonSupervisor({
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        RESEARCHOPS_API_BASE_URL: resolveResearchOpsApiBaseUrl(req),
+      },
+    });
+    const rustDaemon = await probeRustDaemonRuntime();
+    return res.status(managerResult.status === 'in_sync' ? 200 : 202).json({
+      managementAction: managerResult.action,
+      managementStatus: managerResult.status,
+      ...buildRustDaemonStatusPayload({
+        rustDaemon: {
+          ...(rustDaemon && typeof rustDaemon === 'object' ? rustDaemon : {}),
+          supervisor: managerResult.supervisor,
+        },
+        apiBaseUrl: resolveResearchOpsApiBaseUrl(req),
+        cwd: process.cwd(),
+        refreshedAt: new Date().toISOString(),
+      }),
+    });
+  } catch (error) {
+    console.error('[ResearchOps] rust daemon reconcile failed:', error);
+    return res.status(400).json({ error: sanitizeError(error, 'Failed to reconcile rust daemon managed state') });
   }
 });
 

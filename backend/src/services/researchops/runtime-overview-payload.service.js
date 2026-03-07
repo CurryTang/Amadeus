@@ -16,6 +16,7 @@ function buildRuntimeOverviewSummary({ daemons = null, rustDaemon = null, runner
     rustBridgeReady: rustDaemon?.runtime?.supports_local_bridge_workflow === true,
     rustSnapshotReady: rustDaemon?.runtime?.supports_workspace_snapshot_capture === true,
     rustManagedRunning: rustDaemon?.supervisor?.running === true,
+    rustManagedDesired: rustDaemon?.supervisor?.desiredState === 'running',
     runningCount,
     runtimeCatalogVersion: runtimeCatalog.version,
     backendCount: runtimeCatalog.backends.length,

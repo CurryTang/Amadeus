@@ -11,6 +11,7 @@ import {
   buildRustDaemonStatusRows,
   buildRustDaemonStatusNote,
   buildRuntimeOverviewSummaryRows,
+  buildUnifiedControlSurfaceRows,
   filterOnlineClientDevices,
   getRuntimeOverviewClientDevices,
   getRuntimeOverviewRustStatus,
@@ -67,6 +68,9 @@ test('buildRustDaemonActionItems exposes lifecycle actions from rust status payl
       start: { method: 'POST', path: '/researchops/daemons/rust/start' },
       stop: { method: 'POST', path: '/researchops/daemons/rust/stop' },
       restart: { method: 'POST', path: '/researchops/daemons/rust/restart' },
+      enableManaged: { method: 'POST', path: '/researchops/daemons/rust/enable-managed' },
+      disableManaged: { method: 'POST', path: '/researchops/daemons/rust/disable-managed' },
+      reconcileManaged: { method: 'POST', path: '/researchops/daemons/rust/reconcile' },
     },
   });
 
@@ -92,6 +96,27 @@ test('buildRustDaemonActionItems exposes lifecycle actions from rust status payl
       method: 'POST',
       disabled: false,
     },
+    {
+      key: 'enable-managed',
+      label: 'Enable Managed Mode',
+      path: '/researchops/daemons/rust/enable-managed',
+      method: 'POST',
+      disabled: false,
+    },
+    {
+      key: 'disable-managed',
+      label: 'Disable Managed Mode',
+      path: '/researchops/daemons/rust/disable-managed',
+      method: 'POST',
+      disabled: false,
+    },
+    {
+      key: 'reconcile-managed',
+      label: 'Reconcile Managed State',
+      path: '/researchops/daemons/rust/reconcile',
+      method: 'POST',
+      disabled: false,
+    },
   ]);
 });
 
@@ -104,6 +129,7 @@ test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts',
     rustBridgeReady: true,
     rustSnapshotReady: true,
     rustManagedRunning: false,
+    rustManagedDesired: true,
     runningCount: 3,
     runtimeCatalogVersion: 'v0',
     backendCount: 4,
@@ -117,6 +143,7 @@ test('buildRuntimeOverviewSummaryRows exposes client and rust readiness counts',
     { label: 'Rust Bridge Ready', value: 'yes' },
     { label: 'Rust Snapshot Ready', value: 'yes' },
     { label: 'Rust Managed', value: 'no' },
+    { label: 'Rust Desired', value: 'running' },
     { label: 'Running Jobs', value: '3' },
     { label: 'Runtime Catalog', value: 'v0 · 4 backends · 4 runtime classes' },
   ]);
@@ -131,6 +158,7 @@ test('buildRuntimeOverviewPanelRows preserves summary-only rows when rust status
       rustBridgeReady: false,
       rustSnapshotReady: false,
       rustManagedRunning: false,
+      rustManagedDesired: true,
       runningCount: 3,
       runtimeCatalogVersion: 'v0',
       backendCount: 4,
@@ -146,8 +174,44 @@ test('buildRuntimeOverviewPanelRows preserves summary-only rows when rust status
     { label: 'Rust Bridge Ready', value: 'no' },
     { label: 'Rust Snapshot Ready', value: 'no' },
     { label: 'Rust Managed', value: 'no' },
+    { label: 'Rust Desired', value: 'running' },
     { label: 'Running Jobs', value: '3' },
     { label: 'Runtime Catalog', value: 'v0 · 4 backends · 4 runtime classes' },
+  ]);
+});
+
+test('buildUnifiedControlSurfaceRows combines review and runtime signals', () => {
+  const rows = buildUnifiedControlSurfaceRows({
+    reviewSummary: {
+      status: 'needs_attention',
+      attentionCount: 2,
+      remoteExecutionCount: 3,
+      snapshotBackedCount: 1,
+      instrumentedCount: 2,
+      instrumentedProviders: ['tensorboard', 'wandb'],
+      resolvedTransports: ['daemon-task', 'rust-daemon'],
+    },
+    runtimeSummary: {
+      onlineClients: 2,
+      bridgeReadyClients: 1,
+      snapshotReadyClients: 1,
+      rustManagedRunning: false,
+      rustManagedDesired: true,
+      runningCount: 4,
+    },
+  });
+
+  assert.deepEqual(rows, [
+    { label: 'Control Status', value: 'needs attention' },
+    { label: 'Attention Runs', value: '2' },
+    { label: 'Runtime Drift', value: 'managed desired, runtime down' },
+    { label: 'Remote Runs', value: '3' },
+    { label: 'Snapshot-Backed Runs', value: '1' },
+    { label: 'Instrumented Runs', value: '2' },
+    { label: 'Telemetry', value: 'tensorboard, wandb' },
+    { label: 'Transports', value: 'daemon-task, rust-daemon' },
+    { label: 'Client Coverage', value: '1/2 bridge-ready · 1/2 snapshot-ready' },
+    { label: 'Running Jobs', value: '4' },
   ]);
 });
 
@@ -233,6 +297,7 @@ test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parit
       },
       supervisor: {
         running: true,
+        desiredState: 'running',
         pid: 43210,
         pidFile: '/tmp/researchops-rust-daemon/rust-daemon.pid',
         logFile: '/tmp/researchops-rust-daemon/rust-daemon.log',
@@ -257,6 +322,7 @@ test('buildRustDaemonStatusRows exposes runtime endpoint, task counts, and parit
     { label: 'Rust Socket', value: '/tmp/researchops-local-daemon.sock' },
     { label: 'Rust Task Catalog', value: 'v0 (2 tasks)' },
     { label: 'Rust Managed', value: 'yes' },
+    { label: 'Rust Desired', value: 'running' },
     { label: 'Rust PID', value: '43210' },
     { label: 'Rust PID File', value: '/tmp/researchops-rust-daemon/rust-daemon.pid' },
     { label: 'Rust Log', value: '/tmp/researchops-rust-daemon/rust-daemon.log' },

@@ -30,6 +30,7 @@ import {
   buildRustDaemonActionItems,
   buildClientDeviceOption,
   buildRuntimeOverviewPanelRows,
+  buildUnifiedControlSurfaceRows,
   buildRustDaemonStatusNote,
   filterOnlineClientDevices,
   getRuntimeOverviewClientDevices,
@@ -1639,6 +1640,13 @@ function VibeResearcherPanel({
   const runtimeOverviewPanelRows = useMemo(
     () => buildRuntimeOverviewPanelRows({ runtimeOverviewSummary, rustDaemonStatus }),
     [runtimeOverviewSummary, rustDaemonStatus],
+  );
+  const unifiedControlSurfaceRows = useMemo(
+    () => buildUnifiedControlSurfaceRows({
+      reviewSummary: dashboardReviewSummary,
+      runtimeSummary: runtimeOverviewSummary,
+    }),
+    [dashboardReviewSummary, runtimeOverviewSummary],
   );
   const rustDaemonRuntimeSource = useMemo(() => {
     if (clientBootstrapData?.runtimeOptions && typeof clientBootstrapData.runtimeOptions === 'object') {
@@ -5894,6 +5902,15 @@ function VibeResearcherPanel({
                       {runtimeOverviewPanelRows.length > 0 && (
                         <div className="vibe-client-browser-box">
                           {runtimeOverviewPanelRows.map((row) => (
+                            <p key={row.label} className="vibe-empty">
+                              <strong>{row.label}:</strong> {row.value}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      {unifiedControlSurfaceRows.length > 0 && (
+                        <div className="vibe-client-browser-box">
+                          {unifiedControlSurfaceRows.map((row) => (
                             <p key={row.label} className="vibe-empty">
                               <strong>{row.label}:</strong> {row.value}
                             </p>

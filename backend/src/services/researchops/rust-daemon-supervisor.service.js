@@ -7,6 +7,13 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeDesiredState(value, fallback = 'stopped') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'running') return 'running';
+  if (normalized === 'stopped') return 'stopped';
+  return fallback;
+}
+
 function buildRustDaemonSupervisorPaths({ cwd = process.cwd(), env = process.env } = {}) {
   const dataDir = cleanString(env?.RESEARCHOPS_RUST_DAEMON_DATA_DIR)
     || path.join(cwd, 'backend', 'data', 'researchops-rust-daemon');
@@ -50,11 +57,14 @@ function buildRustDaemonSupervisorState({ cwd = process.cwd(), env = process.env
   const state = readJsonFile(paths.stateFile, fsImpl) || {};
   const pid = readPidFile(paths.pidFile, fsImpl);
   const running = isProcessRunning(pid);
+  const desiredState = normalizeDesiredState(state.desiredState, running ? 'running' : 'stopped');
+  const mode = desiredState === 'running' || running ? 'managed' : 'unmanaged';
 
   return {
-    mode: running ? 'managed' : 'unmanaged',
+    mode,
     running,
     pid,
+    desiredState,
     pidFile: paths.pidFile,
     stateFile: paths.stateFile,
     logFile: paths.logFile,
@@ -67,4 +77,5 @@ function buildRustDaemonSupervisorState({ cwd = process.cwd(), env = process.env
 module.exports = {
   buildRustDaemonSupervisorPaths,
   buildRustDaemonSupervisorState,
+  normalizeDesiredState,
 };

@@ -4,7 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { buildRustDaemonLaunchSpec } = require('./rust-daemon-launcher.service');
-const { buildRustDaemonSupervisorPaths, buildRustDaemonSupervisorState } = require('./rust-daemon-supervisor.service');
+const {
+  buildRustDaemonSupervisorPaths,
+  buildRustDaemonSupervisorState,
+  normalizeDesiredState,
+} = require('./rust-daemon-supervisor.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -15,9 +19,28 @@ function buildCommandString(spec = {}) {
   return [spec.command, ...args].map((item) => cleanString(item)).filter(Boolean).join(' ');
 }
 
+function readSupervisorStateFile(paths, fsImpl = fs) {
+  try {
+    return JSON.parse(fsImpl.readFileSync(paths.stateFile, 'utf8'));
+  } catch (_) {
+    return {};
+  }
+}
+
 function writeSupervisorState(paths, payload, fsImpl = fs) {
   fsImpl.mkdirSync(paths.dataDir, { recursive: true });
   fsImpl.writeFileSync(paths.stateFile, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+function persistSupervisorState(paths, nextPatch, fsImpl = fs) {
+  const prior = readSupervisorStateFile(paths, fsImpl);
+  const merged = {
+    ...prior,
+    ...nextPatch,
+    desiredState: normalizeDesiredState(nextPatch?.desiredState ?? prior?.desiredState),
+  };
+  writeSupervisorState(paths, merged, fsImpl);
+  return merged;
 }
 
 function startRustDaemonSupervisor({
@@ -29,6 +52,12 @@ function startRustDaemonSupervisor({
 } = {}) {
   const supervisor = buildRustDaemonSupervisorState({ cwd, env, fsImpl });
   if (supervisor.running && supervisor.pid) {
+    const paths = buildRustDaemonSupervisorPaths({ cwd, env });
+    persistSupervisorState(paths, {
+      desiredState: 'running',
+      status: 'running',
+      pid: supervisor.pid,
+    }, fsImpl);
     return {
       action: 'start',
       status: 'already_running',
@@ -53,7 +82,8 @@ function startRustDaemonSupervisor({
   if (pid) {
     fsImpl.writeFileSync(paths.pidFile, `${pid}\n`, 'utf8');
   }
-  writeSupervisorState(paths, {
+  persistSupervisorState(paths, {
+    desiredState: 'running',
     status: 'running',
     startedAt: now(),
     transport: spec.transport,
@@ -78,16 +108,9 @@ function stopRustDaemonSupervisor({
 } = {}) {
   const supervisor = buildRustDaemonSupervisorState({ cwd, env, fsImpl });
   const paths = buildRustDaemonSupervisorPaths({ cwd, env });
-  const priorState = (() => {
-    try {
-      return JSON.parse(fsImpl.readFileSync(paths.stateFile, 'utf8'));
-    } catch (_) {
-      return {};
-    }
-  })();
   if (!supervisor.pid) {
-    writeSupervisorState(paths, {
-      ...priorState,
+    persistSupervisorState(paths, {
+      desiredState: 'stopped',
       status: 'stopped',
       stoppedAt: now(),
       pid: null,
@@ -102,8 +125,8 @@ function stopRustDaemonSupervisor({
 
   killImpl(supervisor.pid, 'SIGTERM');
   fsImpl.writeFileSync(paths.pidFile, '\n', 'utf8');
-  writeSupervisorState(paths, {
-    ...priorState,
+  persistSupervisorState(paths, {
+    desiredState: 'stopped',
     status: 'stopped',
     stoppedAt: now(),
     lastPid: supervisor.pid,
@@ -130,8 +153,72 @@ function restartRustDaemonSupervisor(options = {}) {
   };
 }
 
+function enableRustDaemonSupervisor(options = {}) {
+  const { cwd = process.cwd(), env = process.env, fsImpl = fs, now = () => new Date().toISOString() } = options;
+  const paths = buildRustDaemonSupervisorPaths({ cwd, env });
+  persistSupervisorState(paths, {
+    desiredState: 'running',
+    updatedAt: now(),
+  }, fsImpl);
+  const startResult = startRustDaemonSupervisor({ ...options, cwd, env, fsImpl, now });
+  return {
+    action: 'enable_managed',
+    status: startResult.status === 'already_running' ? 'already_enabled' : 'enabled',
+    pid: startResult.pid,
+    supervisor: startResult.supervisor,
+  };
+}
+
+function disableRustDaemonSupervisor(options = {}) {
+  const { cwd = process.cwd(), env = process.env, fsImpl = fs, now = () => new Date().toISOString() } = options;
+  const paths = buildRustDaemonSupervisorPaths({ cwd, env });
+  persistSupervisorState(paths, {
+    desiredState: 'stopped',
+    updatedAt: now(),
+  }, fsImpl);
+  const stopResult = stopRustDaemonSupervisor({ ...options, cwd, env, fsImpl, now });
+  return {
+    action: 'disable_managed',
+    status: 'disabled',
+    pid: stopResult.pid,
+    supervisor: stopResult.supervisor,
+  };
+}
+
+function reconcileRustDaemonSupervisor(options = {}) {
+  const { cwd = process.cwd(), env = process.env, fsImpl = fs, now = () => new Date().toISOString() } = options;
+  const supervisor = buildRustDaemonSupervisorState({ cwd, env, fsImpl });
+  if (supervisor.desiredState === 'running' && !supervisor.running) {
+    const startResult = startRustDaemonSupervisor({ ...options, cwd, env, fsImpl, now });
+    return {
+      action: 'reconcile_managed',
+      status: startResult.status === 'already_running' ? 'in_sync' : startResult.status,
+      pid: startResult.pid,
+      supervisor: startResult.supervisor,
+    };
+  }
+  if (supervisor.desiredState === 'stopped' && supervisor.running) {
+    const stopResult = stopRustDaemonSupervisor({ ...options, cwd, env, fsImpl, now });
+    return {
+      action: 'reconcile_managed',
+      status: stopResult.status,
+      pid: stopResult.pid,
+      supervisor: stopResult.supervisor,
+    };
+  }
+  return {
+    action: 'reconcile_managed',
+    status: 'in_sync',
+    pid: supervisor.pid,
+    supervisor,
+  };
+}
+
 module.exports = {
   buildCommandString,
+  enableRustDaemonSupervisor,
+  disableRustDaemonSupervisor,
+  reconcileRustDaemonSupervisor,
   startRustDaemonSupervisor,
   stopRustDaemonSupervisor,
   restartRustDaemonSupervisor,

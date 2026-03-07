@@ -128,6 +128,18 @@ test('rust daemon status response exposes runtime probe data and reusable runtim
     method: 'POST',
     path: '/researchops/daemons/rust/stop',
   });
+  assert.deepEqual(response.actions.enableManaged, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/enable-managed',
+  });
+  assert.deepEqual(response.actions.disableManaged, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/disable-managed',
+  });
+  assert.deepEqual(response.actions.reconcileManaged, {
+    method: 'POST',
+    path: '/researchops/daemons/rust/reconcile',
+  });
   assert.deepEqual(response.actions.restart, {
     method: 'POST',
     path: '/researchops/daemons/rust/restart',

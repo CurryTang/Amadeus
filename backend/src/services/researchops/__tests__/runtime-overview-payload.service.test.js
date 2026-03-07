@@ -43,6 +43,7 @@ test('buildRuntimeOverviewPayload aggregates daemon, rust, and runner views with
       },
       supervisor: {
         running: true,
+        desiredState: 'running',
       },
     },
     runner: {
@@ -65,6 +66,7 @@ test('buildRuntimeOverviewPayload aggregates daemon, rust, and runner views with
     rustBridgeReady: true,
     rustSnapshotReady: true,
     rustManagedRunning: true,
+    rustManagedDesired: true,
     runningCount: 1,
     runtimeCatalogVersion: 'v0',
     backendCount: 4,
