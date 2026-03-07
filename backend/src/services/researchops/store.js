@@ -297,6 +297,8 @@ function daemonShape(doc) {
     capacity: doc.capacity || {},
     labels: doc.labels || {},
     concurrencyLimit: doc.concurrencyLimit || 1,
+    supportedTaskTypes: Array.isArray(doc.supportedTaskTypes) ? doc.supportedTaskTypes : [],
+    taskCatalogVersion: cleanString(doc.taskCatalogVersion) || null,
     heartbeatAt: doc.heartbeatAt || nowIso(),
     createdAt: doc.createdAt || nowIso(),
   };
@@ -1814,6 +1816,10 @@ async function registerDaemon(userId, payload) {
     capacity: payload?.capacity && typeof payload.capacity === 'object' ? payload.capacity : {},
     labels: payload?.labels && typeof payload.labels === 'object' ? payload.labels : {},
     concurrencyLimit,
+    supportedTaskTypes: Array.isArray(payload?.supportedTaskTypes)
+      ? payload.supportedTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+      : [],
+    taskCatalogVersion: cleanString(payload?.taskCatalogVersion) || null,
     heartbeatAt: now,
     updatedAt: now,
   };
@@ -1856,6 +1862,10 @@ async function heartbeatDaemon(userId, payload) {
   const patch = {
     status: cleanString(payload?.status).toUpperCase() || 'ONLINE',
     capacity: payload?.capacity && typeof payload.capacity === 'object' ? payload.capacity : {},
+    supportedTaskTypes: Array.isArray(payload?.supportedTaskTypes)
+      ? payload.supportedTaskTypes.map((item) => cleanString(item)).filter(Boolean)
+      : [],
+    taskCatalogVersion: cleanString(payload?.taskCatalogVersion) || null,
     heartbeatAt: now,
     updatedAt: now,
   };

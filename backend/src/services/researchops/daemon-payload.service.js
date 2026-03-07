@@ -4,6 +4,7 @@ const {
   BUILT_IN_DAEMON_TASK_TYPES,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
+  normalizeDaemonTaskTypes,
   listDaemonTaskDescriptors,
 } = require('./daemon-task-descriptor.service');
 
@@ -49,12 +50,15 @@ function buildDaemonActions() {
   };
 }
 
-function buildDaemonCapabilities() {
+function buildDaemonCapabilities(daemon = null) {
+  const source = asObject(daemon);
+  const supportedTaskTypes = normalizeDaemonTaskTypes(source.supportedTaskTypes);
   return {
     canClaimTasks: true,
-    taskCatalogVersion: DAEMON_TASK_CATALOG_VERSION,
+    taskCatalogVersion: cleanString(source.taskCatalogVersion) || DAEMON_TASK_CATALOG_VERSION,
     builtInTaskTypes: BUILT_IN_DAEMON_TASK_TYPES,
     optionalTaskTypes: OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+    supportedTaskTypes: supportedTaskTypes.length > 0 ? supportedTaskTypes : BUILT_IN_DAEMON_TASK_TYPES,
     taskDescriptors: listDaemonTaskDescriptors(),
   };
 }
@@ -73,6 +77,8 @@ function normalizeDaemon(daemon = null) {
     capacity,
     concurrencyLimit,
     heartbeatAt: cleanString(daemon.heartbeatAt) || null,
+    supportedTaskTypes: normalizeDaemonTaskTypes(daemon.supportedTaskTypes),
+    taskCatalogVersion: cleanString(daemon.taskCatalogVersion) || null,
     execution: {
       serverId: cleanString(daemon.id),
       location: inferLocation(labels),
@@ -84,7 +90,7 @@ function normalizeDaemon(daemon = null) {
       },
     },
     actions: buildDaemonActions(),
-    capabilities: buildDaemonCapabilities(),
+    capabilities: buildDaemonCapabilities(daemon),
   };
 }
 

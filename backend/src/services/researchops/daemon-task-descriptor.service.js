@@ -174,6 +174,18 @@ function cloneDescriptor(descriptor = null) {
   };
 }
 
+function normalizeDaemonTaskTypes(taskTypes = []) {
+  const seen = new Set();
+  const normalized = [];
+  for (const raw of Array.isArray(taskTypes) ? taskTypes : []) {
+    const taskType = String(raw || '').trim();
+    if (!taskType || seen.has(taskType) || !TASK_DESCRIPTOR_MAP[taskType]) continue;
+    seen.add(taskType);
+    normalized.push(taskType);
+  }
+  return normalized;
+}
+
 function buildDaemonTaskDescriptor(taskType = '') {
   const key = String(taskType || '').trim();
   return cloneDescriptor(TASK_DESCRIPTOR_MAP[key]);
@@ -190,6 +202,7 @@ module.exports = {
   BUILT_IN_DAEMON_TASK_TYPES,
   OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
   DAEMON_TASK_CATALOG_VERSION,
+  normalizeDaemonTaskTypes,
   buildDaemonTaskDescriptor,
   listDaemonTaskDescriptors,
 };

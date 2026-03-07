@@ -38,6 +38,11 @@ test('normalizeDaemon uppercases status and exposes a stable execution summary',
     'project.ensurePath',
     'project.ensureGit',
   ]);
+  assert.deepEqual(daemon.capabilities.supportedTaskTypes, [
+    'project.checkPath',
+    'project.ensurePath',
+    'project.ensureGit',
+  ]);
   assert.deepEqual(daemon.capabilities.optionalTaskTypes, [
     'bridge.fetchNodeContext',
     'bridge.fetchContextPack',
@@ -68,6 +73,8 @@ test('buildDaemonRegistrationPayload keeps legacy top-level fields while exposin
       status: 'online',
       labels: { role: 'embedded-runner' },
       heartbeatAt: '2026-03-06T12:00:00.000Z',
+      supportedTaskTypes: ['project.checkPath', 'bridge.fetchRunReport'],
+      taskCatalogVersion: 'v0',
     },
   });
 
@@ -76,6 +83,10 @@ test('buildDaemonRegistrationPayload keeps legacy top-level fields while exposin
   assert.equal(payload.status, 'ONLINE');
   assert.equal(payload.daemon.id, 'srv_2');
   assert.equal(payload.daemon.execution.location, 'local');
+  assert.deepEqual(payload.daemon.capabilities.supportedTaskTypes, [
+    'project.checkPath',
+    'bridge.fetchRunReport',
+  ]);
 });
 
 test('buildDaemonListPayload normalizes each daemon item', () => {

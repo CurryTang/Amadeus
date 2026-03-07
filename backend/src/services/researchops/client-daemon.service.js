@@ -2,6 +2,11 @@
 
 const os = require('os');
 const projectInsightsService = require('../project-insights.service');
+const {
+  BUILT_IN_DAEMON_TASK_TYPES,
+  DAEMON_TASK_CATALOG_VERSION,
+  normalizeDaemonTaskTypes,
+} = require('./daemon-task-descriptor.service');
 
 function normalizeApiBaseUrl(input = '') {
   return String(input || '').trim().replace(/\/+$/, '');
@@ -23,6 +28,13 @@ function cleanString(value) {
 
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function buildAdvertisedTaskTypes(handlers = {}) {
+  return normalizeDaemonTaskTypes([
+    ...BUILT_IN_DAEMON_TASK_TYPES,
+    ...Object.keys(asObject(handlers)),
+  ]);
 }
 
 function buildDaemonApiPaths(registerResponse = {}) {
@@ -96,6 +108,7 @@ function startClientDaemon({
   }
 
   const executeTask = createTaskExecutor(handlers);
+  const supportedTaskTypes = buildAdvertisedTaskTypes(handlers);
   let stopped = false;
   let heartbeatTimer = null;
 
@@ -110,6 +123,8 @@ function startClientDaemon({
         hostname,
         status: 'ONLINE',
         labels: { role: 'client-device' },
+        supportedTaskTypes,
+        taskCatalogVersion: DAEMON_TASK_CATALOG_VERSION,
         bootstrapId: normalizedBootstrapId || undefined,
         bootstrapSecret: normalizedBootstrapSecret || undefined,
       },
@@ -135,6 +150,8 @@ function startClientDaemon({
         body: {
           serverId,
           status: 'ONLINE',
+          supportedTaskTypes,
+          taskCatalogVersion: DAEMON_TASK_CATALOG_VERSION,
         },
       });
     };
