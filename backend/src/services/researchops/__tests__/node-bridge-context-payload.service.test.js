@@ -43,6 +43,16 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
         selectedItems: [{ id: 'doc_1' }],
       },
     },
+    bridgeReport: {
+      bridgeVersion: 'v0',
+      runId: 'run_eval',
+      status: 'SUCCEEDED',
+      counts: {
+        artifacts: 2,
+        checkpoints: 1,
+        pendingCheckpoints: 1,
+      },
+    },
   });
 
   assert.equal(payload.projectId, 'proj_1');
@@ -53,4 +63,6 @@ test('buildNodeBridgeContextPayload exposes current node, blocking, last run, an
   assert.equal(payload.lastRun.attempt.treeNodeId, 'node_eval');
   assert.equal(payload.lastRun.followUp.parentRunId, 'run_base');
   assert.equal(payload.contextPack.view.runId, 'run_eval');
+  assert.equal(payload.bridgeReport.runId, 'run_eval');
+  assert.equal(payload.capabilities.hasBridgeReport, true);
 });

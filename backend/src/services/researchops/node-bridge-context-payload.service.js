@@ -17,6 +17,7 @@ function buildNodeBridgeContextPayload({
   blocking = null,
   run = null,
   contextPack = null,
+  bridgeReport = null,
 } = {}) {
   const normalizedNode = asObject(node);
   const normalizedState = asObject(nodeState);
@@ -35,9 +36,11 @@ function buildNodeBridgeContextPayload({
     },
     lastRun,
     contextPack: normalizedContextPack && Object.keys(normalizedContextPack).length > 0 ? normalizedContextPack : null,
+    bridgeReport: bridgeReport && typeof bridgeReport === 'object' ? bridgeReport : null,
     capabilities: {
       hasLastRun: Boolean(lastRun?.run?.id),
       hasContextPack: Boolean(normalizedContextPack?.view || normalizedContextPack?.pack || normalizedContextPack?.mode),
+      hasBridgeReport: Boolean(bridgeReport?.runId),
       canRun: true,
     },
   };
