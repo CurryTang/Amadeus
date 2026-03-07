@@ -11,6 +11,10 @@ function asObject(value) {
 function buildBridgeRunReportPayload({ report = null } = {}) {
   const source = asObject(report);
   const checkpoints = Array.isArray(source.checkpoints) ? source.checkpoints : [];
+  const highlights = asObject(source.highlights);
+  const deliverableArtifactIds = Array.isArray(highlights.deliverableArtifactIds)
+    ? highlights.deliverableArtifactIds.filter((item) => cleanString(item))
+    : [];
   const pendingCheckpoints = checkpoints.filter(
     (item) => cleanString(item?.status).toUpperCase() === 'PENDING'
   ).length;
@@ -26,11 +30,16 @@ function buildBridgeRunReportPayload({ report = null } = {}) {
       env: source.envSnapshot || null,
     },
     summary: cleanString(source.summary) || null,
-    highlights: source.highlights || {},
+    highlights,
     counts: {
       artifacts: Array.isArray(source.artifacts) ? source.artifacts.length : 0,
+      deliverables: deliverableArtifactIds.length,
       checkpoints: checkpoints.length,
       pendingCheckpoints,
+    },
+    flags: {
+      hasSummary: Boolean(highlights.summaryArtifactId || cleanString(source.summary)),
+      hasFinalOutput: Boolean(highlights.finalOutputArtifactId),
     },
     report: source,
   };

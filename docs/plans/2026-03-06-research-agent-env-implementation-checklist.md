@@ -66,5 +66,6 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Node workbench review/evidence summary now includes thin compare status/evidence rows when a related run comparison exists
   - `workspaceSnapshot` views now carry through thin `localSnapshot` hints, and run detail surfaces those local snapshot notes alongside workspace/env snapshot metadata
   - `bridge-context` capability flags now explicitly report whether the latest bridge report includes workspace, local, and environment snapshot data
+  - `bridge-report` now exposes deliverable counts plus lightweight `hasSummary` / `hasFinalOutput` flags for faster bridge-side result triage
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility

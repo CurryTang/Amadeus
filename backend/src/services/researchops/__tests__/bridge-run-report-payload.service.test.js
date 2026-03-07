@@ -71,6 +71,9 @@ test('buildBridgeRunReportPayload exposes bridge-friendly current run summary fi
   assert.equal(payload.snapshots.workspace.localSnapshot.kind, 'workspace_patch');
   assert.equal(payload.highlights.deliverableArtifactIds.length, 2);
   assert.equal(payload.counts.artifacts, 2);
+  assert.equal(payload.counts.deliverables, 2);
   assert.equal(payload.counts.pendingCheckpoints, 1);
+  assert.equal(payload.flags.hasSummary, true);
+  assert.equal(payload.flags.hasFinalOutput, false);
   assert.equal(payload.followUp.relatedRunIds.length, 2);
 });
