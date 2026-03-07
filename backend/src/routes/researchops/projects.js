@@ -106,6 +106,14 @@ const {
   buildProjectFileTreePayload,
   buildProjectKbResourceLocatePayload,
 } = require('../../services/researchops/project-file-browser-payload.service');
+const {
+  buildProjectChangedFilesPayload,
+  buildProjectGitLogPayload,
+  buildProjectServerFilesPayload,
+  buildProjectVenvSetupPayload,
+  buildProjectVenvStatusPayload,
+  buildProjectWorkspacePayload,
+} = require('../../services/researchops/project-insights-payload.service');
 const { buildProjectKbAddPaperPayload } = require('../../services/researchops/project-kb-paper-payload.service');
 const {
   buildKbSyncJobPayload,
@@ -3696,23 +3704,25 @@ router.get('/projects/:projectId/workspace', async (req, res) => {
     // Run all sections in parallel — one network round-trip
     const [git, changed, tree, kb, venv] = await Promise.all([gitTask, changedTask, treeTask, kbTask, venvTask]);
 
-    return res.json({
+    return res.json(buildProjectWorkspacePayload({
       projectId: project.id,
-      projectPath: project.projectPath,
-      gitBranch: project.gitBranch || null,
-      locationType: project.locationType,
-      refreshedAt: new Date().toISOString(),
-      venvStatus: venv.ok ? venv.value : null,
-      venvError: venv.ok ? null : venv.error,
-      gitProgress: git.ok ? git.value : null,
-      gitError: git.ok ? null : git.error,
-      changedFiles: changed.ok ? changed.value : null,
-      changedFilesError: changed.ok ? null : changed.error,
-      fileTree: tree.ok ? tree.value : null,
-      fileTreeError: tree.ok ? null : tree.error,
-      kbEntries: kb.ok ? kb.value : null,
-      kbError: kb.ok ? null : kb.error,
-    });
+      result: {
+        projectPath: project.projectPath,
+        gitBranch: project.gitBranch || null,
+        locationType: project.locationType,
+        refreshedAt: new Date().toISOString(),
+        venvStatus: venv.ok ? venv.value : null,
+        venvError: venv.ok ? null : venv.error,
+        gitProgress: git.ok ? git.value : null,
+        gitError: git.ok ? null : git.error,
+        changedFiles: changed.ok ? changed.value : null,
+        changedFilesError: changed.ok ? null : changed.error,
+        fileTree: tree.ok ? tree.value : null,
+        fileTreeError: tree.ok ? null : tree.error,
+        kbEntries: kb.ok ? kb.value : null,
+        kbError: kb.ok ? null : kb.error,
+      },
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'PROJECT_PATH_MISSING') return res.status(400).json({ error: 'Project path is not configured' });
@@ -3727,12 +3737,12 @@ router.get('/projects/:projectId/venv/status', async (req, res) => {
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
     const { project, server } = await resolveProjectContext(getUserId(req), projectId);
     const status = await detectProjectVenvStatus(project, server);
-    return res.json({
+    return res.json(buildProjectVenvStatusPayload({
       projectId: project.id,
       locationType: project.locationType,
       status,
       checkedAt: new Date().toISOString(),
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'PROJECT_PATH_MISSING') return res.status(400).json({ error: 'Project path is not configured' });
@@ -3750,14 +3760,13 @@ router.post('/projects/:projectId/venv/setup', async (req, res) => {
     const tool = toolRaw === 'uv' ? 'uv' : 'pixi';
     const result = await setupProjectVenv(project, server, tool);
     const status = await detectProjectVenvStatus(project, server);
-    return res.json({
-      success: true,
+    return res.json(buildProjectVenvSetupPayload({
       projectId: project.id,
       locationType: project.locationType,
       configuredTool: result.tool,
       status,
       message: `Virtual environment configured with ${result.tool}.`,
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'PROJECT_PATH_MISSING') return res.status(400).json({ error: 'Project path is not configured' });
@@ -3797,15 +3806,17 @@ router.get('/projects/:projectId/git-log', async (req, res) => {
       gitProgress = await loadProjectGitProgress(project, server, gitLimit);
     }
 
-    return res.json({
+    return res.json(buildProjectGitLogPayload({
       projectId: project.id,
-      locationType: project.locationType,
-      serverId: project.serverId || 'local-default',
-      projectPath: project.projectPath,
-      proxied,
-      ...gitProgress,
-      refreshedAt: new Date().toISOString(),
-    });
+      result: {
+        locationType: project.locationType,
+        serverId: project.serverId || 'local-default',
+        projectPath: project.projectPath,
+        proxied,
+        ...gitProgress,
+        refreshedAt: new Date().toISOString(),
+      },
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') {
       return res.status(404).json({ error: 'Project not found' });
@@ -3850,15 +3861,17 @@ router.get('/projects/:projectId/server-files', async (req, res) => {
       fileSummary = await loadProjectFiles(project, server, sampleLimit);
     }
 
-    return res.json({
+    return res.json(buildProjectServerFilesPayload({
       projectId: project.id,
-      locationType: project.locationType,
-      serverId: project.serverId || 'local-default',
-      projectPath: project.projectPath,
-      proxied,
-      ...fileSummary,
-      refreshedAt: new Date().toISOString(),
-    });
+      result: {
+        locationType: project.locationType,
+        serverId: project.serverId || 'local-default',
+        projectPath: project.projectPath,
+        proxied,
+        ...fileSummary,
+        refreshedAt: new Date().toISOString(),
+      },
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') {
       return res.status(404).json({ error: 'Project not found' });
@@ -3907,15 +3920,17 @@ router.get('/projects/:projectId/changed-files', async (req, res) => {
       changed = await loadProjectChangedFiles(project, server, limit);
     }
 
-    return res.json({
+    return res.json(buildProjectChangedFilesPayload({
       projectId: project.id,
-      locationType: project.locationType,
-      serverId: project.serverId || 'local-default',
-      projectPath: project.projectPath,
-      proxied,
-      ...changed,
-      refreshedAt: new Date().toISOString(),
-    });
+      result: {
+        locationType: project.locationType,
+        serverId: project.serverId || 'local-default',
+        projectPath: project.projectPath,
+        proxied,
+        ...changed,
+        refreshedAt: new Date().toISOString(),
+      },
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') {
       return res.status(404).json({ error: 'Project not found' });
