@@ -87,6 +87,10 @@ const {
   buildProjectKnowledgeGroupsPayload,
 } = require('../../services/researchops/knowledge-group-payload.service');
 const { buildProjectFileSearchPayload } = require('../../services/researchops/project-file-search-payload.service');
+const {
+  buildKbSyncJobPayload,
+  buildKbSyncJobAcceptedPayload,
+} = require('../../services/researchops/kb-sync-job-payload.service');
 const { buildProjectRunClearPayload } = require('../../services/researchops/run-mutation-payload.service');
 const { requestDaemonRpc } = require('../../services/researchops/daemon-rpc.service');
 const {
@@ -4162,11 +4166,11 @@ router.post('/projects/:projectId/kb/sync-group', async (req, res) => {
       group,
     });
 
-    return res.status(202).json({
-      accepted: true,
+    return res.status(202).json(buildKbSyncJobAcceptedPayload({
+      projectId,
       job,
       message: 'KB sync started in background',
-    });
+    }));
   } catch (error) {
     if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
     if (error.code === 'SSH_SERVER_NOT_FOUND') return res.status(404).json({ error: sanitizeError(error, 'SSH server not found') });
@@ -4187,7 +4191,10 @@ router.get('/projects/:projectId/kb/sync-jobs/:jobId', async (req, res) => {
       jobId,
     });
     if (!job) return res.status(404).json({ error: 'KB sync job not found' });
-    return res.json({ job });
+    return res.json(buildKbSyncJobPayload({
+      projectId,
+      job,
+    }));
   } catch (error) {
     console.error('[ResearchOps] get KB sync job failed:', error);
     return res.status(400).json({ error: sanitizeError(error, 'Failed to fetch KB sync job') });
