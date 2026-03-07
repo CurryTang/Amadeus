@@ -224,6 +224,27 @@ function createDaemonBootstrapResponse({
       requestedHostname: hostname || null,
       expiresAt: String(bootstrap?.expiresAt || '').trim() || null,
     },
+    actions: {
+      bootstrapStatus: {
+        method: 'GET',
+        path: `/researchops/daemons/bootstrap/${encodeURIComponent(String(bootstrap?.bootstrapId || bootstrap?.id || '').trim())}`,
+      },
+      registerDaemon: {
+        method: 'POST',
+        path: '/researchops/daemons/register',
+      },
+    },
+    submitHints: {
+      registerDaemon: {
+        body: {
+          hostname: 'string',
+          status: 'string',
+          labels: 'object',
+          bootstrapId: 'string',
+          bootstrapSecret: 'string',
+        },
+      },
+    },
   };
 }
 

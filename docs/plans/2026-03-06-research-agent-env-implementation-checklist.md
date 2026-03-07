@@ -81,3 +81,5 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - `bridge-report` now also includes concrete follow-up action paths for `context-pack`, raw `report`, `artifacts`, and `bridge-note`, so bridge clients can continue from a report payload without reconstructing URLs
   - Public run enqueue APIs now accept thin execution hints and normalize them into `metadata.jobSpec`
   - Daemon bridge and cluster resource pool now expose normalized execution-facing payloads while keeping legacy top-level compatibility
+  - Daemon registration/list/heartbeat payloads now also expose current built-in task types plus concrete task-control action descriptors, so client-daemon code can discover current RPC surfaces without hardcoding them separately
+  - Daemon bootstrap responses now also expose follow-up action paths and thin register body hints, so local installer/bootstrap consumers can continue through current register/status APIs without reverse-engineering admin route shapes

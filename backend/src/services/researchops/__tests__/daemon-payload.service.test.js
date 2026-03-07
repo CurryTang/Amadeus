@@ -33,6 +33,19 @@ test('normalizeDaemon uppercases status and exposes a stable execution summary',
     gpu: { total: 1, available: 1 },
     cpuMemoryGb: { total: 64, available: 52 },
   });
+  assert.deepEqual(daemon.capabilities.builtInTaskTypes, [
+    'project.checkPath',
+    'project.ensurePath',
+    'project.ensureGit',
+  ]);
+  assert.deepEqual(daemon.actions.claimTask, {
+    method: 'POST',
+    path: '/researchops/daemons/tasks/claim',
+  });
+  assert.deepEqual(daemon.actions.completeTask, {
+    method: 'POST',
+    pathTemplate: '/researchops/daemons/tasks/{taskId}/complete',
+  });
 });
 
 test('buildDaemonRegistrationPayload keeps legacy top-level fields while exposing normalized daemon', () => {

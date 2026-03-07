@@ -21,6 +21,38 @@ function inferLocation(labels = {}) {
   return 'local';
 }
 
+function buildDaemonActions() {
+  return {
+    register: {
+      method: 'POST',
+      path: '/researchops/daemons/register',
+    },
+    heartbeat: {
+      method: 'POST',
+      path: '/researchops/daemons/heartbeat',
+    },
+    claimTask: {
+      method: 'POST',
+      path: '/researchops/daemons/tasks/claim',
+    },
+    completeTask: {
+      method: 'POST',
+      pathTemplate: '/researchops/daemons/tasks/{taskId}/complete',
+    },
+  };
+}
+
+function buildDaemonCapabilities() {
+  return {
+    canClaimTasks: true,
+    builtInTaskTypes: [
+      'project.checkPath',
+      'project.ensurePath',
+      'project.ensureGit',
+    ],
+  };
+}
+
 function normalizeDaemon(daemon = null) {
   if (!daemon || typeof daemon !== 'object') return null;
   const labels = asObject(daemon.labels);
@@ -45,6 +77,8 @@ function normalizeDaemon(daemon = null) {
         cpuMemoryGb: normalizeResourceBucket(capacity.cpuMemoryGb),
       },
     },
+    actions: buildDaemonActions(),
+    capabilities: buildDaemonCapabilities(),
   };
 }
 

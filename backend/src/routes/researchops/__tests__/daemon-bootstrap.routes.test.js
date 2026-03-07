@@ -21,4 +21,19 @@ test('bootstrap create route returns token metadata and install payload', async 
   assert.equal(response.apiBaseUrl, 'https://example.com/api');
   assert.match(response.installCommand, /RESEARCHOPS_BOOTSTRAP_SECRET='secret-value'/);
   assert.equal(response.bootstrapFile.bootstrapId, 'dbt_123');
+  assert.deepEqual(response.actions.bootstrapStatus, {
+    method: 'GET',
+    path: '/researchops/daemons/bootstrap/dbt_123',
+  });
+  assert.deepEqual(response.actions.registerDaemon, {
+    method: 'POST',
+    path: '/researchops/daemons/register',
+  });
+  assert.deepEqual(response.submitHints.registerDaemon.body, {
+    hostname: 'string',
+    status: 'string',
+    labels: 'object',
+    bootstrapId: 'string',
+    bootstrapSecret: 'string',
+  });
 });
