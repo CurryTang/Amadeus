@@ -1,5 +1,12 @@
 'use strict';
 
+const {
+  BUILT_IN_DAEMON_TASK_TYPES,
+  OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  DAEMON_TASK_CATALOG_VERSION,
+  listDaemonTaskDescriptors,
+} = require('./daemon-task-descriptor.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -45,11 +52,10 @@ function buildDaemonActions() {
 function buildDaemonCapabilities() {
   return {
     canClaimTasks: true,
-    builtInTaskTypes: [
-      'project.checkPath',
-      'project.ensurePath',
-      'project.ensureGit',
-    ],
+    taskCatalogVersion: DAEMON_TASK_CATALOG_VERSION,
+    builtInTaskTypes: BUILT_IN_DAEMON_TASK_TYPES,
+    optionalTaskTypes: OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+    taskDescriptors: listDaemonTaskDescriptors(),
   };
 }
 

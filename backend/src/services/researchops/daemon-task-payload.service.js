@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildDaemonTaskDescriptor } = require('./daemon-task-descriptor.service');
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -10,11 +12,12 @@ function asObject(value) {
 
 function normalizeTask(task = null) {
   const source = asObject(task);
+  const taskType = cleanString(source.taskType) || null;
   return {
     ...source,
     id: cleanString(source.id) || null,
     serverId: cleanString(source.serverId) || null,
-    taskType: cleanString(source.taskType) || null,
+    taskType,
     status: cleanString(source.status).toUpperCase() || 'QUEUED',
     payload: asObject(source.payload),
     result: source.result && typeof source.result === 'object' ? source.result : null,
@@ -23,6 +26,7 @@ function normalizeTask(task = null) {
     updatedAt: cleanString(source.updatedAt) || null,
     leasedAt: cleanString(source.leasedAt) || null,
     completedAt: cleanString(source.completedAt) || null,
+    descriptor: buildDaemonTaskDescriptor(taskType),
   };
 }
 

@@ -137,3 +137,4 @@ node frontend/src/components/vibe/observedSessionPresentation.test.mjs
   - Monolith run delete and cluster resource-pool now reuse existing normalized payload services instead of layering extra route-local wrappers on top
   - Tree todo-clarify and run-clarify responses now use a normalized payload service with compatible `done/question/options` roots plus explicit clarify actions
   - ResearchOps health, project `kb/files`, and project `context/repo-map` now also use normalized payload services; a final raw-success scan of modular + monolith `researchops` routes now returns no remaining `res.json({ ... })` success wrappers
+  - Daemon registration/list/task payloads and client-agent project capabilities now share a typed daemon task catalog (`v0`) that distinguishes current built-in project tasks from optional bridge workflow tasks, so the future Rust daemon/bridge layer has explicit payload/result contracts to target

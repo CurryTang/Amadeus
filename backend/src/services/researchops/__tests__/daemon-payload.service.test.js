@@ -38,6 +38,18 @@ test('normalizeDaemon uppercases status and exposes a stable execution summary',
     'project.ensurePath',
     'project.ensureGit',
   ]);
+  assert.deepEqual(daemon.capabilities.optionalTaskTypes, [
+    'bridge.fetchNodeContext',
+    'bridge.fetchContextPack',
+    'bridge.submitNodeRun',
+    'bridge.fetchRunReport',
+    'bridge.submitRunNote',
+  ]);
+  assert.equal(daemon.capabilities.taskCatalogVersion, 'v0');
+  assert.equal(
+    daemon.capabilities.taskDescriptors.find((item) => item.taskType === 'bridge.submitNodeRun')?.handlerMode,
+    'custom',
+  );
   assert.deepEqual(daemon.actions.claimTask, {
     method: 'POST',
     path: '/researchops/daemons/tasks/claim',

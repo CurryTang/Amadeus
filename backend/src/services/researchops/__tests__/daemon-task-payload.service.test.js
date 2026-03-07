@@ -24,6 +24,8 @@ test('buildDaemonTaskPayload exposes daemon task controls and completion hints',
 
   assert.equal(payload.task.id, 'task_1');
   assert.equal(payload.task.taskType, 'project.checkPath');
+  assert.equal(payload.task.descriptor.taskType, 'project.checkPath');
+  assert.equal(payload.task.descriptor.handlerMode, 'builtin');
   assert.deepEqual(payload.actions.complete, {
     method: 'POST',
     path: '/researchops/daemons/tasks/task_1/complete',
@@ -66,4 +68,22 @@ test('buildDaemonTaskCompletionPayload keeps the completed task shape and comple
   assert.equal(payload.task.status, 'SUCCEEDED');
   assert.equal(payload.task.result.normalizedPath, '/Users/alice/project');
   assert.equal(payload.actions.complete.path, '/researchops/daemons/tasks/task_3/complete');
+});
+
+test('buildDaemonTaskPayload carries optional bridge task descriptors for custom handlers', () => {
+  const payload = buildDaemonTaskPayload({
+    task: {
+      id: 'task_bridge_1',
+      serverId: 'srv_client_9',
+      taskType: 'bridge.fetchRunReport',
+      status: 'QUEUED',
+      payload: {
+        runId: 'run_123',
+      },
+    },
+  });
+
+  assert.equal(payload.task.descriptor.taskType, 'bridge.fetchRunReport');
+  assert.equal(payload.task.descriptor.builtIn, false);
+  assert.equal(payload.task.descriptor.handlerMode, 'custom');
 });

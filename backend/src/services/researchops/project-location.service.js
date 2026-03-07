@@ -1,5 +1,12 @@
 'use strict';
 
+const {
+  BUILT_IN_DAEMON_TASK_TYPES,
+  OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+  DAEMON_TASK_CATALOG_VERSION,
+  listDaemonTaskDescriptors,
+} = require('./daemon-task-descriptor.service');
+
 function cleanString(value) {
   const next = String(value || '').trim();
   return next || '';
@@ -8,12 +15,6 @@ function cleanString(value) {
 function cleanObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
-
-const CLIENT_AGENT_DAEMON_TASK_TYPES = [
-  'project.checkPath',
-  'project.ensurePath',
-  'project.ensureGit',
-];
 
 const CLIENT_AGENT_BRIDGE_ROUTE_TEMPLATES = {
   nodeBridgeContext: '/researchops/projects/{projectId}/tree/nodes/{nodeId}/bridge-context',
@@ -48,7 +49,10 @@ function deriveProjectCapabilities(project = {}) {
       requiresBrowserWorkspaceLink: false,
       executionTarget: 'client-daemon',
       supportsLocalBridgeWorkflow: true,
-      daemonTaskTypes: CLIENT_AGENT_DAEMON_TASK_TYPES,
+      daemonTaskCatalogVersion: DAEMON_TASK_CATALOG_VERSION,
+      daemonTaskTypes: BUILT_IN_DAEMON_TASK_TYPES,
+      optionalDaemonTaskTypes: OPTIONAL_BRIDGE_DAEMON_TASK_TYPES,
+      daemonTaskDescriptors: listDaemonTaskDescriptors(),
       bridgeRouteTemplates: CLIENT_AGENT_BRIDGE_ROUTE_TEMPLATES,
     };
   }
