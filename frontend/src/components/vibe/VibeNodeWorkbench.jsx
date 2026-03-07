@@ -4,7 +4,7 @@ import EmptyState from '../ui/EmptyState';
 import ClarificationChat from './ClarificationChat';
 import { buildContextPackSummary } from './contextPackPresentation.js';
 import { buildNodeReviewSummary } from './reviewPresentation.js';
-import { buildSearchTrialRows } from './searchPresentation.js';
+import { buildSearchSummaryRows, buildSearchTrialRows } from './searchPresentation.js';
 import { getTreeNodeKindLabel, isObservedTreeNode, isSearchTreeNode } from './treeNodePresentation.js';
 
 const TABS = ['summary', 'commands', 'diff', 'outputs', 'deliverables', 'notes'];
@@ -195,6 +195,10 @@ function VibeNodeWorkbench({
     () => buildSearchTrialRows(searchData),
     [searchData]
   );
+  const searchSummaryRows = useMemo(
+    () => buildSearchSummaryRows(searchData),
+    [searchData]
+  );
   const deliverables = useMemo(() => {
     const manifest = runReport?.manifest && typeof runReport.manifest === 'object' ? runReport.manifest : {};
     const items = [];
@@ -376,6 +380,18 @@ function VibeNodeWorkbench({
           {isSearchNode && (
             <article>
               <h4>Search Leaderboard</h4>
+              {searchSummaryRows.length > 0 && (
+                <div className="vibe-list">
+                  {searchSummaryRows.map((row) => (
+                    <div key={row.label} className="vibe-list-item">
+                      <div className="vibe-list-main">
+                        <strong>{row.label}</strong>
+                        <span>{row.value}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {searchTrialRows.length === 0 ? (
                 <p className="vibe-empty">No trials yet.</p>
               ) : (

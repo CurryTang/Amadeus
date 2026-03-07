@@ -24,6 +24,21 @@ function buildSearchTrialRows(search = {}, options = {}) {
     }));
 }
 
+function buildSearchSummaryRows(search = {}) {
+  const trials = Array.isArray(search?.trials)
+    ? search.trials.filter((trial) => trial && typeof trial === 'object' && cleanString(trial.id))
+    : [];
+  if (trials.length === 0) return [];
+  const passedCount = trials.filter((trial) => cleanString(trial.status).toUpperCase() === 'PASSED').length;
+  const bestReward = trials.reduce((best, trial) => Math.max(best, cleanNumber(trial.reward)), 0);
+  return [
+    { label: 'Trials', value: `${trials.length} total` },
+    { label: 'Passed', value: `${passedCount} passed` },
+    { label: 'Best', value: `${bestReward.toFixed(3)} reward` },
+  ];
+}
+
 export {
+  buildSearchSummaryRows,
   buildSearchTrialRows,
 };

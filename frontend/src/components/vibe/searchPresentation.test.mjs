@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildSearchTrialRows } from './searchPresentation.js';
+import { buildSearchSummaryRows, buildSearchTrialRows } from './searchPresentation.js';
 
 test('buildSearchTrialRows sorts trials by reward and formats leaderboard rows', () => {
   const rows = buildSearchTrialRows({
@@ -52,4 +52,24 @@ test('buildSearchTrialRows limits rows and ignores invalid trial data', () => {
       code: '-',
     },
   ]);
+});
+
+test('buildSearchSummaryRows summarizes trial counts and best reward', () => {
+  const rows = buildSearchSummaryRows({
+    trials: [
+      { id: 'trial_1', status: 'PASSED', reward: 1.25 },
+      { id: 'trial_2', status: 'FAILED', reward: 0.5 },
+      { id: 'trial_3', status: 'RUNNING', reward: 0.75 },
+    ],
+  });
+
+  assert.deepEqual(rows, [
+    { label: 'Trials', value: '3 total' },
+    { label: 'Passed', value: '1 passed' },
+    { label: 'Best', value: '1.250 reward' },
+  ]);
+});
+
+test('buildSearchSummaryRows returns an empty summary for missing trials', () => {
+  assert.deepEqual(buildSearchSummaryRows({}), []);
 });
