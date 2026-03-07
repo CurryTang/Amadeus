@@ -20,6 +20,7 @@ import { getVibeUiMode } from './vibe/vibeUiMode';
 import { DEFAULT_LAUNCHER_SKILL, getLauncherPromptPrefix } from './vibe/launcherRouting';
 import { buildPayloadWithContinuation, addContinuationChip } from './vibe/launcherContinuation';
 import { buildObservedSessionCards } from './vibe/observedSessionPresentation';
+import { buildObservedSessionActionMessage } from './vibe/observedSessionActionPresentation';
 import { buildActivityFeed } from './vibe/activityFeedPresentation';
 import { buildPlanActionMessage } from './vibe/planActionPresentation';
 import { getPlanPatchFeedback } from './vibe/planPatchPresentation';
@@ -27,6 +28,7 @@ import { removeProjectRunsFromState } from './vibe/runHistoryState';
 import { buildRecentRunCards, filterRunsForSelectedNode } from './vibe/runPresentation';
 import { getTreeExecutionErrorMessage } from './vibe/treeExecutionErrorPresentation';
 import { buildTreeNodeActionMessage } from './vibe/treeNodeActionPresentation';
+import { buildTreeQueueActionMessage } from './vibe/treeQueueActionPresentation';
 import { buildTreeRunAllMessage } from './vibe/treeRunAllPresentation';
 import { buildTreeRunStepMessage } from './vibe/treeRunStepPresentation';
 import { buildTreeExecutionSummary, getPrimaryTreeAction } from './vibe/treeExecutionSummary';
@@ -2788,11 +2790,12 @@ function VibeResearcherPanel({
     setSubmitting(true);
     try {
       await axios.post(`${apiUrl}/researchops/projects/${projectId}/tree/control/${action}`, {}, { headers });
+      setTreeError('');
+      setTreeActionMessage(buildTreeQueueActionMessage(action));
       await loadTreeWorkspace(projectId, { silent: true });
     } catch (err) {
-      const code = err?.response?.data?.code;
-      const message = err?.response?.data?.error || err?.message || `Failed to ${action} queue`;
-      setTreeError(code ? `${code}: ${message}` : message);
+      setTreeActionMessage('');
+      setTreeError(getTreeExecutionErrorMessage(err, `Failed to ${action} queue`));
     } finally {
       setSubmitting(false);
     }
@@ -3515,12 +3518,15 @@ function VibeResearcherPanel({
       );
       await loadObservedSessions(projectId, { silent: true });
       await loadTreeWorkspace(projectId, { silent: true, force: true });
+      setTreeError('');
+      setTreeActionMessage(buildObservedSessionActionMessage('refresh', response.data || { sessionId: targetSessionId }));
       const detachedNodeId = cleanString(response.data?.item?.detachedNodeId);
       if (detachedNodeId) {
         setSelectedNodeId(detachedNodeId);
       }
     } catch (err) {
       console.error('Failed to refresh observed session:', err);
+      setTreeActionMessage('');
       setError(err?.response?.data?.error || err?.message || 'Failed to refresh observed session');
     } finally {
       setObservedSessionRefreshingId('');
