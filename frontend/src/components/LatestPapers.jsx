@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
+import {
+  clearLatestPapersSession,
+  readLatestPapersSession,
+  resolveLatestPapersSessionUpdate,
+  writeLatestPapersSession,
+} from './latestPapersSession.js';
 
-const CACHE_KEY = 'latest_papers_cache_v6';
-const CACHE_SOFT_TTL_MS = 10 * 60 * 1000; // 10m: stale-while-revalidate threshold
-const CACHE_HARD_TTL_MS = 24 * 60 * 60 * 1000; // 24h: strict cache expiry
-const CACHE_FALLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7d: offline/network fallback
 const CACHE_BACKGROUND_REFRESH_GAP_MS = 25 * 1000; // avoid repeated revalidate bursts
-const CACHE_MAX_ITEMS = 300;
 const CATEGORY_FILTER_KEY = 'tracker_category_filter_v2';
 const TRACKER_ANON_SESSION_KEY = 'tracker_anon_session_id_v1';
 const SHOW_SAVED_KEY = 'tracker_show_saved_v1';
@@ -70,48 +71,6 @@ function partitionSavedOrReadToEnd(items = []) {
     else active.push(item);
   }
   return [...active, ...deprioritized];
-}
-
-function readClientCache({ allowStale = false } = {}) {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const { data, fetchedAt, hasMore, total } = JSON.parse(raw);
-    if (!Array.isArray(data) || data.length === 0) return null;
-    const fetchedAtMs = new Date(fetchedAt).getTime();
-    if (!Number.isFinite(fetchedAtMs) || fetchedAtMs <= 0) return null;
-    const ageMs = Math.max(0, Date.now() - fetchedAtMs);
-    if (ageMs > CACHE_FALLBACK_MAX_AGE_MS) return null;
-    if (!allowStale && ageMs > CACHE_HARD_TTL_MS) return null;
-    const isSoftExpired = ageMs >= CACHE_SOFT_TTL_MS;
-    return {
-      data: data.slice(0, CACHE_MAX_ITEMS),
-      fetchedAt: fetchedAtMs,
-      hasMore: !!hasMore,
-      total: Number.isFinite(total) ? total : data.length,
-      ageMs,
-      isSoftExpired,
-      isHardExpired: ageMs >= CACHE_HARD_TTL_MS,
-    };
-  } catch (_) {
-    return null;
-  }
-}
-
-function writeClientCache(data, fetchedAt, extra = {}) {
-  try {
-    if (!Array.isArray(data) || data.length === 0) return;
-    const fetchedAtMs = new Date(fetchedAt).getTime();
-    if (!Number.isFinite(fetchedAtMs) || fetchedAtMs <= 0) return;
-    const safeData = data.slice(0, CACHE_MAX_ITEMS);
-    localStorage.setItem(CACHE_KEY, JSON.stringify({
-      data: safeData,
-      fetchedAt: fetchedAtMs,
-      hasMore: !!extra.hasMore,
-      total: Number.isFinite(extra.total) ? extra.total : safeData.length,
-      cachedAt: Date.now(),
-    }));
-  } catch (_) {}
 }
 
 function PaperCard({ paper, onSave, onOpen, saving, isAuthenticated, position }) {
@@ -212,12 +171,20 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   const [cached, setCached] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const [newFeedAvailable, setNewFeedAvailable] = useState(false);
   const [savingKeys, setSavingKeys] = useState(new Set());
   const [shuffled, setShuffled] = useState(false);
   const impressionEventKeysRef = useRef(new Set());
   const eventsEndpointUnavailableRef = useRef(false);
   const papersCountRef = useRef(0);
   const lastBackgroundRefreshAtRef = useRef(0);
+  const currentSessionRef = useRef({
+    papers: [],
+    fetchedAt: 0,
+    hasMore: false,
+    total: 0,
+    snapshotId: '',
+  });
   const anonSessionId = useMemo(() => {
     if (isAuthenticated) return '';
     try {
@@ -251,6 +218,16 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   useEffect(() => {
     papersCountRef.current = papers.length;
   }, [papers.length]);
+
+  useEffect(() => {
+    currentSessionRef.current = {
+      papers,
+      fetchedAt: fetchedAt ? new Date(fetchedAt).getTime() : 0,
+      hasMore,
+      total,
+      snapshotId: currentSessionRef.current.snapshotId || '',
+    };
+  }, [fetchedAt, hasMore, papers, total]);
 
   const availableCategories = useMemo(() => {
     const counts = {};
@@ -336,12 +313,19 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   } = {}) => {
     // Stale-while-revalidate for first page: serve client cache immediately.
     if (!append && offset === 0 && !forceRefresh && !forceCrawl && !debug) {
-      const clientCache = readClientCache({ allowStale: false });
-      if (clientCache?.data?.length) {
-        setPapers(clientCache.data);
+      const clientCache = readLatestPapersSession(undefined, { allowStale: false });
+      if (clientCache?.papers?.length) {
+        currentSessionRef.current = {
+          papers: clientCache.papers,
+          fetchedAt: clientCache.fetchedAt,
+          hasMore: Boolean(clientCache.hasMore),
+          total: clientCache.total || clientCache.papers.length,
+          snapshotId: String(clientCache.snapshotId || '').trim(),
+        };
+        setPapers(clientCache.papers);
         setFetchedAt(clientCache.fetchedAt);
         setHasMore(Boolean(clientCache.hasMore));
-        setTotal(clientCache.total || clientCache.data.length);
+        setTotal(clientCache.total || clientCache.papers.length);
         setCached(true);
         if (
           clientCache.isSoftExpired
@@ -371,12 +355,15 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         offset,
         ...((debug || forceRefresh || forceCrawl) ? { debug: '1' } : {}),
         ...(shuffle && offset === 0 ? { shuffle: '1' } : {}),
+        ...(currentSessionRef.current.snapshotId ? { snapshotId: currentSessionRef.current.snapshotId } : {}),
         ...(!isAuthenticated && anonSessionId ? { anonSessionId } : {}),
       };
       const res = await axios.get(`${apiUrl}/tracker/feed`, { params });
       const {
         data,
         fetchedAt: ft,
+        snapshotId,
+        snapshotChanged,
         cached: isCached,
         hasMore: apiHasMore,
         total: apiTotal,
@@ -397,46 +384,51 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         return;
       }
 
-      if (append) {
-        setPapers((prev) => {
-          const existing = new Set(prev.map((p) => getFeedItemKey(p)).filter(Boolean));
-          const merged = [...prev];
-          for (const paper of nextPage) {
-            const key = getFeedItemKey(paper);
-            if (key && !existing.has(key)) {
-              existing.add(key);
-              merged.push(paper);
-            }
-          }
-          return merged;
-        });
-      } else {
-        setPapers(nextPage);
-      }
-      setFetchedAt(ft);
-      setHasMore(Boolean(apiHasMore));
-      setTotal(Number.isFinite(apiTotal) ? apiTotal : nextPage.length);
+      const incomingSession = {
+        papers: nextPage,
+        fetchedAt: ft ? new Date(ft).getTime() : Date.now(),
+        hasMore: Boolean(apiHasMore),
+        total: Number.isFinite(apiTotal) ? apiTotal : nextPage.length,
+        snapshotId: String(snapshotId || '').trim(),
+      };
+      const resolved = resolveLatestPapersSessionUpdate({
+        currentSession: currentSessionRef.current,
+        incomingSession,
+        append,
+        background,
+        manualRefresh: forceRefresh || forceCrawl || shuffle,
+      });
+      const visibleSession = resolved.session || incomingSession;
+      currentSessionRef.current = visibleSession;
+
+      setPapers(visibleSession.papers);
+      setFetchedAt(visibleSession.fetchedAt);
+      setHasMore(Boolean(visibleSession.hasMore));
+      setTotal(Number.isFinite(visibleSession.total) ? visibleSession.total : visibleSession.papers.length);
       setCached(isCached && !(forceRefresh || forceCrawl));
-      if (!append) setShuffled(Boolean(isShuffled));
-      // Always write client cache on initial page load (not append).
-      // Previously this was skipped when server returned cached:true, which
-      // meant every tab switch re-fetched from the server instead of using
-      // the 24h localStorage cache.
-      if (!append) {
-        writeClientCache(nextPage, ft, {
-          hasMore: Boolean(apiHasMore),
-          total: Number.isFinite(apiTotal) ? apiTotal : nextPage.length,
-        });
+      if (!append && resolved.replaced) setShuffled(Boolean(isShuffled));
+      if (forceRefresh || forceCrawl || resolved.replaced || append) {
+        setNewFeedAvailable(false);
+      } else if (resolved.newFeedAvailable || snapshotChanged) {
+        setNewFeedAvailable(true);
       }
+      writeLatestPapersSession(undefined, visibleSession);
     } catch (e) {
       if (background) return;
       if (!append && offset === 0) {
-        const fallbackCache = readClientCache({ allowStale: true });
-        if (fallbackCache?.data?.length) {
-          setPapers(fallbackCache.data);
+        const fallbackCache = readLatestPapersSession(undefined, { allowStale: true });
+        if (fallbackCache?.papers?.length) {
+          currentSessionRef.current = {
+            papers: fallbackCache.papers,
+            fetchedAt: fallbackCache.fetchedAt,
+            hasMore: Boolean(fallbackCache.hasMore),
+            total: fallbackCache.total || fallbackCache.papers.length,
+            snapshotId: String(fallbackCache.snapshotId || '').trim(),
+          };
+          setPapers(fallbackCache.papers);
           setFetchedAt(fallbackCache.fetchedAt);
           setHasMore(Boolean(fallbackCache.hasMore));
-          setTotal(fallbackCache.total || fallbackCache.data.length);
+          setTotal(fallbackCache.total || fallbackCache.papers.length);
           setCached(true);
           setError(`${formatFeedError(e, 'Failed to load latest papers')} Showing recent cached results.`);
           return;
@@ -510,7 +502,12 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
           getFeedItemKey(p) === saveKey ? { ...p, saved: true } : p
         ));
         if (fetchedAt) {
-          writeClientCache(next, fetchedAt, { hasMore, total });
+          writeLatestPapersSession(undefined, {
+            papers: next,
+            fetchedAt: new Date(fetchedAt).getTime(),
+            hasMore,
+            total,
+          });
         }
         return next;
       });
@@ -534,13 +531,21 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   }, [trackEvents]);
 
   const handleForceRefresh = () => {
-    localStorage.removeItem(CACHE_KEY);
+    clearLatestPapersSession();
     localStorage.removeItem('latest_papers_cache_v4');
     localStorage.removeItem('latest_papers_cache_v5');
     setPapers([]);
     setHasMore(false);
     setTotal(0);
     setShuffled(false);
+    setNewFeedAvailable(false);
+    currentSessionRef.current = {
+      papers: [],
+      fetchedAt: 0,
+      hasMore: false,
+      total: 0,
+      snapshotId: '',
+    };
     fetchFeed({ offset: 0, append: false, forceRefresh: true, forceCrawl: true, shuffle: true });
   };
 
@@ -615,6 +620,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
               {cached ? 'Cached' : 'Live'} · {new Date(fetchedAt).toLocaleString()}
               {` · ${displayCount}`}
               {shuffled && <span className="latest-shuffled-badge"> · Reordered</span>}
+              {newFeedAvailable && <span className="latest-shuffled-badge"> · New items available</span>}
             </span>
           )}
         </div>

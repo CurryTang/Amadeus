@@ -16,6 +16,12 @@ const rssTracker = require('../services/rss-tracker.service');
 const arxivService = require('../services/arxiv.service');
 const trackerProxy = require('../services/tracker-proxy.service');
 const {
+  buildTrackerFeedSnapshotId,
+  createTrackerFeedPageCache,
+  hasTrackerFeedSnapshotChanged,
+  resolveTrackerFeedAnnotatedPage,
+} = require('../services/tracker-feed-snapshot.service');
+const {
   extractTwitterHandle,
   normalizeTwitterProfileLinks,
 } = require('../utils/twitter-profile-links');
@@ -94,6 +100,7 @@ let feedRefreshRunning = false;
 let staleProxyTriggerInFlight = false;
 let staleProxyLastAttemptAt = 0;
 const userFeedProfileCache = new Map();
+const trackerFeedPageCache = createTrackerFeedPageCache();
 
 function getLastRunAgeMs(lastRunAt) {
   if (!lastRunAt) return Number.POSITIVE_INFINITY;
@@ -1906,23 +1913,44 @@ router.get('/feed', optionalAuth, async (req, res) => {
       console.warn('[tracker] full annotate failed, falling back to page annotate:', fullAnnotateError.message || fullAnnotateError);
     }
 
-    const rawPageData = sourceData.slice(offset, offset + limit);
-    let pageData = [];
-    if (fullAnnotated) {
-      // Already annotated globally for consistent ordering.
-      pageData = rawPageData;
-    } else {
-      try {
-        pageData = await withTimeout(
-          () => annotateSavedStatus(rawPageData),
-          FEED_PAGE_ANNOTATE_TIMEOUT_MS,
-          'feed_saved_status'
-        );
-      } catch (annotateError) {
-        console.warn('[tracker] annotateSavedStatus timed out/faulted:', annotateError.message || annotateError);
-        pageData = rawPageData.map((item) => ({ ...item, saved: Boolean(item?.saved), isRead: Boolean(item?.isRead) }));
-      }
-    }
+    const snapshotId = buildTrackerFeedSnapshotId({
+      data: sourceData,
+      fetchedAt: snapshot.fetchedAt,
+      sourceCount: snapshot.sourceCount,
+    });
+    const requestedSnapshotId = String(req.query.snapshotId || '').trim();
+    const viewerKey = String(
+      req.userId
+      || getTrackerEventUserId(req, { anonSessionId: req.query?.anonSessionId || '' })
+      || 'public'
+    ).trim() || 'public';
+    const page = await resolveTrackerFeedAnnotatedPage({
+      cacheState: trackerFeedPageCache,
+      snapshot: {
+        data: sourceData,
+        fetchedAt: snapshot.fetchedAt,
+        sourceCount: snapshot.sourceCount,
+      },
+      offset,
+      limit,
+      viewerKey,
+      annotatePage: async (rawPageData) => {
+        if (fullAnnotated) {
+          return rawPageData;
+        }
+        try {
+          return await withTimeout(
+            () => annotateSavedStatus(rawPageData),
+            FEED_PAGE_ANNOTATE_TIMEOUT_MS,
+            'feed_saved_status'
+          );
+        } catch (annotateError) {
+          console.warn('[tracker] annotateSavedStatus timed out/faulted:', annotateError.message || annotateError);
+          return rawPageData.map((item) => ({ ...item, saved: Boolean(item?.saved), isRead: Boolean(item?.isRead) }));
+        }
+      },
+    });
+    const pageData = page.data;
 
     const fetchedAtIso = snapshot.fetchedAt
       ? new Date(snapshot.fetchedAt).toISOString()
@@ -1934,10 +1962,16 @@ router.get('/feed', optionalAuth, async (req, res) => {
       cacheSource,
       softStale,
       fetchedAt: fetchedAtIso,
+      snapshotId,
+      snapshotChanged: hasTrackerFeedSnapshotChanged(requestedSnapshotId, {
+        data: sourceData,
+        fetchedAt: snapshot.fetchedAt,
+        sourceCount: snapshot.sourceCount,
+      }),
       offset,
       limit,
-      hasMore: offset + rawPageData.length < sourceData.length,
-      total: sourceData.length,
+      hasMore: page.hasMore,
+      total: page.total,
       perSource: Array.isArray(snapshot.perSource) ? snapshot.perSource : [],
       sourceCount: Number(snapshot.sourceCount || 0) || 0,
       refreshInProgress: feedRefreshRunning,
