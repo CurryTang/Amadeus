@@ -34,6 +34,12 @@ function shouldInvalidateTrackerFeedPageCache(cacheState = {}, snapshot = {}) {
   return String(cacheState?.snapshotId || '') !== buildTrackerFeedSnapshotId(snapshot);
 }
 
+function hasTrackerFeedSnapshotChanged(requestedSnapshotId = '', snapshot = {}) {
+  const normalizedRequested = String(requestedSnapshotId || '').trim();
+  if (!normalizedRequested) return false;
+  return normalizedRequested !== buildTrackerFeedSnapshotId(snapshot);
+}
+
 function createTrackerFeedPageCache() {
   return {
     snapshotId: '',
@@ -83,6 +89,7 @@ module.exports = {
   buildTrackerFeedSnapshotId,
   createTrackerFeedPageCache,
   getTrackerFeedItemKey,
+  hasTrackerFeedSnapshotChanged,
   paginateTrackerFeedSnapshot,
   resolveTrackerFeedAnnotatedPage,
   shouldInvalidateTrackerFeedPageCache,

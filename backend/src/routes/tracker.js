@@ -18,6 +18,7 @@ const trackerProxy = require('../services/tracker-proxy.service');
 const {
   buildTrackerFeedSnapshotId,
   createTrackerFeedPageCache,
+  hasTrackerFeedSnapshotChanged,
   resolveTrackerFeedAnnotatedPage,
 } = require('../services/tracker-feed-snapshot.service');
 const {
@@ -1917,6 +1918,7 @@ router.get('/feed', optionalAuth, async (req, res) => {
       fetchedAt: snapshot.fetchedAt,
       sourceCount: snapshot.sourceCount,
     });
+    const requestedSnapshotId = String(req.query.snapshotId || '').trim();
     const viewerKey = String(
       req.userId
       || getTrackerEventUserId(req, { anonSessionId: req.query?.anonSessionId || '' })
@@ -1961,6 +1963,11 @@ router.get('/feed', optionalAuth, async (req, res) => {
       softStale,
       fetchedAt: fetchedAtIso,
       snapshotId,
+      snapshotChanged: hasTrackerFeedSnapshotChanged(requestedSnapshotId, {
+        data: sourceData,
+        fetchedAt: snapshot.fetchedAt,
+        sourceCount: snapshot.sourceCount,
+      }),
       offset,
       limit,
       hasMore: page.hasMore,

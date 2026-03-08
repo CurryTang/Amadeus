@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   buildTrackerFeedSnapshotId,
   createTrackerFeedPageCache,
+  hasTrackerFeedSnapshotChanged,
   resolveTrackerFeedAnnotatedPage,
   paginateTrackerFeedSnapshot,
   shouldInvalidateTrackerFeedPageCache,
@@ -161,4 +162,31 @@ test('resolveTrackerFeedAnnotatedPage annotates only the requested page when ful
     { arxivId: '2503.00003', saved: true },
     { arxivId: '2503.00004', saved: true },
   ]);
+});
+
+test('hasTrackerFeedSnapshotChanged compares the client snapshot id against the current snapshot', () => {
+  const snapshot = {
+    fetchedAt: Date.UTC(2026, 2, 8, 18, 0, 0),
+    sourceCount: 5,
+    data: [
+      { arxivId: '2503.00001' },
+      { arxivId: '2503.00002' },
+      { arxivId: '2503.00003' },
+    ],
+  };
+
+  assert.equal(
+    hasTrackerFeedSnapshotChanged('', snapshot),
+    false
+  );
+
+  assert.equal(
+    hasTrackerFeedSnapshotChanged('older-snapshot-id', snapshot),
+    true
+  );
+
+  assert.equal(
+    hasTrackerFeedSnapshotChanged(buildTrackerFeedSnapshotId(snapshot), snapshot),
+    false
+  );
 });

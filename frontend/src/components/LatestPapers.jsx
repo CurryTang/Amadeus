@@ -225,7 +225,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
       fetchedAt: fetchedAt ? new Date(fetchedAt).getTime() : 0,
       hasMore,
       total,
-      snapshotId: '',
+      snapshotId: currentSessionRef.current.snapshotId || '',
     };
   }, [fetchedAt, hasMore, papers, total]);
 
@@ -315,6 +315,13 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
     if (!append && offset === 0 && !forceRefresh && !forceCrawl && !debug) {
       const clientCache = readLatestPapersSession(undefined, { allowStale: false });
       if (clientCache?.papers?.length) {
+        currentSessionRef.current = {
+          papers: clientCache.papers,
+          fetchedAt: clientCache.fetchedAt,
+          hasMore: Boolean(clientCache.hasMore),
+          total: clientCache.total || clientCache.papers.length,
+          snapshotId: String(clientCache.snapshotId || '').trim(),
+        };
         setPapers(clientCache.papers);
         setFetchedAt(clientCache.fetchedAt);
         setHasMore(Boolean(clientCache.hasMore));
@@ -348,6 +355,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         offset,
         ...((debug || forceRefresh || forceCrawl) ? { debug: '1' } : {}),
         ...(shuffle && offset === 0 ? { shuffle: '1' } : {}),
+        ...(currentSessionRef.current.snapshotId ? { snapshotId: currentSessionRef.current.snapshotId } : {}),
         ...(!isAuthenticated && anonSessionId ? { anonSessionId } : {}),
       };
       const res = await axios.get(`${apiUrl}/tracker/feed`, { params });
@@ -355,6 +363,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         data,
         fetchedAt: ft,
         snapshotId,
+        snapshotChanged,
         cached: isCached,
         hasMore: apiHasMore,
         total: apiTotal,
@@ -390,6 +399,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         manualRefresh: forceRefresh || forceCrawl || shuffle,
       });
       const visibleSession = resolved.session || incomingSession;
+      currentSessionRef.current = visibleSession;
 
       setPapers(visibleSession.papers);
       setFetchedAt(visibleSession.fetchedAt);
@@ -399,7 +409,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
       if (!append && resolved.replaced) setShuffled(Boolean(isShuffled));
       if (forceRefresh || forceCrawl || resolved.replaced || append) {
         setNewFeedAvailable(false);
-      } else if (resolved.newFeedAvailable) {
+      } else if (resolved.newFeedAvailable || snapshotChanged) {
         setNewFeedAvailable(true);
       }
       writeLatestPapersSession(undefined, visibleSession);
@@ -408,6 +418,13 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
       if (!append && offset === 0) {
         const fallbackCache = readLatestPapersSession(undefined, { allowStale: true });
         if (fallbackCache?.papers?.length) {
+          currentSessionRef.current = {
+            papers: fallbackCache.papers,
+            fetchedAt: fallbackCache.fetchedAt,
+            hasMore: Boolean(fallbackCache.hasMore),
+            total: fallbackCache.total || fallbackCache.papers.length,
+            snapshotId: String(fallbackCache.snapshotId || '').trim(),
+          };
           setPapers(fallbackCache.papers);
           setFetchedAt(fallbackCache.fetchedAt);
           setHasMore(Boolean(fallbackCache.hasMore));
@@ -522,6 +539,13 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
     setTotal(0);
     setShuffled(false);
     setNewFeedAvailable(false);
+    currentSessionRef.current = {
+      papers: [],
+      fetchedAt: 0,
+      hasMore: false,
+      total: 0,
+      snapshotId: '',
+    };
     fetchFeed({ offset: 0, append: false, forceRefresh: true, forceCrawl: true, shuffle: true });
   };
 
