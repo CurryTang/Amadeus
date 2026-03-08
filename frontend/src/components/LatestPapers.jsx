@@ -4,6 +4,7 @@ import {
   clearLatestPapersSession,
   readLatestPapersSession,
   resolveLatestPapersSessionUpdate,
+  shouldTreatTrackerFetchAsManualRefresh,
   writeLatestPapersSession,
 } from './latestPapersSession.js';
 
@@ -396,7 +397,12 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         incomingSession,
         append,
         background,
-        manualRefresh: forceRefresh || forceCrawl || shuffle,
+        manualRefresh: shouldTreatTrackerFetchAsManualRefresh({
+          background,
+          forceRefresh,
+          forceCrawl,
+          shuffle,
+        }),
       });
       const visibleSession = resolved.session || incomingSession;
       currentSessionRef.current = visibleSession;

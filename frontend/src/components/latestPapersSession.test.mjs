@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   readLatestPapersSession,
   resolveLatestPapersSessionUpdate,
+  shouldTreatTrackerFetchAsManualRefresh,
   writeLatestPapersSession,
 } from './latestPapersSession.js';
 
@@ -187,4 +188,26 @@ test('resolveLatestPapersSessionUpdate appends unique papers and resets on manua
     replaced: true,
     newFeedAvailable: false,
   });
+});
+
+test('shouldTreatTrackerFetchAsManualRefresh keeps background refresh out of the reset path', () => {
+  assert.equal(
+    shouldTreatTrackerFetchAsManualRefresh({
+      background: true,
+      forceRefresh: true,
+      forceCrawl: false,
+      shuffle: false,
+    }),
+    false
+  );
+
+  assert.equal(
+    shouldTreatTrackerFetchAsManualRefresh({
+      background: false,
+      forceRefresh: true,
+      forceCrawl: true,
+      shuffle: true,
+    }),
+    true
+  );
 });

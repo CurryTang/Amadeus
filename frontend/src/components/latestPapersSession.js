@@ -109,6 +109,16 @@ function clearLatestPapersSession(storage = globalThis?.localStorage) {
   removeStorageValue(storage, CACHE_KEY);
 }
 
+function shouldTreatTrackerFetchAsManualRefresh({
+  background = false,
+  forceRefresh = false,
+  forceCrawl = false,
+  shuffle = false,
+} = {}) {
+  if (background) return false;
+  return Boolean(forceRefresh || forceCrawl || shuffle);
+}
+
 function resolveLatestPapersSessionUpdate({
   currentSession = null,
   incomingSession = null,
@@ -172,5 +182,6 @@ export {
   clearLatestPapersSession,
   readLatestPapersSession,
   resolveLatestPapersSessionUpdate,
+  shouldTreatTrackerFetchAsManualRefresh,
   writeLatestPapersSession,
 };

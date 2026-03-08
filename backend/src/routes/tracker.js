@@ -20,6 +20,7 @@ const {
   createTrackerFeedPageCache,
   hasTrackerFeedSnapshotChanged,
   resolveTrackerFeedAnnotatedPage,
+  shouldAnnotateFullTrackerFeed,
 } = require('../services/tracker-feed-snapshot.service');
 const {
   extractTwitterHandle,
@@ -1898,19 +1899,21 @@ router.get('/feed', optionalAuth, async (req, res) => {
     let shuffled = false;
     let fullAnnotated = false;
 
-    // Always annotate full feed first so saved/read papers can be pushed to the global
-    // tail before pagination. Within active/deprioritized partitions, keep ranking order.
-    try {
-      const annotatedAll = await withTimeout(
-        () => annotateSavedStatus(sourceData),
-        FEED_PAGE_ANNOTATE_TIMEOUT_MS * 3,
-        'feed_saved_status_full'
-      );
-      sourceData = partitionSavedOrReadItemsToEnd(annotatedAll);
-      fullAnnotated = true;
-      shuffled = Boolean(shuffleRequested && offset === 0 && sourceData.some((item) => item?.isRead || item?.saved));
-    } catch (fullAnnotateError) {
-      console.warn('[tracker] full annotate failed, falling back to page annotate:', fullAnnotateError.message || fullAnnotateError);
+    if (shouldAnnotateFullTrackerFeed({ offset })) {
+      // Only the first page gets the expensive full-feed annotate/reorder pass.
+      // Later pages should page from the stable snapshot without paying that cost again.
+      try {
+        const annotatedAll = await withTimeout(
+          () => annotateSavedStatus(sourceData),
+          FEED_PAGE_ANNOTATE_TIMEOUT_MS * 3,
+          'feed_saved_status_full'
+        );
+        sourceData = partitionSavedOrReadItemsToEnd(annotatedAll);
+        fullAnnotated = true;
+        shuffled = Boolean(shuffleRequested && offset === 0 && sourceData.some((item) => item?.isRead || item?.saved));
+      } catch (fullAnnotateError) {
+        console.warn('[tracker] full annotate failed, falling back to page annotate:', fullAnnotateError.message || fullAnnotateError);
+      }
     }
 
     const snapshotId = buildTrackerFeedSnapshotId({
