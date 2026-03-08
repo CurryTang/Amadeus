@@ -40,6 +40,11 @@ function hasTrackerFeedSnapshotChanged(requestedSnapshotId = '', snapshot = {}) 
   return normalizedRequested !== buildTrackerFeedSnapshotId(snapshot);
 }
 
+function shouldAnnotateFullTrackerFeed({ offset = 0 } = {}) {
+  const safeOffset = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+  return safeOffset === 0;
+}
+
 function createTrackerFeedPageCache() {
   return {
     snapshotId: '',
@@ -92,5 +97,6 @@ module.exports = {
   hasTrackerFeedSnapshotChanged,
   paginateTrackerFeedSnapshot,
   resolveTrackerFeedAnnotatedPage,
+  shouldAnnotateFullTrackerFeed,
   shouldInvalidateTrackerFeedPageCache,
 };

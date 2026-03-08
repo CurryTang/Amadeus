@@ -7,6 +7,7 @@ const {
   hasTrackerFeedSnapshotChanged,
   resolveTrackerFeedAnnotatedPage,
   paginateTrackerFeedSnapshot,
+  shouldAnnotateFullTrackerFeed,
   shouldInvalidateTrackerFeedPageCache,
 } = require('../tracker-feed-snapshot.service');
 
@@ -187,6 +188,18 @@ test('hasTrackerFeedSnapshotChanged compares the client snapshot id against the 
 
   assert.equal(
     hasTrackerFeedSnapshotChanged(buildTrackerFeedSnapshotId(snapshot), snapshot),
+    false
+  );
+});
+
+test('shouldAnnotateFullTrackerFeed only enables full-feed annotation for the first page', () => {
+  assert.equal(
+    shouldAnnotateFullTrackerFeed({ offset: 0 }),
+    true
+  );
+
+  assert.equal(
+    shouldAnnotateFullTrackerFeed({ offset: 5 }),
     false
   );
 });
