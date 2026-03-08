@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
+import {
+  clearLatestPapersSession,
+  readLatestPapersSession,
+  writeLatestPapersSession,
+} from './latestPapersSession.js';
 
-const CACHE_KEY = 'latest_papers_cache_v6';
-const CACHE_SOFT_TTL_MS = 10 * 60 * 1000; // 10m: stale-while-revalidate threshold
-const CACHE_HARD_TTL_MS = 24 * 60 * 60 * 1000; // 24h: strict cache expiry
-const CACHE_FALLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7d: offline/network fallback
 const CACHE_BACKGROUND_REFRESH_GAP_MS = 25 * 1000; // avoid repeated revalidate bursts
-const CACHE_MAX_ITEMS = 300;
 const CATEGORY_FILTER_KEY = 'tracker_category_filter_v2';
 const TRACKER_ANON_SESSION_KEY = 'tracker_anon_session_id_v1';
 const SHOW_SAVED_KEY = 'tracker_show_saved_v1';
@@ -70,48 +70,6 @@ function partitionSavedOrReadToEnd(items = []) {
     else active.push(item);
   }
   return [...active, ...deprioritized];
-}
-
-function readClientCache({ allowStale = false } = {}) {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const { data, fetchedAt, hasMore, total } = JSON.parse(raw);
-    if (!Array.isArray(data) || data.length === 0) return null;
-    const fetchedAtMs = new Date(fetchedAt).getTime();
-    if (!Number.isFinite(fetchedAtMs) || fetchedAtMs <= 0) return null;
-    const ageMs = Math.max(0, Date.now() - fetchedAtMs);
-    if (ageMs > CACHE_FALLBACK_MAX_AGE_MS) return null;
-    if (!allowStale && ageMs > CACHE_HARD_TTL_MS) return null;
-    const isSoftExpired = ageMs >= CACHE_SOFT_TTL_MS;
-    return {
-      data: data.slice(0, CACHE_MAX_ITEMS),
-      fetchedAt: fetchedAtMs,
-      hasMore: !!hasMore,
-      total: Number.isFinite(total) ? total : data.length,
-      ageMs,
-      isSoftExpired,
-      isHardExpired: ageMs >= CACHE_HARD_TTL_MS,
-    };
-  } catch (_) {
-    return null;
-  }
-}
-
-function writeClientCache(data, fetchedAt, extra = {}) {
-  try {
-    if (!Array.isArray(data) || data.length === 0) return;
-    const fetchedAtMs = new Date(fetchedAt).getTime();
-    if (!Number.isFinite(fetchedAtMs) || fetchedAtMs <= 0) return;
-    const safeData = data.slice(0, CACHE_MAX_ITEMS);
-    localStorage.setItem(CACHE_KEY, JSON.stringify({
-      data: safeData,
-      fetchedAt: fetchedAtMs,
-      hasMore: !!extra.hasMore,
-      total: Number.isFinite(extra.total) ? extra.total : safeData.length,
-      cachedAt: Date.now(),
-    }));
-  } catch (_) {}
 }
 
 function PaperCard({ paper, onSave, onOpen, saving, isAuthenticated, position }) {
@@ -336,12 +294,12 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   } = {}) => {
     // Stale-while-revalidate for first page: serve client cache immediately.
     if (!append && offset === 0 && !forceRefresh && !forceCrawl && !debug) {
-      const clientCache = readClientCache({ allowStale: false });
-      if (clientCache?.data?.length) {
-        setPapers(clientCache.data);
+      const clientCache = readLatestPapersSession(undefined, { allowStale: false });
+      if (clientCache?.papers?.length) {
+        setPapers(clientCache.papers);
         setFetchedAt(clientCache.fetchedAt);
         setHasMore(Boolean(clientCache.hasMore));
-        setTotal(clientCache.total || clientCache.data.length);
+        setTotal(clientCache.total || clientCache.papers.length);
         setCached(true);
         if (
           clientCache.isSoftExpired
@@ -423,7 +381,9 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
       // meant every tab switch re-fetched from the server instead of using
       // the 24h localStorage cache.
       if (!append) {
-        writeClientCache(nextPage, ft, {
+        writeLatestPapersSession(undefined, {
+          papers: nextPage,
+          fetchedAt: ft ? new Date(ft).getTime() : Date.now(),
           hasMore: Boolean(apiHasMore),
           total: Number.isFinite(apiTotal) ? apiTotal : nextPage.length,
         });
@@ -431,12 +391,12 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
     } catch (e) {
       if (background) return;
       if (!append && offset === 0) {
-        const fallbackCache = readClientCache({ allowStale: true });
-        if (fallbackCache?.data?.length) {
-          setPapers(fallbackCache.data);
+        const fallbackCache = readLatestPapersSession(undefined, { allowStale: true });
+        if (fallbackCache?.papers?.length) {
+          setPapers(fallbackCache.papers);
           setFetchedAt(fallbackCache.fetchedAt);
           setHasMore(Boolean(fallbackCache.hasMore));
-          setTotal(fallbackCache.total || fallbackCache.data.length);
+          setTotal(fallbackCache.total || fallbackCache.papers.length);
           setCached(true);
           setError(`${formatFeedError(e, 'Failed to load latest papers')} Showing recent cached results.`);
           return;
@@ -510,7 +470,12 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
           getFeedItemKey(p) === saveKey ? { ...p, saved: true } : p
         ));
         if (fetchedAt) {
-          writeClientCache(next, fetchedAt, { hasMore, total });
+          writeLatestPapersSession(undefined, {
+            papers: next,
+            fetchedAt: new Date(fetchedAt).getTime(),
+            hasMore,
+            total,
+          });
         }
         return next;
       });
@@ -534,7 +499,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
   }, [trackEvents]);
 
   const handleForceRefresh = () => {
-    localStorage.removeItem(CACHE_KEY);
+    clearLatestPapersSession();
     localStorage.removeItem('latest_papers_cache_v4');
     localStorage.removeItem('latest_papers_cache_v5');
     setPapers([]);
