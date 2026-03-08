@@ -17,7 +17,8 @@ const arxivService = require('../services/arxiv.service');
 const trackerProxy = require('../services/tracker-proxy.service');
 const {
   buildTrackerFeedSnapshotId,
-  paginateTrackerFeedSnapshot,
+  createTrackerFeedPageCache,
+  resolveTrackerFeedAnnotatedPage,
 } = require('../services/tracker-feed-snapshot.service');
 const {
   extractTwitterHandle,
@@ -98,6 +99,7 @@ let feedRefreshRunning = false;
 let staleProxyTriggerInFlight = false;
 let staleProxyLastAttemptAt = 0;
 const userFeedProfileCache = new Map();
+const trackerFeedPageCache = createTrackerFeedPageCache();
 
 function getLastRunAgeMs(lastRunAt) {
   if (!lastRunAt) return Number.POSITIVE_INFINITY;
@@ -1915,27 +1917,38 @@ router.get('/feed', optionalAuth, async (req, res) => {
       fetchedAt: snapshot.fetchedAt,
       sourceCount: snapshot.sourceCount,
     });
-    const page = paginateTrackerFeedSnapshot(
-      { data: sourceData },
-      { offset, limit }
-    );
-    const rawPageData = page.data;
-    let pageData = [];
-    if (fullAnnotated) {
-      // Already annotated globally for consistent ordering.
-      pageData = rawPageData;
-    } else {
-      try {
-        pageData = await withTimeout(
-          () => annotateSavedStatus(rawPageData),
-          FEED_PAGE_ANNOTATE_TIMEOUT_MS,
-          'feed_saved_status'
-        );
-      } catch (annotateError) {
-        console.warn('[tracker] annotateSavedStatus timed out/faulted:', annotateError.message || annotateError);
-        pageData = rawPageData.map((item) => ({ ...item, saved: Boolean(item?.saved), isRead: Boolean(item?.isRead) }));
-      }
-    }
+    const viewerKey = String(
+      req.userId
+      || getTrackerEventUserId(req, { anonSessionId: req.query?.anonSessionId || '' })
+      || 'public'
+    ).trim() || 'public';
+    const page = await resolveTrackerFeedAnnotatedPage({
+      cacheState: trackerFeedPageCache,
+      snapshot: {
+        data: sourceData,
+        fetchedAt: snapshot.fetchedAt,
+        sourceCount: snapshot.sourceCount,
+      },
+      offset,
+      limit,
+      viewerKey,
+      annotatePage: async (rawPageData) => {
+        if (fullAnnotated) {
+          return rawPageData;
+        }
+        try {
+          return await withTimeout(
+            () => annotateSavedStatus(rawPageData),
+            FEED_PAGE_ANNOTATE_TIMEOUT_MS,
+            'feed_saved_status'
+          );
+        } catch (annotateError) {
+          console.warn('[tracker] annotateSavedStatus timed out/faulted:', annotateError.message || annotateError);
+          return rawPageData.map((item) => ({ ...item, saved: Boolean(item?.saved), isRead: Boolean(item?.isRead) }));
+        }
+      },
+    });
+    const pageData = page.data;
 
     const fetchedAtIso = snapshot.fetchedAt
       ? new Date(snapshot.fetchedAt).toISOString()
