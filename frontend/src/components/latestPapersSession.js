@@ -44,6 +44,29 @@ function normalizeSession(payload = {}) {
   };
 }
 
+function getFeedItemKey(item) {
+  if (!item || typeof item !== 'object') return '';
+  return String(
+    item.arxivId
+    || item.externalId
+    || item.url
+    || item.title
+    || ''
+  ).trim();
+}
+
+function mergeSessionPapers(currentPapers = [], incomingPapers = []) {
+  const merged = [...(Array.isArray(currentPapers) ? currentPapers : [])];
+  const existing = new Set(merged.map((paper) => getFeedItemKey(paper)).filter(Boolean));
+  for (const paper of Array.isArray(incomingPapers) ? incomingPapers : []) {
+    const key = getFeedItemKey(paper);
+    if (!key || existing.has(key)) continue;
+    existing.add(key);
+    merged.push(paper);
+  }
+  return merged.slice(0, CACHE_MAX_ITEMS);
+}
+
 function readLatestPapersSession(storage = globalThis?.localStorage, { now = Date.now(), allowStale = false } = {}) {
   try {
     const raw = getStorageValue(storage, CACHE_KEY);
@@ -86,6 +109,61 @@ function clearLatestPapersSession(storage = globalThis?.localStorage) {
   removeStorageValue(storage, CACHE_KEY);
 }
 
+function resolveLatestPapersSessionUpdate({
+  currentSession = null,
+  incomingSession = null,
+  append = false,
+  background = false,
+  manualRefresh = false,
+} = {}) {
+  const normalizedCurrent = normalizeSession(currentSession || {});
+  const normalizedIncoming = normalizeSession(incomingSession || {});
+  if (!normalizedIncoming) {
+    return {
+      session: normalizedCurrent,
+      replaced: false,
+      newFeedAvailable: false,
+    };
+  }
+
+  if (!normalizedCurrent || manualRefresh) {
+    return {
+      session: normalizedIncoming,
+      replaced: true,
+      newFeedAvailable: false,
+    };
+  }
+
+  if (append) {
+    return {
+      session: {
+        ...normalizedIncoming,
+        papers: mergeSessionPapers(normalizedCurrent.papers, normalizedIncoming.papers),
+      },
+      replaced: false,
+      newFeedAvailable: false,
+    };
+  }
+
+  if (background && normalizedCurrent.papers.length > normalizedIncoming.papers.length) {
+    const newFeedAvailable = (
+      (normalizedIncoming.snapshotId && normalizedIncoming.snapshotId !== normalizedCurrent.snapshotId)
+      || normalizedIncoming.fetchedAt > normalizedCurrent.fetchedAt
+    );
+    return {
+      session: normalizedCurrent,
+      replaced: false,
+      newFeedAvailable,
+    };
+  }
+
+  return {
+    session: normalizedIncoming,
+    replaced: true,
+    newFeedAvailable: false,
+  };
+}
+
 export {
   CACHE_HARD_TTL_MS,
   CACHE_KEY,
@@ -93,5 +171,6 @@ export {
   CACHE_SOFT_TTL_MS,
   clearLatestPapersSession,
   readLatestPapersSession,
+  resolveLatestPapersSessionUpdate,
   writeLatestPapersSession,
 };
