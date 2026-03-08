@@ -16,6 +16,10 @@ const rssTracker = require('../services/rss-tracker.service');
 const arxivService = require('../services/arxiv.service');
 const trackerProxy = require('../services/tracker-proxy.service');
 const {
+  buildTrackerFeedSnapshotId,
+  paginateTrackerFeedSnapshot,
+} = require('../services/tracker-feed-snapshot.service');
+const {
   extractTwitterHandle,
   normalizeTwitterProfileLinks,
 } = require('../utils/twitter-profile-links');
@@ -1906,7 +1910,16 @@ router.get('/feed', optionalAuth, async (req, res) => {
       console.warn('[tracker] full annotate failed, falling back to page annotate:', fullAnnotateError.message || fullAnnotateError);
     }
 
-    const rawPageData = sourceData.slice(offset, offset + limit);
+    const snapshotId = buildTrackerFeedSnapshotId({
+      data: sourceData,
+      fetchedAt: snapshot.fetchedAt,
+      sourceCount: snapshot.sourceCount,
+    });
+    const page = paginateTrackerFeedSnapshot(
+      { data: sourceData },
+      { offset, limit }
+    );
+    const rawPageData = page.data;
     let pageData = [];
     if (fullAnnotated) {
       // Already annotated globally for consistent ordering.
@@ -1934,10 +1947,11 @@ router.get('/feed', optionalAuth, async (req, res) => {
       cacheSource,
       softStale,
       fetchedAt: fetchedAtIso,
+      snapshotId,
       offset,
       limit,
-      hasMore: offset + rawPageData.length < sourceData.length,
-      total: sourceData.length,
+      hasMore: page.hasMore,
+      total: page.total,
       perSource: Array.isArray(snapshot.perSource) ? snapshot.perSource : [],
       sourceCount: Number(snapshot.sourceCount || 0) || 0,
       refreshInProgress: feedRefreshRunning,
