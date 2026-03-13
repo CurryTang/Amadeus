@@ -357,6 +357,34 @@ Why this paper might be important for researchers.`
     )
   `);
 
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      workflow_type TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      runner_server_id INTEGER,
+      runner_host TEXT,
+      downstream_server_id INTEGER,
+      downstream_server_name TEXT DEFAULT '',
+      remote_workspace_path TEXT NOT NULL,
+      dataset_root TEXT DEFAULT '',
+      requires_upload INTEGER DEFAULT 0,
+      status TEXT NOT NULL,
+      active_phase TEXT NOT NULL,
+      latest_score REAL,
+      latest_verdict TEXT DEFAULT '',
+      summary TEXT DEFAULT '',
+      started_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      remote_pid INTEGER,
+      log_path TEXT DEFAULT '',
+      run_directory TEXT DEFAULT '',
+      retry_of_run_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // Migration: add proxy_jump column for SSH ProxyJump support.
   try {
     const sshCols = await db.execute(`PRAGMA table_info(ssh_servers)`);

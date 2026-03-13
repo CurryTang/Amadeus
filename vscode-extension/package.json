@@ -1,0 +1,99 @@
+{
+  "name": "auto-researcher-aris-vscode",
+  "displayName": "Auto Researcher ARIS",
+  "description": "Compact VS Code companion for launching and monitoring ARIS runs.",
+  "version": "0.0.1",
+  "publisher": "czk",
+  "private": true,
+  "engines": {
+    "vscode": "^1.97.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:aris.projects",
+    "onView:aris.runs",
+    "onCommand:aris.newRun",
+    "onCommand:aris.refresh",
+    "onCommand:aris.retryRun",
+    "onCommand:aris.copyRunId"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aris",
+          "title": "ARIS",
+          "icon": "media/aris.svg"
+        }
+      ]
+    },
+    "views": {
+      "aris": [
+        {
+          "id": "aris.projects",
+          "name": "Projects"
+        },
+        {
+          "id": "aris.runs",
+          "name": "Runs"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aris.newRun",
+        "title": "ARIS: New Run"
+      },
+      {
+        "command": "aris.refresh",
+        "title": "ARIS: Refresh"
+      },
+      {
+        "command": "aris.retryRun",
+        "title": "ARIS: Retry Run"
+      },
+      {
+        "command": "aris.copyRunId",
+        "title": "ARIS: Copy Run ID"
+      }
+    ],
+    "configuration": {
+      "title": "ARIS",
+      "properties": {
+        "aris.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3000/api",
+          "description": "Base URL for the Auto Researcher API."
+        },
+        "aris.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 20,
+          "minimum": 5,
+          "description": "Refresh interval for the ARIS run list."
+        },
+        "aris.defaultProjectId": {
+          "type": "string",
+          "default": "default-project",
+          "description": "Default ARIS project id for new runs."
+        },
+        "aris.defaultWorkflowType": {
+          "type": "string",
+          "default": "literature_review",
+          "description": "Default ARIS workflow type for new runs."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "npm run compile && node --test dist/test/suite/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/vscode": "^1.97.0",
+    "typescript": "^5.8.2"
+  }
+}
