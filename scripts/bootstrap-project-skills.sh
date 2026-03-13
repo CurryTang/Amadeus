@@ -13,6 +13,7 @@ SKILLS_DIR="${TARGET_DIR}/.claude/skills"
 RESOURCE_DIR="${TARGET_DIR}/resource"
 EXTERNAL_SKILLS_REPO="https://github.com/Orchestra-Research/AI-Research-SKILLs.git"
 EXTERNAL_SKILLS_DIR="${SKILLS_DIR}/AI-Research-SKILLs"
+ARIS_SETUP_SCRIPT="$(cd "$(dirname "$0")" && pwd)/setup-aris-integration.sh"
 
 mkdir -p "${SKILLS_DIR}"
 mkdir -p "${RESOURCE_DIR}"
@@ -28,4 +29,9 @@ fi
 echo "[bootstrap] Ensured folders:"
 echo "  - ${SKILLS_DIR}"
 echo "  - ${RESOURCE_DIR}"
+if [[ "${ARIS_INTEGRATION_ENABLED:-true}" == "true" ]]; then
+  "${ARIS_SETUP_SCRIPT}" "${TARGET_DIR}"
+else
+  echo "[bootstrap] Skipping ARIS integration because ARIS_INTEGRATION_ENABLED=false"
+fi
 echo "[bootstrap] Done."

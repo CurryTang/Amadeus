@@ -20,6 +20,7 @@ Installer prompts include:
 - Twitter/X Playwright refresh execution target (backend vs client)
 - Frontend compile target + deploy target
 - Backend compile target + deploy target
+- Optional ARIS workflow integration flag
 
 ## Supported deployment modes
 
@@ -102,3 +103,30 @@ Helper scripts:
 ./scripts/set-do-tracker-proxy.sh
 ./scripts/verify-frp-offload.sh
 ```
+
+## ARIS workflow integration
+
+The installer can also enable ARIS integration metadata in `deployment.mode.generated`.
+
+ARIS is intended to run on the always-on WSL/local executor host, not on the browser machine. The frontend `ARIS` workspace launches runs against that persistent runner so autonomous loops can continue if the laptop sleeps or the browser tab closes.
+
+The actual project-side install is handled by:
+
+```bash
+./scripts/setup-aris-integration.sh /path/to/project
+```
+
+That flow:
+
+- clones or updates the configured ARIS repo into the target project's `.claude/skills/aris`
+- applies the Auto Researcher overlay for `research-lit`
+- prints the MCP registration commands for the Auto Researcher library backend
+- assumes a persistent remote workspace model where code sync is incremental and datasets remain on remote paths instead of being uploaded from the client
+- pairs naturally with managed SSH server records, where the WSL runner is the ARIS control plane and other servers are downstream experiment targets
+- expects the chosen WSL runner to have `claude` installed and reachable through the configured SSH server record; set `ARIS_REMOTE_AGENT_BIN` if the binary name differs
+
+Configurable environment variables:
+
+- `ARIS_SKILLS_REPO`
+- `ARIS_SKILLS_REF`
+- `ARIS_INTEGRATION_ENABLED`

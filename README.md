@@ -111,6 +111,43 @@ Subscribe to Semantic Scholar author IDs or keyword queries. The tracker runs da
 - [Installation Modes](docs/INSTALLATION_MODES.md) - Deployment modes and provider matrix
 - [Configuration Guide](docs/CONFIGURATION.md) - All configuration options
 
+## ARIS Integration
+
+This repo can act as the paper-library backend for ARIS using our maintained fork at [CurryTang/Auto-claude-code-research-in-sleep](https://github.com/CurryTang/Auto-claude-code-research-in-sleep).
+
+The intended model is:
+
+- keep ARIS in a separate fork or upstream clone
+- install that repo into a target project with `scripts/setup-aris-integration.sh`
+- expose Auto Researcher as an MCP paper library through `backend/src/mcp/auto-researcher-mcp-server.js`
+- let the ARIS `research-lit` workflow query saved documents, notes, tags, reading history, and citations from this system instead of Zotero
+- launch ARIS from the new top-level `ARIS` workspace in the web app
+- run ARIS canonically on the always-on WSL/local executor host so loops continue after the browser disconnects
+- use managed SSH server records as downstream experiment targets while keeping large datasets on remote storage paths
+
+Bootstrap commands:
+
+```bash
+./scripts/setup-aris-integration.sh /path/to/project
+cd backend && npm install
+claude mcp add auto-researcher -s project -- node /absolute/path/to/auto-researcher/backend/src/mcp/auto-researcher-mcp-server.js
+```
+
+The maintained integration notes live under `resource/integrations/aris/`.
+
+The web app now includes a dedicated `ARIS` workspace with:
+
+- a freeform launcher input that stays editable even when using presets
+- quick actions for literature review, idea discovery, experiments, review loops, paper writing, paper improvement, full pipeline, and experiment monitoring
+- a run context panel showing the canonical WSL runner, persistent remote workspace path, remote dataset root, and downstream compute target
+- a recent run feed for queued, running, waiting, completed, and failed ARIS runs
+
+Runner requirements:
+
+- the selected WSL runner must be registered in `SSH Server Management`
+- the target remote workspace should already contain the project plus `.claude/skills/aris`
+- `claude` must be installed on that runner; override the binary with `ARIS_REMOTE_AGENT_BIN` if needed
+
 ## Tech Stack
 
 **Frontend:**

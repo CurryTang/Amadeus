@@ -7,6 +7,7 @@
     "start": "node --no-deprecation src/index.js",
     "start:cluster": "node --no-deprecation src/cluster.js",
     "dev": "nodemon --no-deprecation src/index.js",
+    "mcp:server": "node --no-deprecation src/mcp/auto-researcher-mcp-server.js",
     "processing": "node --no-deprecation processing-server.js",
     "processing:dev": "nodemon --no-deprecation processing-server.js",
     "setup:x-session": "node --no-deprecation scripts/setup-x-session.js",
@@ -15,7 +16,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.400.0",
     "@aws-sdk/s3-request-presigner": "^3.400.0",
-    "@libsql/client": "^0.5.0",
+    "@libsql/client": "^0.17.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",

@@ -13,6 +13,7 @@ import LibrarySettingsModal from './components/LibrarySettingsModal';
 import ObsidianBatchPanel from './components/ObsidianBatchPanel';
 import LatestPapers from './components/LatestPapers';
 import SendModal from './components/SendModal';
+import ArisWorkspace from './components/aris/ArisWorkspace';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAiNotesSettings } from './hooks/useAiNotesSettings';
 import { useObsidianExportBatch } from './hooks/useObsidianExportBatch';
@@ -537,6 +538,7 @@ function AppContent() {
               <Tabs.List size="2">
                 <Tabs.Trigger value="latest">Latest</Tabs.Trigger>
                 <Tabs.Trigger value="library">Library</Tabs.Trigger>
+                <Tabs.Trigger value="aris">ARIS</Tabs.Trigger>
               </Tabs.List>
             </Tabs.Root>
             <div className="header-actions">
@@ -616,6 +618,10 @@ function AppContent() {
                   {researchMode ? 'Cancel Selection' : 'Research Mode'}
                 </Button>
               </>
+            ) : activeArea === 'aris' ? (
+              <div className="library-sub-placeholder aris-sub-copy">
+                Runs execute on the always-on WSL host and keep going if this browser disconnects.
+              </div>
             ) : (
               <div className="library-sub-placeholder" />
             )}
@@ -776,6 +782,13 @@ function AppContent() {
               </>
             )}
           </div>
+        )}
+
+        {activeArea === 'aris' && (
+          <ArisWorkspace
+            apiUrl={API_URL}
+            getAuthHeaders={getAuthHeaders}
+          />
         )}
       </main>
 

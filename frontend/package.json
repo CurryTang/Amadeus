@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev -p 5173",
     "build": "next build",
-    "start": "next start -p 4173",
+    "start": "PORT=4173 HOSTNAME=127.0.0.1 node .next/standalone/server.js",
     "dev:vite": "vite",
     "build:vite": "vite build",
     "preview:vite": "vite preview"

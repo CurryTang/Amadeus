@@ -1,10 +1,10 @@
-const { createClient } = require('@libsql/client');
 const bcrypt = require('bcryptjs');
 const config = require('../config');
 
 let db = null;
 
 async function initDatabase() {
+  const { createClient } = require('@libsql/client');
   db = createClient({
     url: config.turso.url,
     authToken: config.turso.authToken,
@@ -352,6 +352,33 @@ Why this paper might be important for researchers.`
       shared_fs_verified INTEGER DEFAULT 0,
       shared_fs_last_checked_at DATETIME,
       shared_fs_last_status TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      workflow_type TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      runner_server_id INTEGER,
+      runner_host TEXT,
+      downstream_server_id INTEGER,
+      downstream_server_name TEXT DEFAULT '',
+      remote_workspace_path TEXT NOT NULL,
+      dataset_root TEXT DEFAULT '',
+      requires_upload INTEGER DEFAULT 0,
+      status TEXT NOT NULL,
+      active_phase TEXT NOT NULL,
+      latest_score REAL,
+      latest_verdict TEXT DEFAULT '',
+      summary TEXT DEFAULT '',
+      started_at DATETIME NOT NULL,
+      remote_pid INTEGER,
+      log_path TEXT DEFAULT '',
+      run_directory TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )

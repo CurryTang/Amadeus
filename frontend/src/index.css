@@ -10142,6 +10142,303 @@ button.vibe-skill-chip.is-active {
 .research-obsidian-btn:hover:not(:disabled) { background: #4f46e5; }
 .research-obsidian-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+.aris-sub-copy {
+  color: #46615c;
+  font-size: 0.9rem;
+  padding: 8px 0;
+}
+
+.aris-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 8px 0 28px;
+}
+
+.aris-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(248, 185, 88, 0.35), transparent 36%),
+    linear-gradient(135deg, #f4efe1 0%, #d7e9df 45%, #c8d8f1 100%);
+  border: 1px solid rgba(76, 102, 94, 0.18);
+}
+
+.aris-kicker {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: #76511b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.aris-hero h2 {
+  margin: 0 0 8px;
+  font-size: clamp(1.6rem, 2vw, 2.4rem);
+  line-height: 1.05;
+  color: #17362c;
+}
+
+.aris-hero p {
+  margin: 0;
+  max-width: 760px;
+  color: #2d4f47;
+  line-height: 1.5;
+}
+
+.aris-refresh-btn,
+.aris-run-btn,
+.aris-action-chip {
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+}
+
+.aris-refresh-btn {
+  background: rgba(255, 255, 255, 0.65);
+  color: #15362d;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.aris-refresh-btn:hover,
+.aris-run-btn:hover,
+.aris-action-chip:hover {
+  transform: translateY(-1px);
+}
+
+.aris-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.9fr);
+  gap: 20px;
+}
+
+.aris-launch-panel,
+.aris-context-panel,
+.aris-runs-panel,
+.aris-empty-card {
+  border-radius: 20px;
+  background: #fffdf8;
+  border: 1px solid rgba(24, 54, 45, 0.08);
+  box-shadow: 0 14px 36px rgba(31, 42, 37, 0.06);
+}
+
+.aris-launch-panel,
+.aris-context-panel,
+.aris-runs-panel {
+  padding: 20px;
+}
+
+.aris-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.aris-panel-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #15362d;
+}
+
+.aris-status-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #dff3e2;
+  color: #23603c;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.aris-launch-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.aris-field {
+  display: grid;
+  gap: 6px;
+}
+
+.aris-field span {
+  color: #4a6358;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.aris-field select,
+.aris-field textarea {
+  width: 100%;
+  border: 1px solid rgba(32, 57, 49, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  color: #16362d;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.aris-field textarea {
+  resize: vertical;
+  min-height: 140px;
+}
+
+.aris-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.aris-action-chip {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #edf4ef;
+  color: #204238;
+  font-weight: 600;
+}
+
+.aris-action-chip.is-active {
+  background: #1e5d48;
+  color: #fff;
+}
+
+.aris-launch-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.aris-launch-note {
+  color: #577166;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.aris-run-btn {
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1a6b52 0%, #2d7a9a 100%);
+  color: #fff;
+  font-weight: 700;
+}
+
+.aris-context-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+
+.aris-context-list div {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(28, 55, 47, 0.08);
+}
+
+.aris-context-list div:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.aris-context-list dt {
+  color: #678075;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.aris-context-list dd {
+  margin: 0;
+  color: #17362c;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.aris-empty-card {
+  padding: 20px;
+  color: #4d665c;
+}
+
+.aris-run-list {
+  display: grid;
+  gap: 14px;
+}
+
+.aris-run-card {
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%);
+  border: 1px solid rgba(27, 59, 50, 0.08);
+}
+
+.aris-run-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aris-run-card-header h4 {
+  margin: 0 0 4px;
+  color: #17362c;
+}
+
+.aris-run-card-header p {
+  margin: 0;
+  color: #557065;
+}
+
+.aris-run-score {
+  white-space: nowrap;
+  color: #1f5c49;
+  font-weight: 700;
+}
+
+.aris-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+  color: #6a8178;
+  font-size: 0.9rem;
+}
+
+.aris-run-summary {
+  margin: 12px 0 0;
+  color: #2c4b43;
+  line-height: 1.45;
+}
+
+@media (max-width: 960px) {
+  .aris-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aris-hero {
+    flex-direction: column;
+  }
+
+  .aris-launch-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* ---- Obsidian vault export button on DocumentCard ---- */
 .vault-btn { background: #f0fdf4 !important; border-color: #6ee7b7 !important; color: #065f46 !important; }
 .vault-btn:hover { background: #dcfce7 !important; }

@@ -91,6 +91,11 @@ prompt_select "Twitter/X Playwright refresh execution target" \
   "Client device via proxy (refresh only when client is online)"
 tracker_exec_choice="${REPLY_CHOICE}"
 
+prompt_select "Enable ARIS research workflow integration" \
+  "Yes (clone ARIS skills and use Auto Researcher as MCP paper library)" \
+  "No"
+aris_integration_choice="${REPLY_CHOICE}"
+
 mode_name=""
 frontend_default_api_url="https://your-domain-or-ip/api"
 backend_port="3000"
@@ -110,6 +115,9 @@ frontend_compile_default="local"
 backend_compile_default="local"
 frontend_deploy_default="local"
 backend_deploy_default="local"
+aris_integration_enabled="false"
+aris_skills_repo="${ARIS_SKILLS_REPO:-https://github.com/CurryTang/Auto-claude-code-research-in-sleep.git}"
+aris_skills_ref="${ARIS_SKILLS_REF:-main}"
 
 case "${mode_choice}" in
   1)
@@ -186,6 +194,10 @@ else
   tracker_enabled="true"
   tracker_proxy_strict="false"
   tracker_stale_proxy_auto_run="false"
+fi
+
+if [[ "${aris_integration_choice}" == "1" ]]; then
+  aris_integration_enabled="true"
 fi
 
 object_provider="aws-s3"
@@ -339,6 +351,9 @@ DOC_METADATA_PROVIDER=$( [[ "${doc_meta_choice}" == "1" ]] && echo "sqlite-local
 RESEARCH_METADATA_PROVIDER=$( [[ "${research_meta_choice}" == "1" ]] && echo "mongodb-local" || echo "mongodb-atlas" )
 OBJECT_STORAGE_PROVIDER=${object_provider}
 TRACKER_EXECUTION_TARGET=${tracker_execution_target}
+ARIS_INTEGRATION_ENABLED=${aris_integration_enabled}
+ARIS_SKILLS_REPO=${aris_skills_repo}
+ARIS_SKILLS_REF=${aris_skills_ref}
 EOF
 
 echo ""
@@ -355,3 +370,8 @@ echo "       cp ${FRONTEND_ENV_OUT} ${ROOT_DIR}/frontend/.env"
 echo "  3) If using FRP mode, run:"
 echo "       ${ROOT_DIR}/scripts/set-do-tracker-proxy.sh"
 echo "       ${ROOT_DIR}/scripts/verify-frp-offload.sh"
+if [[ "${aris_integration_enabled}" == "true" ]]; then
+  echo "  4) To install ARIS into a project and register the MCP backend:"
+  echo "       ARIS_SKILLS_REPO=${aris_skills_repo} ${ROOT_DIR}/scripts/setup-aris-integration.sh /path/to/project"
+  echo "       claude mcp add auto-researcher -s project -- node ${ROOT_DIR}/backend/src/mcp/auto-researcher-mcp-server.js"
+fi
