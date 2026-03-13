@@ -28,6 +28,52 @@ const upload = multer({
   },
 });
 
+function normalizeProvidedArxivMetadata(arxivId, providedMetadata = {}) {
+  const rawTitle = String(providedMetadata?.title || '').trim();
+  const rawAbstract = String(providedMetadata?.abstract || providedMetadata?.summary || '').trim();
+  const rawAuthors = Array.isArray(providedMetadata?.authors)
+    ? providedMetadata.authors.map((author) => String(author || '').trim()).filter(Boolean)
+    : [];
+  const rawPublished = String(providedMetadata?.published || providedMetadata?.publishedAt || '').trim();
+  const rawPrimaryCategory = String(providedMetadata?.primaryCategory || '').trim();
+  const rawAbsUrl = String(providedMetadata?.absUrl || '').trim();
+
+  return {
+    metadata: {
+      id: arxivId,
+      title: rawTitle || `arXiv:${arxivId}`,
+      authors: rawAuthors,
+      abstract: rawAbstract,
+      primaryCategory: rawPrimaryCategory,
+      published: rawPublished,
+      pdfUrl: arxivService.getPdfUrl(arxivId),
+      absUrl: rawAbsUrl || arxivService.getAbsUrl(arxivId),
+    },
+    hasStrongMetadata: Boolean(rawTitle && rawAbstract),
+    hasFallbackMetadata: Boolean(rawTitle || rawAbstract || rawAuthors.length || rawPublished || rawPrimaryCategory || rawAbsUrl),
+  };
+}
+
+async function resolveArxivUploadMetadata({
+  arxivId,
+  providedMetadata = {},
+  fetchMetadata = arxivService.fetchMetadata,
+}) {
+  const normalized = normalizeProvidedArxivMetadata(arxivId, providedMetadata);
+  if (normalized.hasStrongMetadata) {
+    return normalized.metadata;
+  }
+
+  try {
+    return await fetchMetadata(arxivId);
+  } catch (error) {
+    if (/HTTP 429/i.test(String(error?.message || '')) && normalized.hasFallbackMetadata) {
+      return normalized.metadata;
+    }
+    throw error;
+  }
+}
+
 // POST /api/upload/presigned - Get presigned URL for direct upload (requires auth)
 router.post('/presigned', requireAuth, async (req, res) => {
   try {
@@ -183,7 +229,21 @@ router.post('/webpage', requireAuth, async (req, res) => {
 // POST /api/upload/arxiv - Fetch arXiv paper PDF and save (requires auth)
 router.post('/arxiv', requireAuth, async (req, res) => {
   try {
-    const { url, paperId, title, tags, notes, analysisProvider } = req.body;
+    const {
+      url,
+      paperId,
+      title,
+      tags,
+      notes,
+      analysisProvider,
+      abstract,
+      summary,
+      authors,
+      published,
+      publishedAt,
+      primaryCategory,
+      absUrl,
+    } = req.body;
 
     // Get paper ID from URL or directly
     let arxivId = paperId;
@@ -197,9 +257,23 @@ router.post('/arxiv', requireAuth, async (req, res) => {
 
     const userId = req.userId || 'czk';
 
-    // Fetch metadata from arXiv API
-    console.log(`Fetching arXiv metadata for ${arxivId}...`);
-    const metadata = await arxivService.fetchMetadata(arxivId);
+    const providedMetadata = {
+      title,
+      abstract,
+      summary,
+      authors,
+      published,
+      publishedAt,
+      primaryCategory,
+      absUrl,
+    };
+
+    // Prefer feed metadata when it is already sufficient, and fall back gracefully on arXiv 429s.
+    console.log(`Resolving arXiv metadata for ${arxivId}...`);
+    const metadata = await resolveArxivUploadMetadata({
+      arxivId,
+      providedMetadata,
+    });
 
     // Fetch PDF from arXiv
     console.log(`Fetching arXiv PDF for ${arxivId}...`);
@@ -357,3 +431,5 @@ router.post('/openreview', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+router.resolveArxivUploadMetadata = resolveArxivUploadMetadata;
+router.normalizeProvidedArxivMetadata = normalizeProvidedArxivMetadata;

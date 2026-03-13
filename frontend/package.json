@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "next dev -p 5173",
-    "build": "next build",
-    "start": "PORT=4173 HOSTNAME=127.0.0.1 node .next/standalone/server.js",
+    "build": "next build && ./scripts/prepare-standalone.sh",
+    "start": "sh -c './scripts/prepare-standalone.sh && PORT=${PORT:-4173} HOSTNAME=${HOSTNAME:-127.0.0.1} node .next/standalone/server.js'",
     "dev:vite": "vite",
     "build:vite": "vite build",
     "preview:vite": "vite preview"

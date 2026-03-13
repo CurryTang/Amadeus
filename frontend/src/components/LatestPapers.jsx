@@ -7,6 +7,7 @@ import {
   shouldTreatTrackerFetchAsManualRefresh,
   writeLatestPapersSession,
 } from './latestPapersSession.js';
+import { buildArxivSavePayload } from './latestPaperSavePayload.js';
 
 const CACHE_BACKGROUND_REFRESH_GAP_MS = 25 * 1000; // avoid repeated revalidate bursts
 const CATEGORY_FILTER_KEY = 'tracker_category_filter_v2';
@@ -479,9 +480,13 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
     setSavingKeys((prev) => new Set([...prev, saveKey]));
     try {
       if (paper?.arxivId) {
+        const payload = buildArxivSavePayload(paper);
+        if (!payload) {
+          return;
+        }
         await axios.post(
           `${apiUrl}/upload/arxiv`,
-          { paperId: paper.arxivId, title: paper.title },
+          payload,
           { headers: getAuthHeaders() }
         );
       } else if (paper?.url) {
