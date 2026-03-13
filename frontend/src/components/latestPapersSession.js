@@ -155,7 +155,9 @@ function resolveLatestPapersSessionUpdate({
     };
   }
 
-  if (background && normalizedCurrent.papers.length > normalizedIncoming.papers.length) {
+  if (background) {
+    // Background refreshes should never discard papers the user already loaded.
+    // Only signal that a new feed is available so the user can manually refresh.
     const newFeedAvailable = (
       (normalizedIncoming.snapshotId && normalizedIncoming.snapshotId !== normalizedCurrent.snapshotId)
       || normalizedIncoming.fetchedAt > normalizedCurrent.fetchedAt

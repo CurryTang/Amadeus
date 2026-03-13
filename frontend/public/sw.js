@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE = `auto-reader-static-${CACHE_VERSION}`;
 const DOC_CACHE = `auto-reader-docs-${CACHE_VERSION}`;
 

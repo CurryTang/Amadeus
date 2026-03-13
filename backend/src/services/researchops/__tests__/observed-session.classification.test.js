@@ -2,9 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
 
 const {
   classifyObservedSession,
+  classifyObservedSessionRecord,
   canMaterializeObservedSession,
 } = require('../observed-session.service');
 
@@ -72,4 +76,30 @@ test('classifyObservedSession rejects vague or meta conversations', async () => 
   assert.equal(result.taskType, 'unknown');
   assert.equal(result.goalSummary, '');
   assert.equal(canMaterializeObservedSession(result), false);
+});
+
+test('classifyObservedSessionRecord falls back when classification is unavailable', async () => {
+  const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'observed-session-classify-'));
+  const result = await classifyObservedSessionRecord({
+    projectPath,
+    record: {
+      id: 'obs_fallback',
+      sessionId: 'sess_fallback',
+      provider: 'codex',
+      sessionFile: '/remote/session.jsonl',
+      title: 'Remote observer task',
+      promptDigest: 'Remote observer task',
+      latestProgressDigest: 'Reading remote files',
+      contentHash: 'abc123',
+    },
+    classifyFn: async () => {
+      throw new Error('All LLM providers failed: []');
+    },
+  });
+
+  assert.equal(result.classified, true);
+  assert.equal(result.record.classification.decision, 'candidate');
+  assert.equal(result.record.classification.taskType, 'unknown');
+  assert.match(result.record.classification.reason, /Classification unavailable:/);
+  assert.equal(result.record.lastClassifiedHash, 'abc123');
 });

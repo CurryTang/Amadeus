@@ -585,6 +585,7 @@ function VibeResearcherPanel({
   const [promptMentionIdx, setPromptMentionIdx] = useState(-1);
   const [codeChatPrompt, setCodeChatPrompt] = useState('');
   const [proposalUploadBusy, setProposalUploadBusy] = useState(false);
+  const [documentPlanBusy, setDocumentPlanBusy] = useState(false);
   const [showKickoffPromptGenerate, setShowKickoffPromptGenerate] = useState(false);
   const [kickoffAiPrompt, setKickoffAiPrompt] = useState('');
   const kickoffProposalFileInputRef = useRef(null);
@@ -2348,6 +2349,43 @@ function VibeResearcherPanel({
     }
   }, [apiUrl, extractTodoSuggestionsFromGenerator, headers, kickoffAiPrompt, loadAll, selectedProjectId]);
 
+  const handleGenerateDocumentPlan = useCallback(async () => {
+    const instruction = kickoffAiPrompt.trim();
+    if (!selectedProjectId || !instruction) {
+      setError('Enter a description before generating a document plan.');
+      return;
+    }
+    setDocumentPlanBusy(true);
+    setError('');
+    try {
+      const response = await axios.post(
+        `${apiUrl}/researchops/projects/${selectedProjectId}/document-plan/generate`,
+        { instruction },
+        { headers, timeout: 180000 }
+      );
+      if (response.data?.treePlan?.plan) {
+        setTreePlan(response.data.treePlan.plan);
+        setTreeValidation(response.data?.treePlan?.validation || null);
+      }
+      if (response.data?.treeState?.state) {
+        setTreeState(response.data.treeState.state);
+      }
+      if (response.data?.rootNodeId) {
+        setSelectedNodeId(String(response.data.rootNodeId));
+      }
+      setTreeWorkspaceReady(true);
+      setKickoffAiPrompt('');
+      setShowKickoffPromptGenerate(false);
+      setTreeActionMessage('Document plan generated from SSH executor.');
+      await loadTreeWorkspace(selectedProjectId, { silent: true, force: true });
+    } catch (err) {
+      console.error('Failed to generate document plan:', err);
+      setError(err?.response?.data?.error || err?.message || 'Failed to generate document plan');
+    } finally {
+      setDocumentPlanBusy(false);
+    }
+  }, [apiUrl, headers, kickoffAiPrompt, loadTreeWorkspace, selectedProjectId]);
+
   const startAutopilotPoll = useCallback((sessionId) => {
     if (autopilotPollRef.current) clearInterval(autopilotPollRef.current);
     autopilotPollRef.current = setInterval(async () => {
@@ -2949,7 +2987,8 @@ function VibeResearcherPanel({
     });
     setRuns(nextState.runs);
     setRunHistoryItems(nextState.runHistoryItems);
-    if (!status || cleanString(selectedRun?.status).toUpperCase() === cleanString(status).toUpperCase()) {
+    const currentRun = runs.find((r) => r.id === selectedRunId) || null;
+    if (!status || cleanString(currentRun?.status).toUpperCase() === cleanString(status).toUpperCase()) {
       setSelectedRunId('');
       setRunReport(null);
       setRunContextPack(null);
@@ -2970,7 +3009,7 @@ function VibeResearcherPanel({
         loadAll({ silent: true }),
       ]);
     }
-  }, [apiUrl, headers, loadAll, loadRunHistoryPage, runHistoryItems, runs, selectedProjectId, selectedRun]);
+  }, [apiUrl, headers, loadAll, loadRunHistoryPage, runHistoryItems, runs, selectedProjectId, selectedRunId]);
 
   const handleRerunRun = useCallback(async (runId) => {
     try {
@@ -3387,6 +3426,21 @@ function VibeResearcherPanel({
     };
   }, [observedSessions, treeState]);
 
+  const selectedTreeNode = useMemo(() => {
+    if (!selectedNodeId || !Array.isArray(treePlan?.nodes)) return null;
+    return treePlan.nodes.find((node) => String(node.id || '').trim() === String(selectedNodeId).trim()) || null;
+  }, [selectedNodeId, treePlan]);
+
+  const selectedTreeNodeState = useMemo(() => (
+    selectedNodeId && effectiveTreeState?.nodes && typeof effectiveTreeState.nodes === 'object'
+      ? (effectiveTreeState.nodes[selectedNodeId] || null)
+      : null
+  ), [effectiveTreeState, selectedNodeId]);
+  const selectedObservedSession = useMemo(() => (
+    selectedNodeId ? (observedSessionsByNodeId.get(selectedNodeId) || null) : null
+  ), [observedSessionsByNodeId, selectedNodeId]);
+  const selectedNodeLastRunId = cleanString(selectedTreeNodeState?.lastRunId);
+
   useEffect(() => {
     if (!selectedProjectId || !selectedNodeId) {
       setNodeBridgeContext(null);
@@ -3404,21 +3458,6 @@ function VibeResearcherPanel({
     todoCount: selectedProjectIdeas.length,
     treeWorkspaceReady,
   }), [effectiveTreeState, selectedProject, treePlan, treeEnvironmentDetected, treeWorkspaceReady, selectedProjectIdeas.length]);
-
-  const selectedTreeNode = useMemo(() => {
-    if (!selectedNodeId || !Array.isArray(treePlan?.nodes)) return null;
-    return treePlan.nodes.find((node) => String(node.id || '').trim() === String(selectedNodeId).trim()) || null;
-  }, [selectedNodeId, treePlan]);
-
-  const selectedTreeNodeState = useMemo(() => (
-    selectedNodeId && effectiveTreeState?.nodes && typeof effectiveTreeState.nodes === 'object'
-      ? (effectiveTreeState.nodes[selectedNodeId] || null)
-      : null
-  ), [effectiveTreeState, selectedNodeId]);
-  const selectedObservedSession = useMemo(() => (
-    selectedNodeId ? (observedSessionsByNodeId.get(selectedNodeId) || null) : null
-  ), [observedSessionsByNodeId, selectedNodeId]);
-  const selectedNodeLastRunId = cleanString(selectedTreeNodeState?.lastRunId);
 
   const knowledgeBaseFolder = String(selectedProject?.kbFolderPath || '').trim();
 
@@ -5307,14 +5346,24 @@ function VibeResearcherPanel({
                           type="button"
                           className="vibe-primary-btn"
                           onClick={handleKickoffGenerateTodos}
-                          disabled={todoBusy || !kickoffAiPrompt.trim()}
+                          disabled={todoBusy || documentPlanBusy || !kickoffAiPrompt.trim()}
                         >
                           {todoBusy ? 'Generating...' : 'Generate Tasks'}
                         </button>
+                        <button
+                          type="button"
+                          className="vibe-secondary-btn"
+                          onClick={handleGenerateDocumentPlan}
+                          disabled={documentPlanBusy || todoBusy || !kickoffAiPrompt.trim()}
+                        >
+                          {documentPlanBusy ? 'Generating Runbook...' : 'Generate Runbook'}
+                        </button>
                       </div>
                     )}
-                    {proposalUploadBusy && (
-                      <p className="vibe-kickoff-busy">Analyzing proposal and creating tasks...</p>
+                    {(proposalUploadBusy || documentPlanBusy) && (
+                      <p className="vibe-kickoff-busy">
+                        {documentPlanBusy ? 'Generating experiment runbook on SSH...' : 'Analyzing proposal and creating tasks...'}
+                      </p>
                     )}
                     <input
                       type="file"

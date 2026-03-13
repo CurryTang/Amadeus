@@ -23,6 +23,18 @@ test('buildTreeNodeApprovalPayload preserves approval roots while exposing node 
     method: 'POST',
     path: '/researchops/projects/proj_1/tree/nodes/node_1/approve',
   });
+  assert.deepEqual(payload.actions.judge, {
+    method: 'POST',
+    path: '/researchops/projects/proj_1/tree/nodes/node_1/judge',
+  });
+  assert.deepEqual(payload.actions.judgeApprove, {
+    method: 'POST',
+    path: '/researchops/projects/proj_1/tree/nodes/node_1/judge/approve',
+  });
+  assert.deepEqual(payload.actions.judgeRetry, {
+    method: 'POST',
+    path: '/researchops/projects/proj_1/tree/nodes/node_1/judge/retry',
+  });
 });
 
 test('buildGeneratedTreeNodePayload preserves node/provider roots while exposing generation actions', () => {

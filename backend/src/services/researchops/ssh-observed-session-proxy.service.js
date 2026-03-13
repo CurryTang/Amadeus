@@ -5,13 +5,13 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { copyTo, script } = require('../ssh-transport.service');
-const { buildSshCommandLine } = require('../ssh-transport.service');
+const { buildSshCommandLine, shellEscape } = require('../ssh-transport.service');
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-const REMOTE_INSTALL_ROOT = '~/.researchops/agent-session-observer';
+const REMOTE_INSTALL_ROOT = '.researchops/agent-session-observer';
 const REMOTE_BIN_PATH = `${REMOTE_INSTALL_ROOT}/bin/researchops-agent-observer`;
 const OBSERVER_INSTALL_VERSION = '2026-03-06-v1';
 const OBSERVER_SOURCE_FILES = [
@@ -34,6 +34,18 @@ function isMissingObserverError(error) {
       || message.includes('cannot find module')
     )
   );
+}
+
+function buildRemoteInstallRootShellPath() {
+  return '$HOME/.researchops/agent-session-observer';
+}
+
+function buildRemoteObserverCommand(observerCommand = REMOTE_BIN_PATH, args = []) {
+  const normalizedCommand = cleanString(observerCommand) || REMOTE_BIN_PATH;
+  const command = normalizedCommand === REMOTE_BIN_PATH
+    ? `"$HOME/${REMOTE_BIN_PATH}"`
+    : shellEscape(normalizedCommand);
+  return [command, ...args.map((item) => shellEscape(String(item ?? '')))].join(' ');
 }
 
 async function ensureRemoteObserverInstalled({
@@ -61,7 +73,9 @@ async function ensureRemoteObserverInstalled({
     const wrapperPath = path.join(tempDir, 'researchops-agent-observer');
     await fs.writeFile(wrapperPath, [
       '#!/usr/bin/env node',
-      `require('${REMOTE_INSTALL_ROOT}/src/services/agent-session-observer/observer-cli').main().catch((error) => {`,
+      "const os = require('os');",
+      "const path = require('path');",
+      "require(path.join(os.homedir(), '.researchops', 'agent-session-observer', 'src', 'services', 'agent-session-observer', 'observer-cli')).main().catch((error) => {",
       '  process.stderr.write(String(error && error.message ? error.message : error) + "\\n");',
       '  process.exit(1);',
       '});',
@@ -70,7 +84,7 @@ async function ensureRemoteObserverInstalled({
 
     await scriptFn(server, `
 set -eu
-INSTALL_ROOT="${REMOTE_INSTALL_ROOT}"
+INSTALL_ROOT="${buildRemoteInstallRootShellPath()}"
 mkdir -p "$INSTALL_ROOT/bin" "$INSTALL_ROOT/src/services/agent-session-observer"
 `, [], { timeoutMs: 30000 });
 
@@ -85,7 +99,7 @@ mkdir -p "$INSTALL_ROOT/bin" "$INSTALL_ROOT/src/services/agent-session-observer"
 
     await scriptFn(server, `
 set -eu
-INSTALL_ROOT="${REMOTE_INSTALL_ROOT}"
+INSTALL_ROOT="${buildRemoteInstallRootShellPath()}"
 if ! command -v node >/dev/null 2>&1; then
   echo "node is required on target host" >&2
   exit 1
@@ -111,7 +125,7 @@ async function runRemoteObserverCommand({
   timeoutMs = 15000,
 } = {}) {
   if (!server) throw new Error('server is required');
-  const remoteArgs = [observerCommand, ...args];
+  const remoteArgs = ['bash', '-lc', buildRemoteObserverCommand(observerCommand, args)];
   const commandLine = buildSshCommandLine(server, remoteArgs, { connectTimeout: 15 });
   return new Promise((resolve, reject) => {
     const child = spawn('bash', ['-lc', commandLine], {

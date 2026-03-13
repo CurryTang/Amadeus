@@ -12,7 +12,7 @@ const CACHE_BACKGROUND_REFRESH_GAP_MS = 25 * 1000; // avoid repeated revalidate 
 const CATEGORY_FILTER_KEY = 'tracker_category_filter_v2';
 const TRACKER_ANON_SESSION_KEY = 'tracker_anon_session_id_v1';
 const SHOW_SAVED_KEY = 'tracker_show_saved_v1';
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 20;
 const SOURCE_LABELS = {
   hf: 'HF Daily',
   alphaxiv: 'AlphaXiv',
@@ -337,7 +337,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
           fetchFeed({
             offset: 0,
             append: false,
-            forceRefresh: true,
+            forceRefresh: false,
             forceCrawl: false,
             background: true,
           });

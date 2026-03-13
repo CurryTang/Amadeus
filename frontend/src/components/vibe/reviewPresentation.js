@@ -49,6 +49,16 @@ function formatIsolationTier(value = '') {
   return '';
 }
 
+function formatJudgeStatus(value = '', mode = '') {
+  const normalizedStatus = cleanString(value).toLowerCase();
+  const normalizedMode = cleanString(mode).toLowerCase();
+  if (!normalizedStatus) return '';
+  const label = normalizedStatus === 'needs_review'
+    ? 'Needs review'
+    : normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1).replace(/_/g, ' ');
+  return normalizedMode ? `${label} (${normalizedMode})` : label;
+}
+
 function resolveNodeReport(runReport = {}, bridgeReport = {}) {
   const primaryReport = runReport && typeof runReport === 'object' ? runReport : {};
   if (Object.keys(primaryReport).length > 0) return primaryReport;
@@ -125,6 +135,33 @@ function buildNodeControlSurfaceRows({
 function buildNodeReviewSummary(node = {}, nodeState = {}, runReport = {}, runCompare = {}, bridgeReport = {}) {
   const effectiveRunReport = resolveNodeReport(runReport, bridgeReport);
   const rows = [];
+  const judge = nodeState?.judge && typeof nodeState.judge === 'object' ? nodeState.judge : {};
+  const judgeStatus = formatJudgeStatus(judge.status, judge.mode);
+  if (judgeStatus) {
+    rows.push({
+      label: 'Judge',
+      value: judgeStatus,
+    });
+  }
+  if (Number.isFinite(Number(judge.iteration)) && Number.isFinite(Number(judge.maxIterations)) && Number(judge.maxIterations) > 0) {
+    rows.push({
+      label: 'Judge Iteration',
+      value: `${Math.max(Number(judge.iteration) || 0, 0)} / ${Math.max(Number(judge.maxIterations) || 0, 0)}`,
+    });
+  }
+  if (cleanString(judge.summary)) {
+    rows.push({
+      label: 'Judge Summary',
+      value: cleanString(judge.summary),
+    });
+  }
+  if (Array.isArray(judge.issues) && judge.issues.filter((item) => cleanString(item)).length > 0) {
+    const issueCount = judge.issues.filter((item) => cleanString(item)).length;
+    rows.push({
+      label: 'Judge Issues',
+      value: issueCount === 1 ? '1 issue' : `${issueCount} issues`,
+    });
+  }
   if (hasManualGate(node)) {
     rows.push({
       label: 'Gate',

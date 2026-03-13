@@ -13,6 +13,71 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function toInt(value, fallback = 0, min = 0, max = 1000) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), min), max);
+}
+
+function normalizeJudgeStatus(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (['idle', 'running', 'passed', 'revise', 'failed', 'needs_review'].includes(normalized)) {
+    return normalized;
+  }
+  return normalized || 'idle';
+}
+
+function normalizeJudgeMode(value = '') {
+  const normalized = cleanString(value).toLowerCase();
+  if (normalized === 'auto' || normalized === 'manual') return normalized;
+  return normalized || 'manual';
+}
+
+function normalizeJudgeHistoryEntry(entry = {}) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const verdict = cleanString(entry.verdict).toLowerCase();
+  const summary = cleanString(entry.summary);
+  const runId = cleanString(entry.runId);
+  const at = cleanString(entry.at || entry.createdAt);
+  const issues = Array.isArray(entry.issues)
+    ? entry.issues.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const refinementPrompt = cleanString(entry.refinementPrompt);
+  const next = {};
+  if (verdict) next.verdict = verdict;
+  if (summary) next.summary = summary;
+  if (runId) next.runId = runId;
+  if (at) next.at = at;
+  if (issues.length > 0) next.issues = issues;
+  if (refinementPrompt) next.refinementPrompt = refinementPrompt;
+  return Object.keys(next).length > 0 ? next : null;
+}
+
+function normalizeJudgeState(judge = {}) {
+  if (!judge || typeof judge !== 'object' || Array.isArray(judge)) return {};
+  const history = Array.isArray(judge.history)
+    ? judge.history.map((entry) => normalizeJudgeHistoryEntry(entry)).filter(Boolean)
+    : [];
+  const issues = Array.isArray(judge.issues)
+    ? judge.issues.map((item) => cleanString(item)).filter(Boolean)
+    : [];
+  const next = {
+    status: normalizeJudgeStatus(judge.status),
+    mode: normalizeJudgeMode(judge.mode),
+    iteration: toInt(judge.iteration, 0, 0, 100),
+    maxIterations: toInt(judge.maxIterations, 5, 1, 100),
+  };
+  const lastRunId = cleanString(judge.lastRunId);
+  const summary = cleanString(judge.summary);
+  const refinementPrompt = cleanString(judge.refinementPrompt);
+  if (lastRunId) next.lastRunId = lastRunId;
+  if (summary) next.summary = summary;
+  if (issues.length > 0) next.issues = issues;
+  if (refinementPrompt) next.refinementPrompt = refinementPrompt;
+  if (history.length > 0) next.history = history;
+  return next;
+}
+
 function expandHome(inputPath = '') {
   return String(inputPath || '').replace(/^~(?=\/|$)/, os.homedir());
 }
@@ -82,6 +147,9 @@ function normalizeNodeStatePatch(patch = {}) {
     next.search = next.search && typeof next.search === 'object' && !Array.isArray(next.search)
       ? next.search
       : {};
+  }
+  if (Object.prototype.hasOwnProperty.call(next, 'judge')) {
+    next.judge = normalizeJudgeState(next.judge);
   }
   return next;
 }
@@ -287,4 +355,5 @@ module.exports = {
   setNodeState,
   appendQueueItem,
   setQueuePaused,
+  normalizeJudgeState,
 };

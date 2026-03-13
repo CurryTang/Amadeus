@@ -44,6 +44,34 @@ test('setNodeState normalizes status and node-scoped runtime fields', () => {
   assert.equal(typeof next.updatedAt, 'string');
 });
 
+test('setNodeState normalizes judge loop state for a node', () => {
+  const next = setNodeState(buildDefaultState(), 'node_eval', {
+    judge: {
+      status: ' revise ',
+      mode: ' AUTO ',
+      iteration: '2',
+      maxIterations: '5',
+      lastRunId: 'run_eval_2',
+      summary: 'Needs another pass',
+      issues: ['missing citation', '', null],
+      refinementPrompt: 'Add citation support',
+      history: [{ verdict: 'pass' }, 'invalid-entry'],
+    },
+  });
+
+  assert.deepEqual(next.nodes.node_eval.judge, {
+    status: 'revise',
+    mode: 'auto',
+    iteration: 2,
+    maxIterations: 5,
+    lastRunId: 'run_eval_2',
+    summary: 'Needs another pass',
+    issues: ['missing citation'],
+    refinementPrompt: 'Add citation support',
+    history: [{ verdict: 'pass' }],
+  });
+});
+
 test('appendQueueItem stamps queuedAt and keeps only the newest thousand items', () => {
   let state = buildDefaultState();
   for (let index = 0; index < 1002; index += 1) {

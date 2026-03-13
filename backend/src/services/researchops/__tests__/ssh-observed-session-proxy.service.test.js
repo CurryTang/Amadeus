@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs/promises');
 
 const {
   ensureRemoteObserverInstalled,
@@ -102,10 +103,12 @@ test('runObserverCommandWithAutoInstall installs and retries when observer is mi
 test('ensureRemoteObserverInstalled creates install directories, copies files, and runs npm install', async () => {
   const copied = [];
   const scripted = [];
+  const copiedContents = new Map();
   await ensureRemoteObserverInstalled({
     server,
     copyToFn: async (targetServer, localPath, remotePath) => {
       copied.push({ targetServer, localPath, remotePath });
+      copiedContents.set(remotePath, await fs.readFile(localPath, 'utf8'));
     },
     scriptFn: async (targetServer, scriptBody) => {
       scripted.push({ targetServer, scriptBody });
@@ -117,4 +120,10 @@ test('ensureRemoteObserverInstalled creates install directories, copies files, a
   assert.equal(scripted.length >= 2, true);
   assert.match(scripted[0].scriptBody, /mkdir -p .*agent-session-observer/);
   assert.match(scripted[scripted.length - 1].scriptBody, /npm install --omit=dev --no-audit --no-fund/);
+  for (const item of copied) {
+    assert.equal(item.remotePath.startsWith('~'), false);
+  }
+  const wrapper = copiedContents.get('.researchops/agent-session-observer/bin/researchops-agent-observer');
+  assert.match(wrapper, /os\.homedir\(\)/);
+  assert.doesNotMatch(wrapper, /~\/\.researchops/);
 });

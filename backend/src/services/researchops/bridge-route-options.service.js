@@ -29,6 +29,8 @@ function readBridgeContextOptions(query = {}) {
 }
 
 function readBridgeRunOptions(body = {}) {
+  const judgeMode = typeof body?.judgeMode === 'string' ? body.judgeMode.trim().toLowerCase() : '';
+  const rawMax = Number(body?.judgeMaxIterations);
   return {
     force: parseBoolean(body?.force, false),
     preflightOnly: parseBoolean(body?.preflightOnly, false),
@@ -36,6 +38,9 @@ function readBridgeRunOptions(body = {}) {
     clarifyMessages: Array.isArray(body?.clarifyMessages) ? body.clarifyMessages : [],
     workspaceSnapshot: asObject(body?.workspaceSnapshot),
     localSnapshot: asObject(body?.localSnapshot),
+    judgeMode: judgeMode === 'auto' || judgeMode === 'manual' ? judgeMode : '',
+    judgeMaxIterations: Number.isFinite(rawMax) ? Math.min(Math.max(Math.floor(rawMax), 1), 20) : null,
+    judgeRefinementPrompt: typeof body?.judgeRefinementPrompt === 'string' ? body.judgeRefinementPrompt.trim() : '',
   };
 }
 

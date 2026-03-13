@@ -99,3 +99,14 @@ test('refreshObservedSessionRecord reuses cached digest when the session content
   assert.equal(second.record.contentHash, first.record.contentHash);
   assert.equal(summarizeCalls, 1);
 });
+
+test('getObservedSessionCachePaths falls back to a home cache root for remote project paths', async () => {
+  const projectPath = '/egr/research-dselab/testuser/AutoRDL';
+  const paths = getObservedSessionCachePaths(projectPath, 'obs_remote');
+
+  assert.equal(
+    paths.dirPath.startsWith(path.join(os.homedir(), '.researchops', 'cache', 'observed-sessions', 'projects')),
+    true
+  );
+  assert.equal(paths.recordPath, path.join(paths.dirPath, 'obs_remote.json'));
+});

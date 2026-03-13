@@ -1,7 +1,9 @@
 'use strict';
 
 const crypto = require('crypto');
+const fsSync = require('fs');
 const fs = require('fs/promises');
+const os = require('os');
 const path = require('path');
 const agentSessionWatcher = require('../agent-session-watcher.service');
 const { normalizePlan } = require('./plan-patch.service');
@@ -22,6 +24,20 @@ function buildObservedSessionId({ provider = '', sessionFile = '' } = {}) {
     .update(`${cleanString(provider).toLowerCase()}:${normalizePath(sessionFile)}`)
     .digest('hex');
   return `obs_${hash}`;
+}
+
+function getObservedSessionCacheDir(projectPath = '') {
+  const rootPath = normalizePath(projectPath);
+  if (rootPath) {
+    try {
+      if (fsSync.statSync(rootPath).isDirectory()) {
+        return path.join(rootPath, '.researchops', 'cache', 'observed-sessions');
+      }
+    } catch (_) {
+      // Remote SSH project paths are not expected to exist on the local executor.
+    }
+  }
+  return path.join(os.homedir(), '.researchops', 'cache', 'observed-sessions', 'projects', sha1(rootPath || 'unknown-project'));
 }
 
 function normalizeObservedSession(input = {}) {
@@ -49,8 +65,7 @@ function normalizeObservedSession(input = {}) {
 }
 
 function getObservedSessionCachePaths(projectPath = '', observedSessionId = '') {
-  const rootPath = normalizePath(projectPath);
-  const dirPath = path.join(rootPath, '.researchops', 'cache', 'observed-sessions');
+  const dirPath = getObservedSessionCacheDir(projectPath);
   const fileName = `${cleanString(observedSessionId) || 'unknown'}.json`;
   return {
     dirPath,
@@ -384,7 +399,18 @@ async function classifyObservedSessionRecord({
     };
   }
 
-  const classification = await classifyObservedSession(record, { classifyFn });
+  let classification = null;
+  try {
+    classification = await classifyObservedSession(record, { classifyFn });
+  } catch (error) {
+    classification = normalizeObservedSessionClassification({
+      decision: 'candidate',
+      taskType: 'unknown',
+      goalSummary: '',
+      confidence: 0,
+      reason: `Classification unavailable: ${cleanString(error?.message || error) || 'unknown error'}`,
+    });
+  }
   const nextRecord = {
     ...record,
     classification,

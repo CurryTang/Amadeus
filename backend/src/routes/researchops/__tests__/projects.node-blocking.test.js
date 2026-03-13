@@ -64,3 +64,53 @@ test('evaluateNodeBlocking returns unblocked when dependencies passed and gate a
     blockedBy: [],
   });
 });
+
+test('resolveJudgeRouteMode defaults run-step to manual and run-all to auto', () => {
+  assert.equal(projectsRouter.resolveJudgeRouteMode({ routeKind: 'run-step' }), 'manual');
+  assert.equal(projectsRouter.resolveJudgeRouteMode({ routeKind: 'run-all' }), 'auto');
+  assert.equal(projectsRouter.resolveJudgeRouteMode({ routeKind: 'run-step', judgeMode: 'auto' }), 'auto');
+});
+
+test('resolveJudgeStateTransition requests auto retry before retry cap and review otherwise', () => {
+  assert.deepEqual(
+    projectsRouter.resolveJudgeStateTransition({
+      verdict: 'revise',
+      judgeMode: 'auto',
+      iteration: 2,
+      maxIterations: 5,
+    }),
+    {
+      action: 'retry',
+      judgeStatus: 'running',
+      needsReview: false,
+    }
+  );
+
+  assert.deepEqual(
+    projectsRouter.resolveJudgeStateTransition({
+      verdict: 'revise',
+      judgeMode: 'manual',
+      iteration: 2,
+      maxIterations: 5,
+    }),
+    {
+      action: 'needs_review',
+      judgeStatus: 'needs_review',
+      needsReview: true,
+    }
+  );
+
+  assert.deepEqual(
+    projectsRouter.resolveJudgeStateTransition({
+      verdict: 'revise',
+      judgeMode: 'auto',
+      iteration: 5,
+      maxIterations: 5,
+    }),
+    {
+      action: 'needs_review',
+      judgeStatus: 'needs_review',
+      needsReview: true,
+    }
+  );
+});

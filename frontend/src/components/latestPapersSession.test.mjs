@@ -119,6 +119,42 @@ test('resolveLatestPapersSessionUpdate keeps expanded state during background re
   });
 });
 
+test('resolveLatestPapersSessionUpdate keeps state during background refresh even with equal paper count', () => {
+  const currentSession = {
+    papers: [
+      { arxivId: '2503.00001', title: 'Paper One' },
+      { arxivId: '2503.00002', title: 'Paper Two' },
+      { arxivId: '2503.00003', title: 'Paper Three' },
+    ],
+    fetchedAt: Date.UTC(2026, 2, 8, 12, 0, 0),
+    hasMore: true,
+    total: 197,
+    snapshotId: 'snapshot-old',
+  };
+
+  // Background refresh returns same number of papers but different snapshot
+  const result = resolveLatestPapersSessionUpdate({
+    currentSession,
+    incomingSession: {
+      papers: [
+        { arxivId: '2503.10001', title: 'New One' },
+        { arxivId: '2503.10002', title: 'New Two' },
+        { arxivId: '2503.10003', title: 'New Three' },
+      ],
+      fetchedAt: Date.UTC(2026, 2, 8, 12, 15, 0),
+      hasMore: true,
+      total: 205,
+      snapshotId: 'snapshot-new',
+    },
+    append: false,
+    background: true,
+  });
+
+  assert.equal(result.replaced, false);
+  assert.equal(result.newFeedAvailable, true);
+  assert.deepEqual(result.session.papers, currentSession.papers);
+});
+
 test('resolveLatestPapersSessionUpdate appends unique papers and resets on manual refresh', () => {
   const currentSession = {
     papers: [

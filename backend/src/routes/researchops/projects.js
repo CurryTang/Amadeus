@@ -86,6 +86,7 @@ const {
 const projectInsightsProxy = require('../../services/project-insights-proxy.service');
 const projectInsightsService = require('../../services/project-insights.service');
 const planAgentService = require('../../services/researchops/plan-agent.service');
+const documentPlanService = require('../../services/researchops/document-plan.service');
 const interactiveAgentService = require('../../services/researchops/interactive-agent.service');
 const observedSessionService = require('../../services/researchops/observed-session.service');
 const treePlanService = require('../../services/researchops/tree-plan.service');
@@ -95,6 +96,7 @@ const contextRouterService = require('../../services/researchops/context-router.
 const repoMapService = require('../../services/researchops/repo-map.service');
 const failureSignatureService = require('../../services/researchops/failure-signature.service');
 const deliverableReportSkillService = require('../../services/researchops/deliverable-report-skill.service');
+const treeNodeJudgeService = require('../../services/researchops/tree-node-judge.service');
 const codebaseAchievementService = require('../../services/researchops/codebase-achievement.service');
 const todoGeneratorService = require('../../services/researchops/todo-generator.service');
 const sshObservedSessionProxyService = require('../../services/researchops/ssh-observed-session-proxy.service');
@@ -236,6 +238,108 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function buildDocumentPlanGenerationPrompt({
+  instruction = '',
+  projectPath = '',
+  outputDocPath = 'docs/exp.md',
+} = {}) {
+  const safeOutputDocPath = cleanString(outputDocPath) || 'docs/exp.md';
+  const safeInstruction = cleanString(instruction) || 'Generate a document plan for this project.';
+  const safeProjectPath = cleanString(projectPath);
+  return [
+    'You are generating a reviewable document plan for this repository on the SSH executor.',
+    safeProjectPath ? `Repository path: ${safeProjectPath}` : '',
+    `Inspect the repository, generate ${safeOutputDocPath}, and produce a structured plan result.`,
+    '',
+    'Requirements:',
+    `- Write or update ${safeOutputDocPath}.`,
+    '- Keep assumptions concrete and repository-grounded.',
+    '- Emit a machine-readable trailer exactly in this format:',
+    'DOCUMENT_PLAN_RESULT',
+    '{"planId":"...","title":"...","documentPath":"docs/exp.md","steps":[{"id":"...","title":"...","kind":"experiment","objective":"...","dependsOn":[],"todoId":"todo:...","allowedMarkers":["step:...","todo:..."]}]}',
+    'END_DOCUMENT_PLAN_RESULT',
+    '',
+    'User instruction:',
+    safeInstruction,
+  ].filter(Boolean).join('\n');
+}
+
+function buildDocumentPlanRunPayload({
+  project = {},
+  instruction = '',
+  outputDocPath = 'docs/exp.md',
+} = {}) {
+  const prompt = buildDocumentPlanGenerationPrompt({
+    instruction,
+    projectPath: cleanString(project?.projectPath),
+    outputDocPath,
+  });
+  return {
+    projectId: cleanString(project?.id),
+    serverId: cleanString(project?.serverId) || 'local-default',
+    runType: 'AGENT',
+    schemaVersion: '2.0',
+    provider: 'codex_cli',
+    workflow: [
+      {
+        id: 'document_plan_agent',
+        type: 'agent.run',
+        inputs: {
+          prompt,
+          cwd: cleanString(project?.projectPath) || undefined,
+          skipReview: true,
+        },
+      },
+      {
+        id: 'report',
+        type: 'report.render',
+        dependsOn: ['document_plan_agent'],
+        inputs: {
+          format: 'md+json',
+        },
+      },
+    ],
+    metadata: {
+      prompt,
+      cwd: cleanString(project?.projectPath) || undefined,
+      documentPlan: true,
+      documentPlanOutputPath: cleanString(outputDocPath) || 'docs/exp.md',
+    },
+  };
+}
+
+function buildDocumentPlanNodePrompt(node = {}) {
+  const step = asObject(node?.ui?.documentPlanStep);
+  const stepId = cleanString(step.stepId || node?.id);
+  const title = cleanString(step.title || node?.title) || stepId;
+  const todoId = cleanString(step.todoId);
+  const documentPath = cleanString(step.documentPath) || 'docs/exp.md';
+  const markers = Array.isArray(step.allowedMarkers) ? step.allowedMarkers.filter(Boolean) : [];
+  return [
+    `Read ${documentPath} first.`,
+    '',
+    `You are assigned only step ${stepId}: ${title}.`,
+    'Execute only this document step.',
+    '',
+    'Requirements:',
+    todoId ? `- Update only the corresponding TODO item \`${todoId}\`.` : '',
+    markers.length > 0 ? `- Allowed document markers: ${markers.join(', ')}.` : '',
+    '- Do not start later steps.',
+    '- If blocked, record the blocker in the relevant notes section and stop.',
+    '',
+    'Emit progress lines in this exact format while working:',
+    `DOCUMENT_STEP_EVENT {"stepId":"${stepId}","nodeId":"${cleanString(node?.id)}","status":"running","progress":25,"message":"<short update>"}`,
+    '',
+    'End with this exact trailer:',
+    'STEP_RESULT',
+    `step_id: ${stepId}`,
+    'outcome: succeeded|blocked|partial',
+    'summary: <one line>',
+    'evidence:',
+    '- <artifact or document update>',
+  ].filter(Boolean).join('\n');
+}
+
 function buildRemotePathResolverScript(actionCommand) {
   return [
     'raw="$1"',
@@ -262,6 +366,415 @@ function promiseWithTimeout(promise, timeoutMs = 30000, label = 'Operation') {
   return Promise.race([promise, timeoutPromise]).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+function delay(ms = 0) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForRunTerminalState(userId, runId, {
+  timeoutMs = 120000,
+  pollMs = 1000,
+  getRunFn = researchOpsStore.getRun.bind(researchOpsStore),
+} = {}) {
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    // eslint-disable-next-line no-await-in-loop
+    const run = await getRunFn(userId, runId).catch(() => null);
+    const status = cleanString(run?.status).toUpperCase();
+    if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(status)) return run;
+    // eslint-disable-next-line no-await-in-loop
+    await delay(pollMs);
+  }
+  return getRunFn(userId, runId).catch(() => null);
+}
+
+function extractDocumentPlanResultFromRunResources({ artifacts = [], steps = [] } = {}) {
+  const candidates = [];
+  for (const artifact of Array.isArray(artifacts) ? artifacts : []) {
+    const inlinePreview = cleanString(artifact?.metadata?.inlinePreview);
+    if (inlinePreview) candidates.push(inlinePreview);
+  }
+  for (const step of Array.isArray(steps) ? steps : []) {
+    const stdoutTail = cleanString(step?.outputs?.stdoutTail);
+    const stderrTail = cleanString(step?.outputs?.stderrTail);
+    if (stdoutTail) candidates.push(stdoutTail);
+    if (stderrTail) candidates.push(stderrTail);
+  }
+  for (const candidate of candidates) {
+    try {
+      return documentPlanService.extractDocumentPlanResult(candidate);
+    } catch (_) {
+      // try the next candidate
+    }
+  }
+  const error = new Error('Planner run did not produce a valid DOCUMENT_PLAN_RESULT trailer');
+  error.code = 'DOCUMENT_PLAN_RESULT_MISSING';
+  throw error;
+}
+
+async function readRemoteDocumentPreview(server, remotePath) {
+  const safePath = cleanString(remotePath);
+  if (!server || !safePath) return '';
+  const script = [
+    'set -eu',
+    'TARGET_PATH="$1"',
+    'if [ ! -f "$TARGET_PATH" ]; then exit 0; fi',
+    'python3 - "$TARGET_PATH" <<\'PY\'',
+    'from pathlib import Path',
+    'import sys',
+    'path = Path(sys.argv[1])',
+    'data = path.read_text(encoding="utf-8", errors="replace")',
+    'print(data[:12000])',
+    'PY',
+  ].join('\n');
+  const result = await scriptSsh(server, script, [safePath], {
+    timeoutMs: 30000,
+  }).catch(() => ({ stdout: '' }));
+  return cleanString(result?.stdout);
+}
+
+function mergeDocumentPlanState(currentState = {}, documentPlanState = {}) {
+  const current = treeStateService.normalizeState(currentState);
+  const next = {
+    ...current,
+    nodes: {},
+  };
+  for (const [nodeId, nodeState] of Object.entries(current.nodes || {})) {
+    if (nodeState?.documentPlan === true) continue;
+    next.nodes[nodeId] = nodeState;
+  }
+  for (const [nodeId, nodeState] of Object.entries(documentPlanState?.nodes || {})) {
+    next.nodes[nodeId] = nodeState;
+  }
+  next.updatedAt = new Date().toISOString();
+  return next;
+}
+
+function clampJudgeIterations(value, fallback = 5) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(Math.max(Math.floor(num), 1), 20);
+}
+
+function resolveJudgeRouteMode({
+  routeKind = 'run-step',
+  judgeMode = '',
+} = {}) {
+  const explicit = cleanString(judgeMode).toLowerCase();
+  if (explicit === 'auto' || explicit === 'manual') return explicit;
+  return cleanString(routeKind).toLowerCase() === 'run-all' ? 'auto' : 'manual';
+}
+
+function resolveJudgeStateTransition({
+  verdict = '',
+  judgeMode = 'manual',
+  iteration = 0,
+  maxIterations = 5,
+} = {}) {
+  const decision = treeNodeJudgeService.decideJudgeNextAction({
+    verdict,
+    mode: judgeMode,
+    iteration,
+    maxIterations,
+  });
+  if (decision.action === 'retry') {
+    return {
+      action: 'retry',
+      judgeStatus: 'running',
+      needsReview: false,
+    };
+  }
+  if (decision.action === 'complete') {
+    return {
+      action: 'complete',
+      judgeStatus: 'passed',
+      needsReview: false,
+    };
+  }
+  return {
+    action: 'needs_review',
+    judgeStatus: 'needs_review',
+    needsReview: true,
+  };
+}
+
+function buildJudgeHistoryEntry({
+  runId = '',
+  verdict = '',
+  summary = '',
+  issues = [],
+  refinementPrompt = '',
+} = {}) {
+  const cleanIssues = Array.isArray(issues) ? issues.map((item) => cleanString(item)).filter(Boolean) : [];
+  return {
+    at: new Date().toISOString(),
+    runId: cleanString(runId),
+    verdict: cleanString(verdict).toLowerCase(),
+    summary: cleanString(summary),
+    ...(cleanIssues.length > 0 ? { issues: cleanIssues } : {}),
+    ...(cleanString(refinementPrompt) ? { refinementPrompt: cleanString(refinementPrompt) } : {}),
+  };
+}
+
+function buildJudgeReportSummary({
+  run = {},
+  artifacts = [],
+  checkpoints = [],
+} = {}) {
+  const artifactLines = (Array.isArray(artifacts) ? artifacts : [])
+    .slice(0, 6)
+    .map((artifact) => {
+      const kind = cleanString(artifact?.kind) || 'artifact';
+      const title = cleanString(artifact?.title) || kind;
+      const preview = cleanString(artifact?.metadata?.inlinePreview).slice(0, 800);
+      return preview
+        ? `- ${title} (${kind}): ${preview}`
+        : `- ${title} (${kind})`;
+    });
+  const checkpointLines = (Array.isArray(checkpoints) ? checkpoints : [])
+    .slice(0, 6)
+    .map((checkpoint) => `- ${cleanString(checkpoint?.title) || 'checkpoint'}: ${cleanString(checkpoint?.status).toUpperCase() || 'UNKNOWN'} ${cleanString(checkpoint?.message)}`.trim());
+  return [
+    `Run message: ${cleanString(run?.lastMessage) || 'No run summary available.'}`,
+    artifactLines.length > 0 ? `Artifacts:\n${artifactLines.join('\n')}` : '',
+    checkpointLines.length > 0 ? `Checkpoints:\n${checkpointLines.join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildJudgeArtifactMarkdown({
+  node = {},
+  judgeResult = {},
+  judgeMode = 'manual',
+  iteration = 1,
+  maxIterations = 5,
+} = {}) {
+  const issues = Array.isArray(judgeResult?.issues) ? judgeResult.issues.map((item) => cleanString(item)).filter(Boolean) : [];
+  return [
+    `# Judge Report · ${cleanString(node?.title) || cleanString(node?.id) || 'Node'}`,
+    '',
+    `- Verdict: ${cleanString(judgeResult?.verdict) || 'fail'}`,
+    `- Mode: ${cleanString(judgeMode) || 'manual'}`,
+    `- Iteration: ${iteration} / ${maxIterations}`,
+    judgeResult?.technicalFailure ? '- Technical Failure: true' : '',
+    '',
+    '## Summary',
+    cleanString(judgeResult?.summary) || 'No summary provided.',
+    '',
+    '## Issues',
+    issues.length > 0 ? issues.map((item) => `- ${item}`).join('\n') : '- None',
+    '',
+    '## Refinement Prompt',
+    cleanString(judgeResult?.refinementPrompt) || '(none)',
+  ].filter(Boolean).join('\n');
+}
+
+async function persistJudgeArtifacts({
+  userId,
+  run,
+  node,
+  judgeResult,
+  judgeMode,
+  iteration,
+  maxIterations,
+  needsReview,
+}) {
+  const markdown = buildJudgeArtifactMarkdown({
+    node,
+    judgeResult,
+    judgeMode,
+    iteration,
+    maxIterations,
+  });
+  await Promise.allSettled([
+    researchOpsStore.patchRunMeta(userId, run.id, {
+      judge: {
+        verdict: judgeResult.verdict,
+        summary: judgeResult.summary,
+        issues: judgeResult.issues,
+        refinementPrompt: judgeResult.refinementPrompt,
+        technicalFailure: judgeResult.technicalFailure === true,
+        judgedAt: new Date().toISOString(),
+        mode: judgeMode,
+        iteration,
+        maxIterations,
+      },
+    }),
+    researchOpsStore.createRunArtifact(userId, run.id, {
+      kind: 'judge_report',
+      title: `Judge Report · ${cleanString(node?.title) || cleanString(node?.id)}`,
+      mimeType: 'text/markdown',
+      metadata: {
+        verdict: judgeResult.verdict,
+        summary: judgeResult.summary,
+        issues: Array.isArray(judgeResult.issues) ? judgeResult.issues : [],
+        refinementPrompt: cleanString(judgeResult.refinementPrompt),
+        technicalFailure: judgeResult.technicalFailure === true,
+        mode: judgeMode,
+        iteration,
+        maxIterations,
+        inlinePreview: markdown.slice(0, 6000),
+      },
+    }),
+    ...(needsReview ? [researchOpsStore.createRunCheckpoint(userId, run.id, {
+      status: 'PENDING',
+      title: 'Judge review required',
+      message: cleanString(judgeResult.summary) || 'Judge requested human review.',
+      reasonCode: 'judge_review_required',
+      requestedActions: ['judge_approve', 'judge_retry'],
+      payload: {
+        nodeId: cleanString(node?.id),
+        verdict: cleanString(judgeResult.verdict),
+        issues: Array.isArray(judgeResult.issues) ? judgeResult.issues : [],
+        refinementPrompt: cleanString(judgeResult.refinementPrompt),
+      },
+    })] : []),
+  ]);
+}
+
+async function reconcileTreeJudgeState({
+  userId,
+  project,
+  server,
+  plan,
+  treeState,
+}) {
+  let nextState = treeStateService.normalizeState(treeState);
+  const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+  const nodeById = new Map(nodes.map((node) => [cleanString(node?.id), node]));
+  for (const [nodeId, nodeState] of Object.entries(nextState.nodes || {})) {
+    const lastRunId = cleanString(nodeState?.lastRunId);
+    if (!lastRunId) continue;
+    const judgeState = treeStateService.normalizeJudgeState(nodeState?.judge);
+    if (cleanString(judgeState.lastRunId) === lastRunId && judgeState.status && judgeState.status !== 'running') {
+      continue;
+    }
+    const node = nodeById.get(nodeId);
+    if (!node || cleanString(node.kind).toLowerCase() === 'search') continue;
+    // eslint-disable-next-line no-await-in-loop
+    const run = await researchOpsStore.getRun(userId, lastRunId).catch(() => null);
+    if (!run) continue;
+    const runStatus = cleanString(run.status).toUpperCase();
+    if (!['SUCCEEDED', 'FAILED'].includes(runStatus)) continue;
+
+    const judgeMode = resolveJudgeRouteMode({
+      routeKind: cleanString(run?.metadata?.runSource).toLowerCase() === 'run-all' ? 'run-all' : 'run-step',
+      judgeMode: cleanString(run?.metadata?.judgeMode) || judgeState.mode,
+    });
+    const maxIterations = clampJudgeIterations(run?.metadata?.judgeMaxIterations || judgeState.maxIterations || 5, 5);
+    const iteration = Math.max(Number(judgeState.iteration) || 0, 0) + 1;
+    // eslint-disable-next-line no-await-in-loop
+    const artifacts = await researchOpsStore.listRunArtifacts(userId, run.id, { limit: 20 }).catch(() => []);
+    // eslint-disable-next-line no-await-in-loop
+    const checkpoints = await researchOpsStore.listRunCheckpoints(userId, run.id, { limit: 20 }).catch(() => []);
+
+    let judgeResult;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      judgeResult = await treeNodeJudgeService.judgeNodeRun({
+        node,
+        run,
+        judgeState,
+        reportSummary: buildJudgeReportSummary({
+          run,
+          artifacts,
+          checkpoints,
+        }),
+      });
+    } catch (error) {
+      judgeResult = {
+        verdict: 'fail',
+        summary: cleanString(error?.message) || 'Judge execution failed.',
+        issues: [],
+        refinementPrompt: '',
+        technicalFailure: true,
+      };
+    }
+
+    const transition = resolveJudgeStateTransition({
+      verdict: judgeResult.verdict,
+      judgeMode,
+      iteration,
+      maxIterations,
+    });
+    const history = [
+      ...(Array.isArray(judgeState.history) ? judgeState.history : []),
+      buildJudgeHistoryEntry({
+        runId: run.id,
+        verdict: judgeResult.verdict,
+        summary: judgeResult.summary,
+        issues: judgeResult.issues,
+        refinementPrompt: judgeResult.refinementPrompt,
+      }),
+    ];
+
+    // eslint-disable-next-line no-await-in-loop
+    await persistJudgeArtifacts({
+      userId,
+      run,
+      node,
+      judgeResult,
+      judgeMode,
+      iteration,
+      maxIterations,
+      needsReview: transition.needsReview,
+    });
+
+    if (transition.action === 'retry') {
+      // eslint-disable-next-line no-await-in-loop
+      await executeTreeNodeRun({
+        userId,
+        project,
+        server,
+        node,
+        treeState: nextState,
+        force: true,
+        preflightOnly: false,
+        runSource: 'judge-retry',
+        judgeMode,
+        judgeMaxIterations: maxIterations,
+        judgeRefinementPrompt: cleanString(judgeResult.refinementPrompt) || cleanString(judgeState.refinementPrompt),
+      });
+      // eslint-disable-next-line no-await-in-loop
+      const refreshed = await treeStateService.readProjectState({ project, server });
+      nextState = treeStateService.normalizeState(refreshed.state);
+      nextState = treeStateService.setNodeState(nextState, nodeId, {
+        judge: {
+          ...treeStateService.normalizeJudgeState(nextState.nodes?.[nodeId]?.judge),
+          status: 'running',
+          mode: judgeMode,
+          iteration,
+          maxIterations,
+          lastRunId: run.id,
+          summary: judgeResult.summary,
+          issues: Array.isArray(judgeResult.issues) ? judgeResult.issues : [],
+          refinementPrompt: cleanString(judgeResult.refinementPrompt) || cleanString(judgeState.refinementPrompt),
+          history,
+        },
+      });
+      continue;
+    }
+
+    nextState = treeStateService.setNodeState(nextState, nodeId, {
+      status: transition.action === 'complete'
+        ? (runStatusToNodeStatus(run.status) || 'PASSED')
+        : 'BLOCKED',
+      lastRunStatus: runStatus,
+      judge: {
+        ...judgeState,
+        status: transition.judgeStatus,
+        mode: judgeMode,
+        iteration,
+        maxIterations,
+        lastRunId: run.id,
+        summary: judgeResult.summary,
+        issues: Array.isArray(judgeResult.issues) ? judgeResult.issues : [],
+        refinementPrompt: cleanString(judgeResult.refinementPrompt) || cleanString(judgeState.refinementPrompt),
+        history,
+      },
+    });
+  }
+  return nextState;
 }
 
 function runCommand(command, args = [], { timeoutMs = 15000, input = '' } = {}) {
@@ -5411,7 +5924,10 @@ async function hydrateTreeStateRunStatuses(userId, treeState = {}, options = {})
     // eslint-disable-next-line no-await-in-loop
     const run = await getRunFn(userId, runId).catch(() => null);
     if (!run) continue;
-    const mapped = runStatusToNodeStatus(run.status);
+    const judgeStatus = cleanString(nodeState?.judge?.status).toLowerCase();
+    let mapped = runStatusToNodeStatus(run.status);
+    if (judgeStatus === 'needs_review') mapped = 'BLOCKED';
+    else if (judgeStatus === 'running' && ['SUCCEEDED', 'FAILED'].includes(cleanString(run.status).toUpperCase())) mapped = 'RUNNING';
     if (!mapped) continue;
     state.nodes[nodeId] = {
       ...state.nodes[nodeId],
@@ -5723,8 +6239,20 @@ async function executeTreeNodeRun({
   clarifyMessages = [],
   workspaceSnapshot = null,
   localSnapshot = null,
+  judgeMode = '',
+  judgeMaxIterations = 5,
+  judgeRefinementPrompt = '',
 }) {
   const state = treeStateService.normalizeState(treeState);
+  const documentPlanStep = asObject(node?.ui?.documentPlanStep);
+  const isDocumentPlanNode = Object.keys(documentPlanStep).length > 0;
+  const existingJudge = treeStateService.normalizeJudgeState(state.nodes?.[node.id]?.judge);
+  const effectiveJudgeMode = resolveJudgeRouteMode({
+    routeKind: cleanString(runSource).toLowerCase() === 'run-all' ? 'run-all' : 'run-step',
+    judgeMode: judgeMode || existingJudge.mode,
+  });
+  const effectiveJudgeMaxIterations = clampJudgeIterations(judgeMaxIterations || existingJudge.maxIterations || 5, 5);
+  const effectiveJudgeRefinementPrompt = cleanString(judgeRefinementPrompt) || cleanString(existingJudge.refinementPrompt);
   const blocking = evaluateNodeBlocking(node, state);
   if (!force && blocking.blocked) {
     const error = new Error(`Node ${node.id} is blocked`);
@@ -5773,6 +6301,40 @@ async function executeTreeNodeRun({
   }
 
   if (preflightOnly) {
+    if (isDocumentPlanNode) {
+      return {
+        mode: 'preflight',
+        nodeId: node.id,
+        blockedBy: blocking.blockedBy,
+        commands,
+        runPayloadPreview: {
+          runType: 'AGENT',
+          serverId: String(project?.serverId || '').trim() || 'local-default',
+          provider: 'codex_cli',
+          metadata: {
+            prompt: buildDocumentPlanNodePrompt(node),
+            cwd: String(project?.projectPath || '').trim() || undefined,
+            documentPlan: true,
+            documentPlanNodeId: node.id,
+            documentPlanStepId: cleanString(documentPlanStep.stepId),
+            documentPlanPath: cleanString(documentPlanStep.documentPath) || 'docs/exp.md',
+          },
+        },
+      };
+    }
+    const metadata = buildTreeRunMetadata({
+      project,
+      node,
+      runSource,
+      commands,
+      clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
+    });
+    metadata.judgeMode = effectiveJudgeMode;
+    metadata.judgeMaxIterations = effectiveJudgeMaxIterations;
+    metadata.judgeIteration = Number(existingJudge.iteration) || 0;
+    if (effectiveJudgeRefinementPrompt) metadata.judgeRefinementPrompt = effectiveJudgeRefinementPrompt;
     return {
       mode: 'preflight',
       nodeId: node.id,
@@ -5782,31 +6344,68 @@ async function executeTreeNodeRun({
         runType: 'EXPERIMENT',
         serverId: String(project?.serverId || '').trim() || 'local-default',
         command: commands.join(' && ') || 'echo \"node has no commands\"',
-        metadata: buildTreeRunMetadata({
-          project,
-          node,
-          runSource,
-          commands,
-          clarifyMessages,
-          workspaceSnapshot,
-          localSnapshot,
-        }),
+        metadata,
       },
     };
   }
 
-  const run = await researchOpsStore.enqueueRun(userId, {
-    projectId: project.id,
-    serverId: String(project?.serverId || '').trim() || 'local-default',
-    runType: 'EXPERIMENT',
-    schemaVersion: '2.0',
-    skillRefs: [
-      {
-        id: `skill_${deliverableReportSkillService.SKILL_NAME}`,
-        name: deliverableReportSkillService.SKILL_NAME,
+  let runPayload;
+  if (isDocumentPlanNode) {
+    runPayload = {
+      projectId: project.id,
+      serverId: String(project?.serverId || '').trim() || 'local-default',
+      runType: 'AGENT',
+      schemaVersion: '2.0',
+      provider: 'codex_cli',
+      workflow: [
+        {
+          id: 'document_step_agent',
+          type: 'agent.run',
+          inputs: {
+            prompt: buildDocumentPlanNodePrompt(node),
+            cwd: String(project?.projectPath || '').trim() || undefined,
+            skipReview: true,
+          },
+        },
+        {
+          id: 'report',
+          type: 'report.render',
+          dependsOn: ['document_step_agent'],
+          inputs: {
+            format: 'md+json',
+          },
+        },
+      ],
+      skillRefs: [
+        {
+          id: `skill_${deliverableReportSkillService.SKILL_NAME}`,
+          name: deliverableReportSkillService.SKILL_NAME,
+        },
+      ],
+      metadata: {
+        prompt: buildDocumentPlanNodePrompt(node),
+        cwd: String(project?.projectPath || '').trim() || undefined,
+        sourceType: 'tree',
+        sourceLabel: 'Tree',
+        nodeId: node.id,
+        treeNodeId: node.id,
+        treeNodeTitle: String(node?.title || node?.id || '').trim(),
+        runSource,
+        documentPlan: true,
+        documentPlanNodeId: node.id,
+        documentPlanStepId: cleanString(documentPlanStep.stepId),
+        documentPlanPath: cleanString(documentPlanStep.documentPath) || 'docs/exp.md',
+        documentPlanTodoId: cleanString(documentPlanStep.todoId),
+        documentPlanAllowedMarkers: Array.isArray(documentPlanStep.allowedMarkers) ? documentPlanStep.allowedMarkers : [],
+        gitManaged: shouldUseGitManagedTreeRun({ node, runSource }),
+        judgeMode: effectiveJudgeMode,
+        judgeMaxIterations: effectiveJudgeMaxIterations,
+        judgeIteration: Number(existingJudge.iteration) || 0,
+        ...(effectiveJudgeRefinementPrompt ? { judgeRefinementPrompt: effectiveJudgeRefinementPrompt } : {}),
       },
-    ],
-    metadata: buildTreeRunMetadata({
+    };
+  } else {
+    const runMetadata = buildTreeRunMetadata({
       project,
       node,
       runSource,
@@ -5814,8 +6413,27 @@ async function executeTreeNodeRun({
       clarifyMessages,
       workspaceSnapshot,
       localSnapshot,
-    }),
-  });
+    });
+    runMetadata.judgeMode = effectiveJudgeMode;
+    runMetadata.judgeMaxIterations = effectiveJudgeMaxIterations;
+    runMetadata.judgeIteration = Number(existingJudge.iteration) || 0;
+    if (effectiveJudgeRefinementPrompt) runMetadata.judgeRefinementPrompt = effectiveJudgeRefinementPrompt;
+    runPayload = {
+      projectId: project.id,
+      serverId: String(project?.serverId || '').trim() || 'local-default',
+      runType: 'EXPERIMENT',
+      schemaVersion: '2.0',
+      skillRefs: [
+        {
+          id: `skill_${deliverableReportSkillService.SKILL_NAME}`,
+          name: deliverableReportSkillService.SKILL_NAME,
+        },
+      ],
+      metadata: runMetadata,
+    };
+  }
+
+  const run = await researchOpsStore.enqueueRun(userId, runPayload);
 
   let contextPack = null;
   let runIntentData = null;
@@ -5890,6 +6508,14 @@ async function executeTreeNodeRun({
     lastRunId: run.id,
     lastRunStatus: String(run.status || 'QUEUED').trim().toUpperCase(),
     runSource,
+    judge: {
+      ...existingJudge,
+      status: 'running',
+      mode: effectiveJudgeMode,
+      iteration: Number(existingJudge.iteration) || 0,
+      maxIterations: effectiveJudgeMaxIterations,
+      ...(effectiveJudgeRefinementPrompt ? { refinementPrompt: effectiveJudgeRefinementPrompt } : {}),
+    },
   });
   nextState.runs = {
     ...(nextState.runs && typeof nextState.runs === 'object' ? nextState.runs : {}),
@@ -6823,9 +7449,19 @@ router.get('/projects/:projectId/tree/state', async (req, res) => {
     const projectId = String(req.params.projectId || '').trim();
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
     const { project, server } = await resolveProjectContext(getUserId(req), projectId);
-    const readState = await treeStateService.readProjectState({ project, server });
+    const [readState, planRead] = await Promise.all([
+      treeStateService.readProjectState({ project, server }),
+      treePlanService.readProjectPlan({ project, server }),
+    ]);
     const hydrated = await hydrateTreeStateRunStatuses(getUserId(req), readState.state);
-    const written = await treeStateService.writeProjectState({ project, server, state: hydrated });
+    const reconciled = await reconcileTreeJudgeState({
+      userId: getUserId(req),
+      project,
+      server,
+      plan: planRead.plan,
+      treeState: hydrated,
+    });
+    const written = await treeStateService.writeProjectState({ project, server, state: reconciled });
     const degraded = readState.degraded || written.degraded || null;
     return res.json(buildTreeStatePayload({
       projectId: project.id,
@@ -6842,6 +7478,123 @@ router.get('/projects/:projectId/tree/state', async (req, res) => {
   }
 });
 
+router.post('/projects/:projectId/document-plan/generate', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const instruction = cleanString(req.body?.instruction);
+    const outputDocPath = cleanString(req.body?.outputDocPath) || 'docs/exp.md';
+    const waitTimeoutMs = Number(req.body?.waitTimeoutMs) > 0 ? Number(req.body.waitTimeoutMs) : 120000;
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    if (!instruction) return res.status(400).json({ error: 'instruction is required' });
+
+    const { userId, project, server, plan: currentPlan, state: currentState } = await resolveProjectAndTree(req, projectId);
+    if (cleanString(project?.locationType).toLowerCase() !== 'ssh') {
+      return res.status(400).json({ error: 'Document plan generation currently requires an SSH-backed project' });
+    }
+
+    const run = await researchOpsStore.enqueueRun(userId, buildDocumentPlanRunPayload({
+      project,
+      instruction,
+      outputDocPath,
+    }));
+    await researchOpsRunner.executeRun(userId, run).catch((error) => {
+      console.warn('[ResearchOps] document-plan immediate execution warning:', error?.message || error);
+    });
+
+    const completedRun = await waitForRunTerminalState(userId, run.id, {
+      timeoutMs: waitTimeoutMs,
+    });
+    const runStatus = cleanString(completedRun?.status || run.status).toUpperCase();
+    if (!['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(runStatus)) {
+      return res.status(202).json({
+        projectId: project.id,
+        pending: true,
+        run: completedRun || run,
+      });
+    }
+    if (runStatus !== 'SUCCEEDED') {
+      return res.status(400).json({
+        error: cleanString(completedRun?.lastMessage) || 'Document plan generation failed',
+        run: completedRun || run,
+      });
+    }
+
+    const [artifacts, steps] = await Promise.all([
+      researchOpsStore.listRunArtifacts(userId, run.id, { limit: 200 }),
+      researchOpsStore.listRunSteps(userId, run.id),
+    ]);
+    const documentPlan = extractDocumentPlanResultFromRunResources({ artifacts, steps });
+    const materialized = documentPlanService.materializeDocumentPlanTree({
+      projectName: cleanString(project?.name) || cleanString(currentPlan?.project) || 'AutoResearch',
+      currentPlan,
+      documentPlan,
+    });
+    const writtenPlan = await treePlanService.writeProjectPlan({
+      project,
+      server,
+      plan: materialized.plan,
+    });
+    const mergedState = mergeDocumentPlanState(currentState, materialized.state);
+    const writtenState = await treeStateService.writeProjectState({
+      project,
+      server,
+      state: mergedState,
+    });
+    const documentPreview = await readRemoteDocumentPreview(server, documentPlan.documentPath);
+
+    await researchOpsStore.createRunArtifact(userId, run.id, {
+      kind: 'workspace_document',
+      title: documentPlan.documentPath,
+      path: documentPlan.documentPath,
+      mimeType: 'text/markdown',
+      metadata: {
+        inlinePreview: documentPreview || null,
+        documentPlan: true,
+      },
+    }).catch(() => {});
+    await researchOpsStore.createRunArtifact(userId, run.id, {
+      kind: 'document_plan_spec',
+      title: `${documentPlan.planId}.json`,
+      path: `plans/${documentPlan.planId}.json`,
+      mimeType: 'application/json',
+      metadata: {
+        inlinePreview: JSON.stringify(documentPlan, null, 2),
+        documentPlan: true,
+      },
+    }).catch(() => {});
+
+    return res.json({
+      projectId: project.id,
+      documentPlan,
+      rootNodeId: materialized.rootNodeId,
+      run: completedRun || run,
+      treePlan: buildTreePlanPayload({
+        projectId: project.id,
+        plan: writtenPlan.plan,
+        validation: writtenPlan.validation,
+        paths: writtenPlan.paths,
+        degraded: writtenPlan.degraded,
+        refreshedAt: new Date().toISOString(),
+      }),
+      treeState: buildTreeStatePayload({
+        projectId: project.id,
+        state: writtenState.state,
+        paths: writtenState.paths,
+        degraded: writtenState.degraded,
+        refreshedAt: new Date().toISOString(),
+      }),
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'DOCUMENT_PLAN_RESULT_MISSING') {
+      return res.status(422).json({ error: sanitizeError(error, 'Planner output did not include a valid document plan result') });
+    }
+    if (error.code === 'SSH_AUTH_FAILED') return res.status(401).json(toErrorPayload(error, 'SSH authentication failed'));
+    if (error.code === 'SSH_HOST_UNREACHABLE') return res.status(502).json(toErrorPayload(error, 'SSH target host is unreachable'));
+    return res.status(400).json(toErrorPayload(error, 'Failed to generate document plan'));
+  }
+});
+
 router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
@@ -6854,6 +7607,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
       clarifyMessages,
       workspaceSnapshot,
       localSnapshot,
+      judgeMode,
+      judgeMaxIterations,
+      judgeRefinementPrompt,
     } = readBridgeRunOptions(req.body);
 
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
@@ -6878,6 +7634,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/run-step', async (req, res)
       clarifyMessages,
       workspaceSnapshot,
       localSnapshot,
+      judgeMode,
+      judgeMaxIterations: judgeMaxIterations || clampJudgeIterations(undefined, 5),
+      judgeRefinementPrompt,
     });
     return res.status(preflightOnly ? 200 : 202).json(buildTreeRunStepPayload({
       projectId: project.id,
@@ -6908,6 +7667,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
       clarifyMessages,
       workspaceSnapshot,
       localSnapshot,
+      judgeMode,
+      judgeMaxIterations,
+      judgeRefinementPrompt,
     } = readBridgeRunOptions(req.body);
 
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
@@ -6932,6 +7694,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
         clarifyMessages,
         workspaceSnapshot,
         localSnapshot,
+        judgeMode,
+        judgeMaxIterations,
+        judgeRefinementPrompt,
       }),
       viaRust: async () => submitNodeBridgeRunViaRustDaemon({
         projectId: project.id,
@@ -6942,6 +7707,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
         clarifyMessages,
         workspaceSnapshot,
         localSnapshot,
+        judgeMode,
+        judgeMaxIterations,
+        judgeRefinementPrompt,
         executionRequest: req.body?.executionRequest,
       }),
       viaHttp: async () => {
@@ -6958,6 +7726,9 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/bridge-run', async (req, re
           clarifyMessages,
           workspaceSnapshot,
           localSnapshot,
+          judgeMode,
+          judgeMaxIterations: judgeMaxIterations || clampJudgeIterations(undefined, 5),
+          judgeRefinementPrompt,
         });
         return buildBridgeTreeRunPayload({
           projectId: project.id,
@@ -7003,6 +7774,129 @@ router.post('/projects/:projectId/tree/nodes/:nodeId/approve', async (req, res) 
   }
 });
 
+router.post('/projects/:projectId/tree/nodes/:nodeId/judge', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+
+    const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
+    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => cleanString(item?.id) === nodeId);
+    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+    const reconciled = await reconcileTreeJudgeState({
+      userId,
+      project,
+      server,
+      plan,
+      treeState: state,
+    });
+    const written = await treeStateService.writeProjectState({ project, server, state: reconciled });
+    return res.json({
+      ok: true,
+      projectId,
+      nodeId,
+      judge: written.state?.nodes?.[nodeId]?.judge || null,
+      status: written.state?.nodes?.[nodeId]?.status || null,
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to judge node run'));
+  }
+});
+
+router.post('/projects/:projectId/tree/nodes/:nodeId/judge/approve', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+
+    const { project, server } = await resolveProjectAndTree(req, projectId);
+    const result = await treeStateService.patchProjectState({
+      project,
+      server,
+      mutate: (state) => {
+        const current = treeStateService.normalizeState(state);
+        const nodeState = current.nodes?.[nodeId] || {};
+        const lastRunStatus = cleanString(nodeState?.lastRunStatus);
+        return treeStateService.setNodeState(current, nodeId, {
+          status: runStatusToNodeStatus(lastRunStatus) || 'PASSED',
+          judge: {
+            ...treeStateService.normalizeJudgeState(nodeState?.judge),
+            status: 'passed',
+            summary: cleanString(nodeState?.judge?.summary) || 'Approved by human review.',
+          },
+        });
+      },
+    });
+    return res.json({
+      ...buildTreeNodeApprovalPayload({
+        projectId,
+        nodeId,
+        manualApproved: Boolean(result.state?.nodes?.[nodeId]?.manualApproved),
+      }),
+      judge: result.state?.nodes?.[nodeId]?.judge || null,
+      status: result.state?.nodes?.[nodeId]?.status || null,
+    });
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    return res.status(400).json(toErrorPayload(error, 'Failed to approve judge review'));
+  }
+});
+
+router.post('/projects/:projectId/tree/nodes/:nodeId/judge/retry', async (req, res) => {
+  try {
+    const projectId = String(req.params.projectId || '').trim();
+    const nodeId = String(req.params.nodeId || '').trim();
+    if (!projectId || !nodeId) return res.status(400).json({ error: 'projectId and nodeId are required' });
+    const {
+      force,
+      preflightOnly,
+      searchTrialCount,
+      clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
+      judgeMode,
+      judgeMaxIterations,
+      judgeRefinementPrompt,
+    } = readBridgeRunOptions(req.body);
+    const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
+    const node = (Array.isArray(plan?.nodes) ? plan.nodes : []).find((item) => cleanString(item?.id) === nodeId);
+    if (!node) return res.status(404).json({ error: `Node not found: ${nodeId}` });
+    const nodeState = state?.nodes?.[nodeId] || {};
+    const result = await executeTreeNodeRun({
+      userId,
+      project,
+      server,
+      node,
+      treeState: state,
+      force,
+      preflightOnly,
+      runSource: 'judge-retry',
+      searchTrialCount,
+      clarifyMessages,
+      workspaceSnapshot,
+      localSnapshot,
+      judgeMode: judgeMode || cleanString(nodeState?.judge?.mode),
+      judgeMaxIterations: judgeMaxIterations || Number(nodeState?.judge?.maxIterations) || 5,
+      judgeRefinementPrompt: judgeRefinementPrompt || cleanString(nodeState?.judge?.refinementPrompt),
+    });
+    return res.status(preflightOnly ? 200 : 202).json(buildTreeRunStepPayload({
+      projectId: project.id,
+      nodeId,
+      result,
+    }));
+  } catch (error) {
+    if (error.code === 'PROJECT_NOT_FOUND') return res.status(404).json({ error: 'Project not found' });
+    if (error.code === 'NODE_BLOCKED') {
+      return res.status(409).json({
+        ...toErrorPayload(error, 'Node is blocked'),
+        blockedBy: Array.isArray(error.blockedBy) ? error.blockedBy : [],
+      });
+    }
+    return res.status(400).json(toErrorPayload(error, 'Failed to retry node with judge feedback'));
+  }
+});
+
 router.post('/projects/:projectId/tree/run-all', async (req, res) => {
   try {
     const projectId = String(req.params.projectId || '').trim();
@@ -7011,6 +7905,8 @@ router.post('/projects/:projectId/tree/run-all', async (req, res) => {
     const scope = String(req.body?.scope || 'active_path').trim().toLowerCase();
     const force = parseBoolean(req.body?.force, false);
     const searchTrialCount = parseLimit(req.body?.searchTrialCount, 1, 64);
+    const judgeMode = resolveJudgeRouteMode({ routeKind: 'run-all', judgeMode: req.body?.judgeMode });
+    const judgeMaxIterations = clampJudgeIterations(req.body?.judgeMaxIterations, 5);
 
     const { userId, project, server, plan, state } = await resolveProjectAndTree(req, projectId);
     if (state?.queue?.paused) {
@@ -7050,6 +7946,8 @@ router.post('/projects/:projectId/tree/run-all', async (req, res) => {
         preflightOnly: false,
         runSource: 'run-all',
         searchTrialCount,
+        judgeMode,
+        judgeMaxIterations,
       });
       queued.push(buildQueuedTreeRunAllItem({
         nodeId: id,
@@ -7727,11 +8625,16 @@ router.evaluateNodeBlocking = evaluateNodeBlocking;
 router.runStatusToNodeStatus = runStatusToNodeStatus;
 router.hydrateTreeStateRunStatuses = hydrateTreeStateRunStatuses;
 router.shouldBootstrapCodebaseRoot = shouldBootstrapCodebaseRoot;
+router.resolveJudgeRouteMode = resolveJudgeRouteMode;
+router.resolveJudgeStateTransition = resolveJudgeStateTransition;
 router.listObservedSessionsForProject = listObservedSessionsForProject;
 router.getObservedSessionForProject = getObservedSessionForProject;
 router.refreshObservedSessionForProject = refreshObservedSessionForProject;
 router.assertClientDaemonSupportsTasks = assertClientDaemonSupportsTasks;
 router.assertClientDaemonSupportsProjectBootstrap = assertClientDaemonSupportsProjectBootstrap;
 router.buildProjectBridgeRuntime = buildProjectBridgeRuntime;
+router.buildDocumentPlanGenerationPrompt = buildDocumentPlanGenerationPrompt;
+router.buildDocumentPlanRunPayload = buildDocumentPlanRunPayload;
+router.buildDocumentPlanNodePrompt = buildDocumentPlanNodePrompt;
 
 module.exports = router;

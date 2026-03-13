@@ -55,6 +55,34 @@ test('buildNodeReviewSummary handles approved gates and empty evidence gracefull
   ]);
 });
 
+test('buildNodeReviewSummary surfaces judge verdict, iteration, and issue count', () => {
+  const rows = buildNodeReviewSummary(
+    {},
+    {
+      judge: {
+        status: 'needs_review',
+        mode: 'manual',
+        iteration: 2,
+        maxIterations: 5,
+        summary: 'Judge requested a stronger deliverable.',
+        issues: ['Missing ablation table', 'No citation block'],
+      },
+    },
+    {
+      highlights: {
+        deliverableArtifactIds: ['art_summary'],
+      },
+    }
+  );
+
+  assert.deepEqual(rows.slice(0, 4), [
+    { label: 'Judge', value: 'Needs review (manual)' },
+    { label: 'Judge Iteration', value: '2 / 5' },
+    { label: 'Judge Summary', value: 'Judge requested a stronger deliverable.' },
+    { label: 'Judge Issues', value: '2 issues' },
+  ]);
+});
+
 test('buildNodeReviewSummary includes thin compare rows when compare payload is present', () => {
   const rows = buildNodeReviewSummary(
     {},

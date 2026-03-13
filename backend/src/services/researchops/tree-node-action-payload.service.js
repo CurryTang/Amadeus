@@ -21,6 +21,18 @@ function buildTreeNodeApprovalPayload({
         method: 'POST',
         path: `/researchops/projects/${encodeURIComponent(safeProjectId)}/tree/nodes/${encodeURIComponent(safeNodeId)}/approve`,
       },
+      judge: {
+        method: 'POST',
+        path: `/researchops/projects/${encodeURIComponent(safeProjectId)}/tree/nodes/${encodeURIComponent(safeNodeId)}/judge`,
+      },
+      judgeApprove: {
+        method: 'POST',
+        path: `/researchops/projects/${encodeURIComponent(safeProjectId)}/tree/nodes/${encodeURIComponent(safeNodeId)}/judge/approve`,
+      },
+      judgeRetry: {
+        method: 'POST',
+        path: `/researchops/projects/${encodeURIComponent(safeProjectId)}/tree/nodes/${encodeURIComponent(safeNodeId)}/judge/retry`,
+      },
     } : {},
   };
 }

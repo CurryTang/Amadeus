@@ -7,6 +7,7 @@ const { getDb } = require('../../../db');
 const config = require('../../../config');
 const { terminateProcessTree } = require('../process-control');
 const superpowers = require('../superpowers');
+const documentPlanEventsService = require('../document-plan-events.service');
 const {
   buildScpArgs: buildSharedScpArgs,
   buildSshArgs: buildSharedSshArgs,
@@ -530,6 +531,16 @@ function sanitizeArgsForLog(args = []) {
   return args.map((item) => String(item || '').slice(0, 200));
 }
 
+async function emitDocumentPlanEventsFromChunk(context, chunkText = '') {
+  const lines = String(chunkText || '').split(/\r?\n/);
+  for (const line of lines) {
+    const parsed = documentPlanEventsService.parseDocumentPlanEventLine(line);
+    if (!parsed) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await context.emitEvent(parsed);
+  }
+}
+
 function tryParseStructuredOutput(text = '') {
   const raw = String(text || '').trim();
   if (!raw) return null;
@@ -862,12 +873,14 @@ class AgentRunModule extends BaseModule {
         const text = chunk.toString();
         stdout = `${stdout}${text}`.slice(-maxCapture);
         context.emitStepLog(step, text).catch(() => {});
+        emitDocumentPlanEventsFromChunk(context, text).catch(() => {});
       });
 
       child.stderr.on('data', (chunk) => {
         const text = chunk.toString();
         stderr = `${stderr}${text}`.slice(-maxCapture);
         context.emitStepLog(step, text, { isError: true }).catch(() => {});
+        emitDocumentPlanEventsFromChunk(context, text).catch(() => {});
       });
 
       child.on('error', (error) => {

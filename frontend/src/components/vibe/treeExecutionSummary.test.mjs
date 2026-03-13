@@ -51,4 +51,12 @@ test('getPrimaryTreeAction maps node state to one clear next action', () => {
     getPrimaryTreeAction({ id: 'running', checks: [] }, { status: 'RUNNING', lastRunId: 'run_2' }),
     'View Run'
   );
+  assert.equal(
+    getPrimaryTreeAction({ id: 'judge_running', checks: [] }, { status: 'SUCCEEDED', judge: { status: 'running' } }),
+    'Awaiting judge'
+  );
+  assert.equal(
+    getPrimaryTreeAction({ id: 'judge_review', checks: [] }, { status: 'BLOCKED', judge: { status: 'needs_review' } }),
+    'Review judge'
+  );
 });
