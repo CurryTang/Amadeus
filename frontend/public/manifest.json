@@ -1,7 +1,7 @@
 {
   "name": "Auto Reader",
   "short_name": "AutoReader",
-  "description": "Research library, latest feed, and vibe researcher workspace",
+  "description": "Research library, tracker, paper notes, and saving tools",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

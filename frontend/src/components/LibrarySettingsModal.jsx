@@ -1,15 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 import { PROVIDER_OPTIONS, MODEL_OPTIONS, THINKING_OPTIONS, REASONING_OPTIONS } from '../hooks/useAiNotesSettings';
-import { buildUiConfigPatch, normalizeUiConfig } from '../lib/uiConfig';
-import {
-  addProjectTemplateDraft,
-  createProjectTemplateDraft,
-  removeProjectTemplateDraft,
-  serializeProjectTemplateDrafts,
-  updateProjectTemplateDraft,
-  validateProjectTemplateDrafts,
-} from './projectTemplates';
 
 const looksLikeUrl = (s) => /^https?:\/\//i.test((s || '').trim());
 
@@ -131,9 +122,6 @@ export default function LibrarySettingsModal({
   retryItem,
   syncFromBackend,
   exportRounds = [],
-  uiConfig = { simplifiedAlphaMode: false, projectTemplates: [] },
-  uiConfigLoading = false,
-  saveUiConfig,
 }) {
   const [activeTab, setActiveTab] = useState('generation');
   const [syncState, setSyncState] = useState(null); // null | 'loading' | { count, error }
@@ -157,20 +145,9 @@ export default function LibrarySettingsModal({
   const [localModel, setLocalModel] = useState(model);
   const [localThinkingBudget, setLocalThinkingBudget] = useState(thinkingBudget);
   const [localReasoningEffort, setLocalReasoningEffort] = useState(reasoningEffort);
-  const [localUiConfig, setLocalUiConfig] = useState(() => normalizeUiConfig(uiConfig));
-  const [localProjectTemplates, setLocalProjectTemplates] = useState(() =>
-    (normalizeUiConfig(uiConfig).projectTemplates || []).map((template) => createProjectTemplateDraft(template))
-  );
   const [vaultError, setVaultError] = useState(null);
-  const [uiConfigError, setUiConfigError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const normalized = normalizeUiConfig(uiConfig);
-    setLocalUiConfig(normalized);
-    setLocalProjectTemplates((normalized.projectTemplates || []).map((template) => createProjectTemplateDraft(template)));
-  }, [uiConfig]);
 
   const handleBackdrop = (e) => {
     if (e.target === e.currentTarget) onClose();
@@ -193,32 +170,8 @@ export default function LibrarySettingsModal({
     ]);
   };
 
-  const buildNextUiConfigPatch = () => {
-    const validationError = validateProjectTemplateDrafts(localProjectTemplates);
-    if (validationError) {
-      throw new Error(validationError);
-    }
-    return buildUiConfigPatch({
-      ...localUiConfig,
-      projectTemplates: serializeProjectTemplateDrafts(localProjectTemplates),
-    });
-  };
-
   const handleSave = async () => {
     setSaving(true);
-    setUiConfigError(null);
-
-    if (activeTab === 'release') {
-      try {
-        await saveUiConfig?.(buildNextUiConfigPatch());
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1800);
-      } catch (err) {
-        setUiConfigError(err?.response?.data?.error || err?.message || 'Failed to save release settings');
-      }
-      setSaving(false);
-      return;
-    }
 
     const updatedRounds = localRounds.map((r) => ({ ...r }));
 
@@ -279,11 +232,10 @@ export default function LibrarySettingsModal({
       try {
         saveRounds?.(toSave);
         saveProviderSettings?.(localProvider, localModel, localThinkingBudget, localReasoningEffort);
-        await saveUiConfig?.(buildNextUiConfigPatch());
         setSaved(true);
         setTimeout(() => setSaved(false), 1800);
       } catch (err) {
-        setUiConfigError(err?.response?.data?.error || err?.message || 'Failed to save project templates');
+        console.error('Failed to save settings:', err);
       }
     }
 
@@ -338,12 +290,6 @@ export default function LibrarySettingsModal({
             onClick={() => setActiveTab('exports')}
           >
             Exports{pendingCount > 0 ? ` (${pendingCount})` : ''}
-          </button>
-          <button
-            className={`modal-tab${activeTab === 'release' ? ' active' : ''}`}
-            onClick={() => setActiveTab('release')}
-          >
-            Release
           </button>
         </div>
 
@@ -430,127 +376,6 @@ export default function LibrarySettingsModal({
                   + Add Round
                 </button>
               )}
-
-              <h3 className="settings-subtitle" style={{ marginTop: '24px' }}>Vibe Project Templates</h3>
-              <p className="settings-hint">
-                Configure reusable project bootstrap templates for Vibe Research. These appear in the new-project jump-start popup and can be based on <strong>pixi</strong>, <strong>requirements.txt</strong>, or a <strong>Dockerfile</strong>.
-              </p>
-
-              <div className="settings-template-list">
-                {localProjectTemplates.length === 0 ? (
-                  <div className="settings-template-empty">
-                    No project templates yet. Add one below or users can still start from free text or an empty environment.
-                  </div>
-                ) : (
-                  localProjectTemplates.map((template, index) => (
-                    <article key={template.id || `draft-${index}`} className="settings-template-card">
-                      <div className="settings-template-head">
-                        <div>
-                          <span className="settings-template-label">Template {index + 1}</span>
-                          <h4>{template.name || 'New template'}</h4>
-                        </div>
-                        <button
-                          type="button"
-                          className="settings-template-remove"
-                          onClick={() => setLocalProjectTemplates((prev) => removeProjectTemplateDraft(prev, index))}
-                        >
-                          Remove
-                        </button>
-                      </div>
-
-                      <div className="settings-template-grid">
-                        <label className="settings-field">
-                          <span className="settings-label">Name</span>
-                          <input
-                            className="settings-select settings-template-input"
-                            value={template.name}
-                            onChange={(e) => setLocalProjectTemplates((prev) => updateProjectTemplateDraft(prev, index, { name: e.target.value }))}
-                            placeholder="Data Science Pixi"
-                          />
-                        </label>
-
-                        <label className="settings-field">
-                          <span className="settings-label">Type</span>
-                          <select
-                            className="settings-select"
-                            value={template.sourceType}
-                            onChange={(e) => setLocalProjectTemplates((prev) => updateProjectTemplateDraft(prev, index, { sourceType: e.target.value }))}
-                          >
-                            <option value="pixi">pixi</option>
-                            <option value="requirements">requirements.txt</option>
-                            <option value="docker">Dockerfile</option>
-                          </select>
-                        </label>
-
-                        <label className="settings-field settings-template-grid-span">
-                          <span className="settings-label">Description</span>
-                          <input
-                            className="settings-select settings-template-input"
-                            value={template.description}
-                            onChange={(e) => setLocalProjectTemplates((prev) => updateProjectTemplateDraft(prev, index, { description: e.target.value }))}
-                            placeholder="Bootstrap a Python data science workspace."
-                          />
-                        </label>
-
-                        <label className="settings-field settings-template-grid-span">
-                          <span className="settings-label">File Name</span>
-                          <input
-                            className="settings-select settings-template-input"
-                            value={template.fileName}
-                            onChange={(e) => setLocalProjectTemplates((prev) => updateProjectTemplateDraft(prev, index, { fileName: e.target.value }))}
-                            placeholder="pixi.toml"
-                          />
-                        </label>
-                      </div>
-
-                      <label className="settings-field">
-                        <span className="settings-label">Template File Content</span>
-                        <textarea
-                          className="settings-round-prompt settings-template-code"
-                          rows={8}
-                          spellCheck={false}
-                          value={template.fileContent}
-                          onChange={(e) => setLocalProjectTemplates((prev) => updateProjectTemplateDraft(prev, index, { fileContent: e.target.value }))}
-                          placeholder={'[project]\nname = "demo"\nchannels = ["conda-forge"]'}
-                        />
-                      </label>
-
-                      <div className="settings-template-grid">
-                        <label className="settings-field">
-                          <span className="settings-label">Python Imports</span>
-                          <textarea
-                            className="settings-round-prompt"
-                            rows={3}
-                            value={template.pythonImportsText}
-                            onChange={(e) => setLocalProjectTemplates((prev) => updateProjectTemplateDraft(prev, index, { pythonImportsText: e.target.value }))}
-                            placeholder="pandas, numpy, sklearn"
-                          />
-                        </label>
-
-                        <label className="settings-field">
-                          <span className="settings-label">Shell Smoke Tests</span>
-                          <textarea
-                            className="settings-round-prompt"
-                            rows={3}
-                            value={template.shellCommandsText}
-                            onChange={(e) => setLocalProjectTemplates((prev) => updateProjectTemplateDraft(prev, index, { shellCommandsText: e.target.value }))}
-                            placeholder={'python -c "import pandas"\npython -c "import numpy"'}
-                          />
-                        </label>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-
-              <button
-                type="button"
-                className="settings-add-round"
-                onClick={() => setLocalProjectTemplates((prev) => addProjectTemplateDraft(prev))}
-              >
-                + Add Project Template
-              </button>
-              {uiConfigError && <p className="settings-error">{uiConfigError}</p>}
             </div>
           )}
 
@@ -643,34 +468,10 @@ export default function LibrarySettingsModal({
             </div>
           )}
 
-          {activeTab === 'release' && (
-            <div className="settings-section">
-              <h3 className="settings-subtitle">Product Mode</h3>
-              <p className="settings-hint">
-                Control simplified Vibe behavior for early alpha release mode. This setting is global and affects the Vibe workspace across the app.
-              </p>
-              <label className="settings-label" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  checked={localUiConfig.simplifiedAlphaMode}
-                  disabled={uiConfigLoading || saving}
-                  onChange={(e) => setLocalUiConfig((prev) => ({
-                    ...prev,
-                    simplifiedAlphaMode: e.target.checked,
-                  }))}
-                />
-                Simplified Vibe alpha mode
-              </label>
-              <p className="settings-hint">
-                When enabled, the Vibe workspace hides the skill menu and tree-based research planning UI.
-              </p>
-              {uiConfigError && <p className="settings-error">{uiConfigError}</p>}
-            </div>
-          )}
         </div>
 
         <div className="modal-footer">
-          {(activeTab === 'generation' || activeTab === 'release') && (
+          {activeTab === 'generation' && (
             <button
               className="action-btn paper-btn"
               onClick={handleSave}

@@ -9,12 +9,6 @@
     "dev": "nodemon --no-deprecation src/index.js",
     "processing": "node --no-deprecation processing-server.js",
     "processing:dev": "nodemon --no-deprecation processing-server.js",
-    "researchops:daemon": "node --no-deprecation scripts/researchops-client-daemon.js",
-    "researchops:rust-daemon": "node --no-deprecation scripts/researchops-rust-daemon.js",
-    "researchops:rust-daemon-prototype": ". \"$HOME/.cargo/env\" && cargo run --manifest-path rust/researchops-local-daemon/Cargo.toml --quiet",
-    "researchops:rust-daemon-serve": ". \"$HOME/.cargo/env\" && cargo run --manifest-path rust/researchops-local-daemon/Cargo.toml --quiet -- --serve 127.0.0.1:7788",
-    "researchops:rust-daemon-serve-unix": ". \"$HOME/.cargo/env\" && cargo run --manifest-path rust/researchops-local-daemon/Cargo.toml --quiet -- --serve-unix /tmp/researchops-local-daemon.sock",
-    "researchops:verify-rust-daemon-prototype": "node --no-deprecation scripts/verify-rust-daemon-prototype.js",
     "setup:x-session": "node --no-deprecation scripts/setup-x-session.js",
     "exp:x-papers": "node --no-deprecation scripts/exp-x-paper-posts.js"
   },

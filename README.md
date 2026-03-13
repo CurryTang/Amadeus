@@ -23,8 +23,6 @@ Your personal AI research assistant that automatically reads, summarizes, organi
 - **AI-Powered Summaries** - Multi-pass deep reading generates comprehensive notes with diagrams and math
 - **Code Analysis** - Automatically analyzes associated GitHub repositories
 - **Paper Tracker** - Subscribe to authors/keywords; daily crawl from Semantic Scholar and Twitter/X
-- **Vibe Researcher** - Agentic DAG-based research pipeline: define tasks, auto-execute with Claude, review outputs, publish results
-- **Knowledge Hub** - Collect, tag, and link reusable knowledge assets across papers and projects
 - **SSH Server Management** - Register remote compute nodes; agent runs offload heavy tasks via SSH
 - **Read Tracking** - Mark papers as read/unread, filter your library
 - **Full-Text Search** - Find papers by title, tags, and content
@@ -100,16 +98,6 @@ cd frontend && npm install && npm run dev
 4. **Store** - Notes saved to object storage (S3/MinIO/OSS)
 5. **View** - Rendered notes with Mermaid diagrams and KaTeX math
 
-### Vibe Researcher (ResearchOps)
-
-Define a YAML/JSON DAG workflow. The orchestrator executes each step:
-- `agent.run` — spawns a Claude Code agent on a registered SSH server (or locally)
-- `agent.review` — auto-injected after every `agent.run`; reviews output, runs fix passes on failure
-- `bash.run` — run shell commands on a registered SSH server
-- `checkpoint.hitl` — pause for human review before continuing
-- `report.render` — generate a markdown/HTML report from step outputs
-- `artifact.publish` — commit results back to a git branch
-
 ### Paper Tracker
 
 Subscribe to Semantic Scholar author IDs or keyword queries. The tracker runs daily and surfaces new papers in the feed. Twitter/X profiles can also be monitored (Playwright-based, experimental).
@@ -133,12 +121,11 @@ Subscribe to Semantic Scholar author IDs or keyword queries. The tracker runs da
 **Backend:**
 - Node.js + Express
 - Turso / local SQLite (documents metadata)
-- MongoDB / MongoDB Atlas (ResearchOps run metadata)
 - AWS S3 / MinIO / Aliyun OSS (paper object storage)
 - PM2 process manager
 
 **AI:**
-- Claude Code CLI (agent runs, code analysis, Vibe Researcher)
+- Claude Code CLI (code analysis)
 - Google Gemini CLI (paper analysis)
 
 ## Configuration
@@ -150,10 +137,6 @@ Key environment variables:
 TURSO_DATABASE_URL=file:./local.db
 # TURSO_DATABASE_URL=libsql://your-db.turso.io
 TURSO_AUTH_TOKEN=
-
-# ResearchOps metadata (local Mongo or Atlas)
-MONGODB_URI=mongodb://127.0.0.1:27017/auto_researcher
-# MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/auto_researcher
 
 # Object storage (aws-s3 | minio | aliyun-oss)
 OBJECT_STORAGE_PROVIDER=aws-s3

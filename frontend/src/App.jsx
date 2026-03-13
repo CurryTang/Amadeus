@@ -13,12 +13,10 @@ import LibrarySettingsModal from './components/LibrarySettingsModal';
 import ObsidianBatchPanel from './components/ObsidianBatchPanel';
 import LatestPapers from './components/LatestPapers';
 import SendModal from './components/SendModal';
-import VibeResearcherPanel from './components/VibeResearcherPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAiNotesSettings } from './hooks/useAiNotesSettings';
 import { useObsidianExportBatch } from './hooks/useObsidianExportBatch';
 import { resolveApiConfig } from './lib/apiConfig';
-import { buildUiConfigPatch, normalizeUiConfig } from './lib/uiConfig';
 
 // API URL strategy:
 // - Development: prefer local proxy (/api) unless overridden with NEXT_PUBLIC_DEV_API_URL.
@@ -90,10 +88,8 @@ function AppContent() {
   const [showSshAdmin, setShowSshAdmin] = useState(false);
   const [showTrackerAdmin, setShowTrackerAdmin] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
-  const [uiConfig, setUiConfig] = useState(() => normalizeUiConfig(null));
-  const [uiConfigLoading, setUiConfigLoading] = useState(false);
 
-  // Main area tab: 'latest' | 'library' | 'vibe'
+  // Main area tab: 'latest' | 'library'
   const [activeArea, setActiveArea] = useState('latest');
 
   const { isAuthenticated, isLoading: authLoading, username, logout, getAuthHeaders } = useAuth();
@@ -200,51 +196,6 @@ function AppContent() {
   // Fetch tags once on mount (only when authenticated)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (isAuthenticated) fetchTags(); }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setUiConfig(normalizeUiConfig(null));
-      setUiConfigLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setUiConfigLoading(true);
-    axios.get(`${API_URL}/researchops/ui-config`, {
-      headers: getAuthHeaders(),
-      timeout: API_TIMEOUT_MS,
-    })
-      .then((response) => {
-        if (cancelled) return;
-        setUiConfig(normalizeUiConfig(response.data?.uiConfig));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error('Failed to fetch UI config:', err);
-        setUiConfig(normalizeUiConfig(null));
-      })
-      .finally(() => {
-        if (!cancelled) setUiConfigLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getAuthHeaders, isAuthenticated]);
-
-  const saveUiConfig = async (nextConfig) => {
-    const response = await axios.patch(
-      `${API_URL}/researchops/ui-config`,
-      buildUiConfigPatch(nextConfig),
-      {
-        headers: getAuthHeaders(),
-        timeout: API_TIMEOUT_MS,
-      }
-    );
-    const normalized = normalizeUiConfig(response.data?.uiConfig);
-    setUiConfig(normalized);
-    return normalized;
-  };
 
   // Block the entire app until authenticated (after all hooks)
   if (authLoading) return <div className="login-page"><div className="login-page-card" style={{textAlign:'center',color:'#6b7280'}}>Loading…</div></div>;
@@ -579,14 +530,13 @@ function AppContent() {
       <header className="header">
         <div className="header-row">
           <div className="header-content">
-            <h1>Vibe Researcher</h1>
+            <h1>Auto Researcher</h1>
           </div>
           <div className="header-right">
             <Tabs.Root value={activeArea} onValueChange={setActiveArea} className="area-tabs">
               <Tabs.List size="2">
                 <Tabs.Trigger value="latest">Latest</Tabs.Trigger>
                 <Tabs.Trigger value="library">Library</Tabs.Trigger>
-                <Tabs.Trigger value="vibe">Vibe Researcher</Tabs.Trigger>
               </Tabs.List>
             </Tabs.Root>
             <div className="header-actions">
@@ -610,7 +560,7 @@ function AppContent() {
                   >
                     Servers
                   </Button>
-                  {(activeArea === 'library' || activeArea === 'vibe') && (
+                  {activeArea === 'library' && (
                     <Button
                       className="header-btn"
                       variant="soft"
@@ -763,15 +713,6 @@ function AppContent() {
             isAuthenticated={isAuthenticated}
             getAuthHeaders={getAuthHeaders}
             debug={IS_DEV}
-          />
-        )}
-
-        {activeArea === 'vibe' && (
-          <VibeResearcherPanel
-            apiUrl={API_URL}
-            getAuthHeaders={getAuthHeaders}
-            isSimplifiedAlpha={uiConfig.simplifiedAlphaMode}
-            projectTemplates={uiConfig.projectTemplates}
           />
         )}
 
@@ -1026,9 +967,6 @@ function AppContent() {
           retryItem={(docId) => retryItem(docId, buildRefinementRounds(), { provider, model, thinkingBudget, reasoningEffort })}
           syncFromBackend={syncFromBackend}
           exportRounds={rounds}
-          uiConfig={uiConfig}
-          uiConfigLoading={uiConfigLoading}
-          saveUiConfig={saveUiConfig}
         />
       )}
 

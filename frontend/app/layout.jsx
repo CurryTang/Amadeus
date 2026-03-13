@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata = {
   title: 'Auto Reader',
-  description: 'Research library, latest feed, and vibe researcher workspace',
+  description: 'Research library, tracker, paper notes, and saving tools',
 };
 
 export default function RootLayout({ children }) {
