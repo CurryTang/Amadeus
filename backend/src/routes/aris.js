@@ -27,6 +27,19 @@ router.get('/runs', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/runs/:runId', requireAuth, async (req, res) => {
+  try {
+    const run = await arisService.getRun(req.params.runId);
+    if (!run) {
+      return res.status(404).json({ error: 'ARIS run not found' });
+    }
+    res.json({ run });
+  } catch (error) {
+    console.error('[ARIS] get run error:', error);
+    res.status(500).json({ error: 'Failed to load ARIS run' });
+  }
+});
+
 router.post('/runs', requireAuth, async (req, res) => {
   try {
     const launch = await arisService.createLaunchRequest(req.body || {}, {
@@ -37,6 +50,19 @@ router.post('/runs', requireAuth, async (req, res) => {
     const status = /required|invalid/i.test(String(error.message || '')) ? 400 : 500;
     console.error('[ARIS] create run error:', error);
     res.status(status).json({ error: error.message || 'Failed to create ARIS run' });
+  }
+});
+
+router.post('/runs/:runId/retry', requireAuth, async (req, res) => {
+  try {
+    const launch = await arisService.retryRun(req.params.runId, {
+      username: req.userId || 'czk',
+    });
+    res.status(201).json({ run: launch });
+  } catch (error) {
+    const status = /not found/i.test(String(error.message || '')) ? 404 : 500;
+    console.error('[ARIS] retry run error:', error);
+    res.status(status).json({ error: error.message || 'Failed to retry ARIS run' });
   }
 });
 

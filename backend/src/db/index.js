@@ -376,11 +376,12 @@ Why this paper might be important for researchers.`
       latest_verdict TEXT DEFAULT '',
       summary TEXT DEFAULT '',
       started_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
       remote_pid INTEGER,
       log_path TEXT DEFAULT '',
       run_directory TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      retry_of_run_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 

@@ -130,3 +130,23 @@ Configurable environment variables:
 - `ARIS_SKILLS_REPO`
 - `ARIS_SKILLS_REF`
 - `ARIS_INTEGRATION_ENABLED`
+
+## VS Code companion surface
+
+The VS Code companion is not a separate deployment mode. It is a client surface that talks to the existing backend.
+
+Use it when:
+
+- ARIS is already running through the normal backend/local-executor topology
+- you want a compact in-editor control surface for ARIS runs
+- you do not need Chrome-extension save flows inside VS Code
+
+The extension currently depends on the backend exposing:
+
+- `GET /api/aris/context`
+- `GET /api/aris/runs`
+- `GET /api/aris/runs/:runId`
+- `POST /api/aris/runs`
+- `POST /api/aris/runs/:runId/retry`
+
+The extension package lives in `vscode-extension/`. Development details are in `vscode-extension/README.md`.

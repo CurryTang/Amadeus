@@ -24,12 +24,18 @@ const quickActions = [
   { id: 'monitor_experiment', label: 'Monitor Experiment', workflowType: 'monitor_experiment' },
 ];
 
-const launchStore = [];
 const DEFAULT_REMOTE_AGENT_BIN = process.env.ARIS_REMOTE_AGENT_BIN || 'claude';
 const DEFAULT_REMOTE_AGENT_ARGS = ['--print', '--dangerously-skip-permissions'];
+const launchStore = [];
 
 function isNonEmpty(value) {
   return String(value || '').trim().length > 0;
+}
+
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function buildDefaultWorkspacePath(projectId, username = 'default') {
@@ -37,21 +43,37 @@ function buildDefaultWorkspacePath(projectId, username = 'default') {
   return path.posix.join(root, String(projectId || 'default-project'));
 }
 
-async function defaultListServers() {
-  try {
-    const db = getDb();
-    const result = await db.execute({
-      sql: 'SELECT * FROM ssh_servers ORDER BY name ASC',
-      args: [],
-    });
-  return result.rows || [];
-  } catch (_) {
-    return [];
-  }
-}
-
 function buildRunDirectory(remoteWorkspacePath, runId) {
   return path.posix.join(String(remoteWorkspacePath || ''), '.auto-researcher', 'aris-runs', String(runId || 'pending-run'));
+}
+
+function normalizeLaunch(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? '',
+    workflowType: row.workflowType ?? row.workflow_type ?? '',
+    prompt: row.prompt ?? '',
+    title: row.title ?? '',
+    runnerServerId: row.runnerServerId ?? row.runner_server_id ?? null,
+    runnerHost: row.runnerHost ?? row.runner_host ?? '',
+    downstreamServerId: row.downstreamServerId ?? row.downstream_server_id ?? null,
+    downstreamServerName: row.downstreamServerName ?? row.downstream_server_name ?? '',
+    remoteWorkspacePath: row.remoteWorkspacePath ?? row.remote_workspace_path ?? '',
+    datasetRoot: row.datasetRoot ?? row.dataset_root ?? '',
+    requiresUpload: Boolean(row.requiresUpload ?? row.requires_upload),
+    status: row.status ?? 'queued',
+    activePhase: row.activePhase ?? row.active_phase ?? 'queued',
+    latestScore: row.latestScore ?? row.latest_score ?? null,
+    latestVerdict: row.latestVerdict ?? row.latest_verdict ?? '',
+    summary: row.summary ?? '',
+    startedAt: toIsoOrNull(row.startedAt ?? row.started_at) ?? new Date().toISOString(),
+    updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? toIsoOrNull(row.startedAt ?? row.started_at) ?? null,
+    remotePid: row.remotePid ?? row.remote_pid ?? null,
+    logPath: row.logPath ?? row.log_path ?? '',
+    runDirectory: row.runDirectory ?? row.run_directory ?? '',
+    retryOfRunId: row.retryOfRunId ?? row.retry_of_run_id ?? null,
+  };
 }
 
 function buildWorkflowInvocation(launch = {}) {
@@ -146,15 +168,58 @@ function parseRemoteLaunchOutput(stdout = '') {
   };
 }
 
-async function defaultDispatchLaunch({ launch, runner }) {
-  if (!runner?.host || !runner?.user) {
-    throw new Error('ARIS WSL runner is not configured in SSH servers');
+function pickRunnerServer(servers = []) {
+  if (!Array.isArray(servers) || servers.length === 0) {
+    return {
+      id: null,
+      host: '127.0.0.1',
+      user: process.env.ARIS_WSL_RUNNER_USER || 'czk',
+      name: process.env.ARIS_WSL_RUNNER_NAME || 'wsl-default',
+      type: 'wsl',
+      status: 'assumed-online',
+    };
   }
 
-  const invocationPrompt = buildWorkflowInvocation(launch);
-  const scriptBody = buildRemoteLaunchScript({ launch, invocationPrompt });
-  const result = await sshTransport.script(runner, scriptBody, [], { timeoutMs: 30000 });
-  return parseRemoteLaunchOutput(result.stdout);
+  const explicitId = String(process.env.ARIS_WSL_RUNNER_ID || '').trim();
+  if (explicitId) {
+    const byId = servers.find((server) => String(server.id) === explicitId);
+    if (byId) {
+      return { ...byId, type: 'wsl', status: 'configured' };
+    }
+  }
+
+  const preferred = servers.find((server) => /wsl|local|executor/i.test(String(server.name || '')))
+    || servers.find((server) => String(server.host || '') === '127.0.0.1')
+    || servers[0];
+
+  return {
+    ...preferred,
+    type: 'wsl',
+    status: 'configured',
+  };
+}
+
+function pickDownstreamServer(servers = [], runnerServerId = null) {
+  const candidate = servers.find((server) => String(server.id) !== String(runnerServerId));
+  if (!candidate) return null;
+  return {
+    id: candidate.id,
+    name: candidate.name,
+    host: candidate.host,
+  };
+}
+
+async function defaultListServers() {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: 'SELECT * FROM ssh_servers ORDER BY name ASC',
+      args: [],
+    });
+    return result.rows || [];
+  } catch (_) {
+    return [];
+  }
 }
 
 async function defaultListLaunches() {
@@ -180,43 +245,65 @@ async function defaultListLaunches() {
           latest_verdict,
           summary,
           started_at,
+          updated_at,
           remote_pid,
           log_path,
-          run_directory
+          run_directory,
+          retry_of_run_id
         FROM aris_runs
-        ORDER BY started_at DESC
-        LIMIT 25
+        ORDER BY datetime(COALESCE(updated_at, started_at)) DESC
+        LIMIT 50
       `,
       args: [],
     });
-    return (result.rows || []).map((row) => ({
-      id: row.id,
-      projectId: row.project_id,
-      workflowType: row.workflow_type,
-      prompt: row.prompt,
-      runnerServerId: row.runner_server_id,
-      runnerHost: row.runner_host,
-      downstreamServerId: row.downstream_server_id,
-      downstreamServerName: row.downstream_server_name,
-      remoteWorkspacePath: row.remote_workspace_path,
-      datasetRoot: row.dataset_root,
-      requiresUpload: Boolean(row.requires_upload),
-      status: row.status,
-      activePhase: row.active_phase,
-      latestScore: row.latest_score,
-      latestVerdict: row.latest_verdict,
-      summary: row.summary,
-      startedAt: row.started_at,
-      remotePid: row.remote_pid,
-      logPath: row.log_path,
-      runDirectory: row.run_directory,
-    }));
+    return (result.rows || []).map(normalizeLaunch).filter(Boolean);
   } catch (_) {
-    return [...launchStore];
+    return launchStore.map((launch) => ({ ...launch }));
+  }
+}
+
+async function defaultGetLaunchById(runId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          workflow_type,
+          prompt,
+          runner_server_id,
+          runner_host,
+          downstream_server_id,
+          downstream_server_name,
+          remote_workspace_path,
+          dataset_root,
+          requires_upload,
+          status,
+          active_phase,
+          latest_score,
+          latest_verdict,
+          summary,
+          started_at,
+          updated_at,
+          remote_pid,
+          log_path,
+          run_directory,
+          retry_of_run_id
+        FROM aris_runs
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [runId],
+    });
+    return normalizeLaunch(result.rows?.[0]);
+  } catch (_) {
+    return launchStore.find((launch) => launch.id === runId) || null;
   }
 }
 
 async function defaultSaveLaunch(launch) {
+  const normalized = normalizeLaunch(launch);
   try {
     const db = getDb();
     await db.execute({
@@ -239,88 +326,137 @@ async function defaultSaveLaunch(launch) {
           latest_verdict,
           summary,
           started_at,
+          updated_at,
           remote_pid,
           log_path,
           run_directory,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          retry_of_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
-        launch.id,
-        launch.projectId,
-        launch.workflowType,
-        launch.prompt,
-        launch.runnerServerId,
-        launch.runnerHost,
-        launch.downstreamServerId,
-        launch.downstreamServerName,
-        launch.remoteWorkspacePath,
-        launch.datasetRoot,
-        launch.requiresUpload ? 1 : 0,
-        launch.status,
-        launch.activePhase,
-        launch.latestScore,
-        launch.latestVerdict,
-        launch.summary,
-        launch.startedAt,
-        launch.remotePid,
-        launch.logPath,
-        launch.runDirectory,
+        normalized.id,
+        normalized.projectId,
+        normalized.workflowType,
+        normalized.prompt,
+        normalized.runnerServerId,
+        normalized.runnerHost,
+        normalized.downstreamServerId,
+        normalized.downstreamServerName,
+        normalized.remoteWorkspacePath,
+        normalized.datasetRoot,
+        normalized.requiresUpload ? 1 : 0,
+        normalized.status,
+        normalized.activePhase,
+        normalized.latestScore,
+        normalized.latestVerdict,
+        normalized.summary,
+        normalized.startedAt,
+        normalized.updatedAt || normalized.startedAt,
+        normalized.remotePid,
+        normalized.logPath,
+        normalized.runDirectory,
+        normalized.retryOfRunId,
       ],
     });
   } catch (_) {
-    launchStore.unshift({ ...launch });
-    if (launchStore.length > 25) launchStore.length = 25;
+    const existingIndex = launchStore.findIndex((entry) => entry.id === normalized.id);
+    if (existingIndex >= 0) launchStore.splice(existingIndex, 1);
+    launchStore.unshift({ ...normalized });
+    if (launchStore.length > 50) launchStore.length = 50;
   }
 }
 
-function pickRunnerServer(servers = []) {
-  if (!Array.isArray(servers) || servers.length === 0) {
-    return {
-      id: null,
-      name: process.env.ARIS_WSL_RUNNER_NAME || 'wsl-default',
-      type: 'wsl',
-      status: 'assumed-online',
-    };
+async function defaultDispatchLaunch({ launch, runner }) {
+  if (!runner?.host || !runner?.user) {
+    throw new Error('ARIS WSL runner is not configured in SSH servers');
   }
 
-  const explicitId = String(process.env.ARIS_WSL_RUNNER_ID || '').trim();
-  if (explicitId) {
-    const byId = servers.find((server) => String(server.id) === explicitId);
-    if (byId) {
-      return { id: byId.id, name: byId.name, type: 'wsl', status: 'configured' };
-    }
-  }
-
-  const preferred = servers.find((server) => /wsl|local|executor/i.test(String(server.name || '')))
-    || servers.find((server) => String(server.host || '') === '127.0.0.1')
-    || servers[0];
-
-  return {
-    id: preferred.id,
-    name: preferred.name,
-    type: 'wsl',
-    status: 'configured',
-  };
-}
-
-function pickDownstreamServer(servers = [], runnerServerId = null) {
-  const candidate = servers.find((server) => String(server.id) !== String(runnerServerId));
-  if (!candidate) return null;
-  return {
-    id: candidate.id,
-    name: candidate.name,
-    host: candidate.host,
-  };
+  const invocationPrompt = buildWorkflowInvocation(launch);
+  const scriptBody = buildRemoteLaunchScript({ launch, invocationPrompt });
+  const result = await sshTransport.script(runner, scriptBody, [], { timeoutMs: 30000 });
+  return parseRemoteLaunchOutput(result.stdout);
 }
 
 function createArisService(overrides = {}) {
   const deps = {
     listServers: overrides.listServers || defaultListServers,
     listLaunches: overrides.listLaunches || defaultListLaunches,
+    getLaunchById: overrides.getLaunchById || defaultGetLaunchById,
     dispatchLaunch: overrides.dispatchLaunch || defaultDispatchLaunch,
     saveLaunch: overrides.saveLaunch || defaultSaveLaunch,
   };
+
+  async function buildLaunchFromPayload(payload = {}, { username = 'czk', retryOfRunId = null } = {}) {
+    const workflowType = String(payload.workflowType || '').trim();
+    const prompt = String(payload.prompt || '').trim();
+    const projectId = String(payload.projectId || '').trim();
+
+    if (!ARIS_WORKFLOW_TYPES.includes(workflowType)) {
+      throw new Error('Invalid workflowType');
+    }
+    if (!projectId) {
+      throw new Error('projectId is required');
+    }
+    if (!prompt) {
+      throw new Error('prompt is required');
+    }
+
+    const servers = await deps.listServers();
+    const runner = pickRunnerServer(servers);
+    const downstreamServerId = payload.downstreamServerId ?? null;
+    const downstreamServer = downstreamServerId
+      ? servers.find((server) => String(server.id) === String(downstreamServerId))
+      : pickDownstreamServer(servers, runner.id);
+
+    return {
+      launch: {
+        id: `aris_run_${Date.now()}`,
+        projectId,
+        workflowType,
+        prompt,
+        title: String(payload.title || '').trim(),
+        runnerServerId: runner.id,
+        runnerHost: runner.name || runner.host || '',
+        downstreamServerId: downstreamServer?.id ?? null,
+        downstreamServerName: downstreamServer?.name ?? '',
+        remoteWorkspacePath: String(payload.remoteWorkspacePath || buildDefaultWorkspacePath(projectId, username)).trim(),
+        datasetRoot: String(payload.datasetRoot || process.env.ARIS_REMOTE_DATASET_ROOT || '').trim(),
+        requiresUpload: false,
+        status: 'queued',
+        activePhase: 'queued',
+        latestScore: null,
+        latestVerdict: '',
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        summary: '',
+        remotePid: null,
+        logPath: '',
+        runDirectory: '',
+        retryOfRunId,
+      },
+      runner,
+      downstreamServer,
+    };
+  }
+
+  async function dispatchAndPersistLaunch(launch, runner, downstreamServer) {
+    const dispatchResult = await deps.dispatchLaunch({
+      launch,
+      runner,
+      downstreamServer,
+    });
+
+    launch.status = 'running';
+    launch.activePhase = 'running_on_wsl';
+    launch.remotePid = dispatchResult?.remotePid ?? null;
+    launch.logPath = dispatchResult?.logPath || '';
+    launch.runDirectory = dispatchResult?.runDirectory || buildRunDirectory(launch.remoteWorkspacePath, launch.id);
+    launch.summary = launch.logPath ? `Remote log: ${launch.logPath}` : '';
+    launch.updatedAt = new Date().toISOString();
+
+    await deps.saveLaunch(launch);
+    return normalizeLaunch(launch);
+  }
 
   return {
     async getWorkspaceContext({ username = 'czk' } = {}) {
@@ -346,80 +482,61 @@ function createArisService(overrides = {}) {
     },
 
     async createLaunchRequest(payload = {}, { username = 'czk' } = {}) {
-      const workflowType = String(payload.workflowType || '').trim();
-      const prompt = String(payload.prompt || '').trim();
-      const projectId = String(payload.projectId || '').trim();
-
-      if (!ARIS_WORKFLOW_TYPES.includes(workflowType)) {
-        throw new Error('Invalid workflowType');
-      }
-      if (!projectId) {
-        throw new Error('projectId is required');
-      }
-      if (!prompt) {
-        throw new Error('prompt is required');
-      }
-
-      const servers = await deps.listServers();
-      const runner = pickRunnerServer(servers);
-      const downstreamServerId = payload.downstreamServerId ?? null;
-      const downstreamServer = downstreamServerId
-        ? servers.find((server) => String(server.id) === String(downstreamServerId))
-        : pickDownstreamServer(servers, runner.id);
-
-      const launch = {
-        id: `aris_run_${Date.now()}`,
-        projectId,
-        workflowType,
-        prompt,
-        runnerServerId: runner.id,
-        runnerHost: runner.name,
-        downstreamServerId: downstreamServer?.id ?? null,
-        downstreamServerName: downstreamServer?.name ?? '',
-        remoteWorkspacePath: String(payload.remoteWorkspacePath || buildDefaultWorkspacePath(projectId, username)).trim(),
-        datasetRoot: String(payload.datasetRoot || process.env.ARIS_REMOTE_DATASET_ROOT || '').trim(),
-        requiresUpload: false,
-        status: 'queued',
-        activePhase: 'queued',
-        latestScore: null,
-        latestVerdict: '',
-        startedAt: new Date().toISOString(),
-        summary: '',
-      };
-
-      const dispatchResult = await deps.dispatchLaunch({
-        launch,
-        runner,
-        downstreamServer,
-      });
-
-      launch.status = 'running';
-      launch.activePhase = 'running_on_wsl';
-      launch.remotePid = dispatchResult?.remotePid ?? null;
-      launch.logPath = dispatchResult?.logPath || '';
-      launch.runDirectory = dispatchResult?.runDirectory || buildRunDirectory(launch.remoteWorkspacePath, launch.id);
-      launch.summary = launch.logPath ? `Remote log: ${launch.logPath}` : '';
-
-      await deps.saveLaunch(launch);
-      return launch;
+      const { launch, runner, downstreamServer } = await buildLaunchFromPayload(payload, { username });
+      return dispatchAndPersistLaunch(launch, runner, downstreamServer);
     },
 
     async listRuns() {
       const launches = await deps.listLaunches();
-      return launches.map((launch) => ({
-        id: launch.id,
-        workflowType: launch.workflowType,
-        title: launch.title || '',
-        status: launch.status,
-        runnerHost: launch.runnerHost,
-        activePhase: launch.activePhase,
-        downstreamServerName: launch.downstreamServerName,
-        latestScore: launch.latestScore,
-        latestVerdict: launch.latestVerdict,
-        summary: launch.summary,
-        startedAt: launch.startedAt,
-        logPath: launch.logPath || '',
-      }));
+      return launches.map((launch) => {
+        const normalized = normalizeLaunch(launch);
+        return {
+          id: normalized.id,
+          projectId: normalized.projectId,
+          workflowType: normalized.workflowType,
+          title: normalized.title,
+          prompt: normalized.prompt,
+          status: normalized.status,
+          runnerHost: normalized.runnerHost,
+          activePhase: normalized.activePhase,
+          downstreamServerName: normalized.downstreamServerName,
+          latestScore: normalized.latestScore,
+          latestVerdict: normalized.latestVerdict,
+          summary: normalized.summary,
+          startedAt: normalized.startedAt,
+          updatedAt: normalized.updatedAt,
+          logPath: normalized.logPath,
+          retryOfRunId: normalized.retryOfRunId,
+        };
+      });
+    },
+
+    async getRun(runId) {
+      const launch = await deps.getLaunchById(runId);
+      if (!launch) return null;
+      return normalizeLaunch(launch);
+    },
+
+    async retryRun(runId, { username = 'czk' } = {}) {
+      const existing = await deps.getLaunchById(runId);
+      if (!existing) {
+        throw new Error('Run not found');
+      }
+
+      const { launch, runner, downstreamServer } = await buildLaunchFromPayload({
+        projectId: existing.projectId,
+        workflowType: existing.workflowType,
+        prompt: existing.prompt,
+        title: existing.title,
+        remoteWorkspacePath: existing.remoteWorkspacePath,
+        datasetRoot: existing.datasetRoot,
+        downstreamServerId: existing.downstreamServerId,
+      }, {
+        username,
+        retryOfRunId: existing.id,
+      });
+
+      return dispatchAndPersistLaunch(launch, runner, downstreamServer);
     },
   };
 }
