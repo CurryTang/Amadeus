@@ -1,31 +1,42 @@
-# ARIS VS Code Companion
+# Auto Researcher VS Code Companion
 
-This package provides a compact VS Code companion for ARIS runs.
+This package provides a compact list-first VS Code companion for tracked papers, library papers, and ARIS runs.
 
 ## V1 scope
 
+- Load tracked papers from the tracker feed
+- Explicitly save tracked papers into the library
+- Load saved library papers
+- Mark library papers read or unread
+- Queue reader processing for a saved paper
 - Load ARIS projects and recent runs
 - Launch a new ARIS run
 - Refresh ARIS state
 - Retry the selected ARIS run
-- Inspect selected run details in a webview
-- Copy the selected run id
+- Inspect selected item details in a webview
+- Copy the selected ARIS run id
 
 Out of scope for v1:
 
 - Chrome-extension save flows
+- Browser page capture and PDF capture inside VS Code
 - Remote file browsing
 - Terminal orchestration
-- General library/document management
 
 ## Requirements
 
-- Auto Researcher backend running with ARIS routes enabled
+- Auto Researcher backend running with tracker, library, and ARIS routes enabled
 - Valid API bearer token for the backend
 - VS Code 1.97 or newer
 
 Required backend endpoints:
 
+- `GET /api/tracker/feed`
+- `POST /api/upload/arxiv`
+- `GET /api/documents`
+- `GET /api/documents/:id/notes`
+- `PATCH /api/documents/:id/read`
+- `POST /api/reader/queue/:documentId`
 - `GET /api/aris/context`
 - `GET /api/aris/runs`
 - `GET /api/aris/runs/:runId`

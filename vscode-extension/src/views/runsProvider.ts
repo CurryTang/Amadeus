@@ -1,5 +1,5 @@
 import type { ArisStore } from '../state/store';
-import type { TreeViewItem } from './projectsProvider';
+import type { TreeViewItem } from './types';
 
 function buildRunLabel(run: { title: string; prompt: string; workflowType: string }): string {
   const label = run.title || run.prompt || run.workflowType;

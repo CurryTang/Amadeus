@@ -3,140 +3,277 @@ import * as vscode from 'vscode';
 import { ArisClient } from './aris/client';
 import { getAuthToken, storeAuthToken } from './auth';
 import { runCopyRunIdCommand } from './commands/copyRunId';
+import { runMarkPaperReadCommand } from './commands/markPaperRead';
+import { runMarkPaperUnreadCommand } from './commands/markPaperUnread';
 import { runNewRunCommand } from './commands/newRun';
+import { runQueueReaderCommand } from './commands/queueReader';
 import { runRefreshCommand } from './commands/refresh';
 import { runRetryRunCommand } from './commands/retryRun';
+import { runSaveTrackedPaperCommand } from './commands/saveTrackedPaper';
 import { getArisConfig } from './config';
 import { registerCommandDefinitions } from './core/commandRegistry';
+import { LibraryClient } from './library/client';
+import { LibraryStore } from './library/store';
 import { PollingController } from './polling';
 import { ArisStore } from './state/store';
+import { TrackerClient } from './tracker/client';
+import { TrackerStore } from './tracker/store';
+import { LibraryProvider } from './views/libraryProvider';
 import { ProjectsProvider } from './views/projectsProvider';
 import { RunsProvider } from './views/runsProvider';
+import { TrackedPapersProvider } from './views/trackedPapersProvider';
+import type { TreeViewItem } from './views/types';
 import { RunDetailPanel } from './webview/runDetailPanel';
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel('ARIS');
+  const output = vscode.window.createOutputChannel('Auto Researcher');
   context.subscriptions.push(output);
 
   const config = getArisConfig(vscode);
   let authPromptPromise: Promise<string | undefined> | null = null;
   let authPromptDismissedAt = 0;
+  const requestAuthToken = async (): Promise<string | undefined> => {
+    const token = await getAuthToken(context);
+    if (token) return token;
+    if (Date.now() - authPromptDismissedAt < 5 * 60 * 1000) {
+      return undefined;
+    }
+
+    if (!authPromptPromise) {
+      authPromptPromise = (async () => {
+        const enteredToken = await vscode.window.showInputBox({
+          title: 'Auto Researcher API Token',
+          prompt: 'Enter the API bearer token for the Auto Researcher backend.',
+          password: true,
+          ignoreFocusOut: true,
+        });
+        if (enteredToken) {
+          await storeAuthToken(context, enteredToken);
+          return enteredToken;
+        }
+        authPromptDismissedAt = Date.now();
+        return undefined;
+      })().finally(() => {
+        authPromptPromise = null;
+      });
+    }
+
+    return authPromptPromise;
+  };
   const client = new ArisClient({
     baseUrl: config.apiBaseUrl,
-    getAuthToken: async () => {
-      const token = await getAuthToken(context);
-      if (token) return token;
-      if (Date.now() - authPromptDismissedAt < 5 * 60 * 1000) {
-        return undefined;
-      }
-
-      if (!authPromptPromise) {
-        authPromptPromise = (async () => {
-          const enteredToken = await vscode.window.showInputBox({
-            title: 'ARIS API Token',
-            prompt: 'Enter the API bearer token for the Auto Researcher backend.',
-            password: true,
-            ignoreFocusOut: true,
-          });
-          if (enteredToken) {
-            await storeAuthToken(context, enteredToken);
-            return enteredToken;
-          }
-          authPromptDismissedAt = Date.now();
-          return undefined;
-        })().finally(() => {
-          authPromptPromise = null;
-        });
-      }
-
-      return authPromptPromise;
-    },
+    getAuthToken: requestAuthToken,
   });
-  const store = new ArisStore({ client });
-  const projectsProvider = new ProjectsProvider(store);
-  const runsProvider = new RunsProvider(store);
+  const trackerClient = new TrackerClient({
+    baseUrl: config.apiBaseUrl,
+    getAuthToken: requestAuthToken,
+  });
+  const libraryClient = new LibraryClient({
+    baseUrl: config.apiBaseUrl,
+    getAuthToken: requestAuthToken,
+  });
+  const arisStore = new ArisStore({ client });
+  const trackerStore = new TrackerStore({ client: trackerClient });
+  const libraryStore = new LibraryStore({ client: libraryClient });
+  const trackedPapersProvider = new TrackedPapersProvider(trackerStore);
+  const libraryProvider = new LibraryProvider(libraryStore);
+  const projectsProvider = new ProjectsProvider(arisStore);
+  const runsProvider = new RunsProvider(arisStore);
+  const trackedPapersEmitter = new vscode.EventEmitter<void>();
+  const libraryEmitter = new vscode.EventEmitter<void>();
   const projectsEmitter = new vscode.EventEmitter<void>();
   const runsEmitter = new vscode.EventEmitter<void>();
   const detailPanel = new RunDetailPanel(context.extensionUri, {
-    onRetry: async () => {
-      await runRetryRunCommand({ client, store });
-      if (store.selectedRunDetail) {
-        detailPanel.show(store.selectedRunDetail);
+    onAction: async (actionType) => {
+      if (actionType === 'retry') {
+        await runRetryRunCommand({ client, store: arisStore });
+        if (arisStore.selectedRunDetail) {
+          detailPanel.showSelection({ kind: 'aris-run', item: arisStore.selectedRunDetail });
+        }
+        return;
       }
-    },
-    onCopyRunId: async () => {
-      await runCopyRunIdCommand({
-        store,
-        clipboard: vscode.env.clipboard,
-      });
-      if (store.selectedRunId) {
-        void vscode.window.setStatusBarMessage(`Copied ARIS run id ${store.selectedRunId}`, 2000);
+      if (actionType === 'copy-run-id') {
+        await runCopyRunIdCommand({
+          store: arisStore,
+          clipboard: vscode.env.clipboard,
+        });
+        if (arisStore.selectedRunId) {
+          void vscode.window.setStatusBarMessage(`Copied ARIS run id ${arisStore.selectedRunId}`, 2000);
+        }
+        return;
+      }
+      if (actionType === 'save-tracked-paper') {
+        await runSaveTrackedPaperCommand({ client: trackerClient, store: trackerStore });
+        await libraryStore.refresh();
+        if (trackerStore.selectedPaper) {
+          detailPanel.showSelection({ kind: 'tracked-paper', item: trackerStore.selectedPaper });
+        }
+        return;
+      }
+      if (actionType === 'mark-paper-read') {
+        await runMarkPaperReadCommand({ client: libraryClient, store: libraryStore });
+        if (libraryStore.selectedPaperDetail) {
+          detailPanel.showSelection({ kind: 'library-paper', item: libraryStore.selectedPaperDetail });
+        }
+        return;
+      }
+      if (actionType === 'mark-paper-unread') {
+        await runMarkPaperUnreadCommand({ client: libraryClient, store: libraryStore });
+        if (libraryStore.selectedPaperDetail) {
+          detailPanel.showSelection({ kind: 'library-paper', item: libraryStore.selectedPaperDetail });
+        }
+        return;
+      }
+      if (actionType === 'queue-reader') {
+        await runQueueReaderCommand({ client: libraryClient, store: libraryStore });
+        if (libraryStore.selectedPaperDetail) {
+          detailPanel.showSelection({ kind: 'library-paper', item: libraryStore.selectedPaperDetail });
+        }
       }
     },
   });
 
   const treeAdapter = {
-    getTreeItem(item: { label: string; description?: string }) {
-      return item as unknown as vscode.TreeItem;
+    getTreeItem(item: TreeViewItem) {
+      const treeItem = new vscode.TreeItem(item.label);
+      treeItem.id = item.id;
+      treeItem.description = item.description;
+      return treeItem;
     },
   };
 
-  const projectsView = vscode.window.createTreeView('aris.projects', {
+  const trackedPapersView = vscode.window.createTreeView('autoResearcher.trackedPapers', {
+    treeDataProvider: {
+      ...treeAdapter,
+      onDidChangeTreeData: trackedPapersEmitter.event,
+      getChildren: async () => trackedPapersProvider.getChildren(),
+    },
+  });
+  const libraryView = vscode.window.createTreeView('autoResearcher.library', {
+    treeDataProvider: {
+      ...treeAdapter,
+      onDidChangeTreeData: libraryEmitter.event,
+      getChildren: async () => libraryProvider.getChildren(),
+    },
+  });
+  const projectsView = vscode.window.createTreeView('autoResearcher.arisProjects', {
     treeDataProvider: {
       ...treeAdapter,
       onDidChangeTreeData: projectsEmitter.event,
       getChildren: async () => projectsProvider.getChildren(),
     },
   });
-  const runsView = vscode.window.createTreeView('aris.runs', {
+  const runsView = vscode.window.createTreeView('autoResearcher.arisRuns', {
     treeDataProvider: {
       ...treeAdapter,
       onDidChangeTreeData: runsEmitter.event,
       getChildren: async () => runsProvider.getChildren(),
     },
   });
-  context.subscriptions.push(projectsView, runsView);
+  context.subscriptions.push(trackedPapersView, libraryView, projectsView, runsView);
 
-  context.subscriptions.push(store.subscribe(() => {
+  context.subscriptions.push(trackerStore.subscribe(() => {
+    trackedPapersEmitter.fire();
+  }));
+  context.subscriptions.push(libraryStore.subscribe(() => {
+    libraryEmitter.fire();
+  }));
+  context.subscriptions.push(arisStore.subscribe(() => {
     projectsEmitter.fire();
     runsEmitter.fire();
-    if (store.selectedRunDetail) {
-      detailPanel.show(store.selectedRunDetail);
+    if (arisStore.selectedRunDetail) {
+      detailPanel.showSelection({ kind: 'aris-run', item: arisStore.selectedRunDetail });
     }
   }));
+
+  trackedPapersView.onDidChangeSelection((event) => {
+    const paper = event.selection[0] as { id?: string } | undefined;
+    if (paper?.id) {
+      trackerStore.selectPaper(paper.id);
+      if (trackerStore.selectedPaper) {
+        detailPanel.showSelection({ kind: 'tracked-paper', item: trackerStore.selectedPaper });
+      }
+    }
+  });
+
+  libraryView.onDidChangeSelection((event) => {
+    const paper = event.selection[0] as { id?: string } | undefined;
+    if (paper?.id) {
+      void libraryStore.selectPaper(Number(paper.id)).then(() => {
+        if (libraryStore.selectedPaperDetail) {
+          detailPanel.showSelection({ kind: 'library-paper', item: libraryStore.selectedPaperDetail });
+        }
+      });
+    }
+  });
 
   projectsView.onDidChangeSelection((event) => {
     const project = event.selection[0] as { id?: string } | undefined;
     if (project?.id) {
-      store.selectProject(project.id);
+      arisStore.selectProject(project.id);
     }
   });
 
   runsView.onDidChangeSelection((event) => {
     const run = event.selection[0] as { id?: string } | undefined;
     if (run?.id) {
-      void store.selectRun(run.id);
+      void arisStore.selectRun(run.id);
     }
   });
 
-  const refreshStore = async () => {
+  const refreshTrackedPapers = async () => {
     try {
-      await runRefreshCommand({ store });
+      await trackerStore.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      output.appendLine(`[refresh] ${message}`);
+      output.appendLine(`[tracked-papers] ${message}`);
+      void vscode.window.showErrorMessage(`Tracked papers refresh failed: ${message}`);
+    }
+  };
+
+  const refreshLibrary = async () => {
+    try {
+      await libraryStore.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      output.appendLine(`[library] ${message}`);
+      void vscode.window.showErrorMessage(`Library refresh failed: ${message}`);
+    }
+  };
+
+  const refreshAris = async () => {
+    try {
+      await runRefreshCommand({ store: arisStore });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      output.appendLine(`[aris] ${message}`);
       void vscode.window.showErrorMessage(`ARIS refresh failed: ${message}`);
     }
   };
 
   registerCommandDefinitions(vscode, context, {
+    refreshTrackedPapers,
+    saveTrackedPaper: async () => {
+      await runSaveTrackedPaperCommand({ client: trackerClient, store: trackerStore });
+      await libraryStore.refresh();
+    },
+    refreshLibrary,
+    markPaperRead: async () => {
+      await runMarkPaperReadCommand({ client: libraryClient, store: libraryStore });
+    },
+    markPaperUnread: async () => {
+      await runMarkPaperUnreadCommand({ client: libraryClient, store: libraryStore });
+    },
+    queueReader: async () => {
+      await runQueueReaderCommand({ client: libraryClient, store: libraryStore });
+    },
     newRun: async () => {
       await runNewRunCommand({
         client,
-        store,
+        store: arisStore,
         ui: {
           pickProject: async () => {
-            const items = (store.context?.projects || []).map((project) => ({
+            const items = (arisStore.context?.projects || []).map((project) => ({
               label: project.name,
               value: project.id,
             }));
@@ -144,10 +281,10 @@ export function activate(context: vscode.ExtensionContext): void {
               title: 'ARIS Project',
               placeHolder: 'Select a project',
             });
-            return picked?.value || store.selectedProjectId || config.defaultProjectId;
+            return picked?.value || arisStore.selectedProjectId || config.defaultProjectId;
           },
           pickWorkflow: async () => {
-            const items = (store.context?.quickActions || []).map((action) => ({
+            const items = (arisStore.context?.quickActions || []).map((action) => ({
               label: action.label,
               value: action.workflowType,
             }));
@@ -165,13 +302,13 @@ export function activate(context: vscode.ExtensionContext): void {
         },
       });
     },
-    refresh: refreshStore,
+    refresh: refreshAris,
     retryRun: async () => {
-      await runRetryRunCommand({ client, store });
+      await runRetryRunCommand({ client, store: arisStore });
     },
     copyRunId: async () => {
       await runCopyRunIdCommand({
-        store,
+        store: arisStore,
         clipboard: vscode.env.clipboard,
       });
     },
@@ -180,13 +317,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const polling = new PollingController({
     intervalMs: config.refreshIntervalSeconds * 1000,
     isVisible: () => projectsView.visible || runsView.visible,
-    refresh: refreshStore,
+    refresh: refreshAris,
     log: (message) => output.appendLine(`[poll] ${message}`),
   });
   polling.start();
   context.subscriptions.push({ dispose: () => polling.stop() });
 
-  void refreshStore();
+  void refreshTrackedPapers();
+  void refreshLibrary();
+  void refreshAris();
 }
 
 export function deactivate(): void {}

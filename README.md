@@ -24,7 +24,7 @@ Your personal AI research assistant that automatically reads, summarizes, organi
 - **Code Analysis** - Automatically analyzes associated GitHub repositories
 - **Paper Tracker** - Subscribe to authors/keywords; daily crawl from Semantic Scholar and Twitter/X
 - **SSH Server Management** - Register remote compute nodes; agent runs offload heavy tasks via SSH
-- **ARIS VS Code Companion** - Compact in-editor control surface for launching and monitoring ARIS runs
+- **Auto Researcher VS Code Companion** - Compact in-editor control surface for tracked papers, library actions, and ARIS runs
 - **Read Tracking** - Mark papers as read/unread, filter your library
 - **Full-Text Search** - Find papers by title, tags, and content
 
@@ -86,7 +86,7 @@ cd frontend && npm install && npm run dev
 2. Enable "Developer mode"
 3. Click "Load unpacked" and select the `chrome-extension/` folder
 
-### 6. Run the ARIS VS Code Companion
+### 6. Run the VS Code Companion
 
 ```bash
 cd vscode-extension
@@ -95,7 +95,7 @@ npm run compile
 npm test
 ```
 
-Then launch the extension with an Extension Development Host from VS Code. See [ARIS VS Code Companion](vscode-extension/README.md) for the exact workflow and required ARIS backend endpoints.
+Then launch the extension with an Extension Development Host from VS Code. See [Auto Researcher VS Code Companion](vscode-extension/README.md) for the exact workflow and required backend endpoints.
 
 ## How It Works
 
@@ -122,7 +122,7 @@ Subscribe to Semantic Scholar author IDs or keyword queries. The tracker runs da
 - [S3 Setup Guide](docs/S3_SETUP_GUIDE.md) - Object storage setup (S3/MinIO/OSS)
 - [Installation Modes](docs/INSTALLATION_MODES.md) - Deployment modes and provider matrix
 - [Configuration Guide](docs/CONFIGURATION.md) - All configuration options
-- [ARIS VS Code Companion](vscode-extension/README.md) - VS Code companion setup and scope
+- [Auto Researcher VS Code Companion](vscode-extension/README.md) - VS Code companion setup and scope
 
 ## ARIS Integration
 

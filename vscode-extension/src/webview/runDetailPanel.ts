@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 
 import type { ArisRunDetail } from '../aris/types';
-import { renderRunDetailHtml } from './templates/runDetailHtml';
+import type { DetailSelection } from './detailController';
+import { buildDetailView } from './detailController';
 
 type RunDetailPanelActions = {
-  onRetry(): Promise<void>;
-  onCopyRunId(): Promise<void>;
+  onAction(actionType: string): Promise<void>;
 };
 
 export class RunDetailPanel {
@@ -16,11 +16,11 @@ export class RunDetailPanel {
     private readonly actions: RunDetailPanelActions
   ) {}
 
-  show(run: ArisRunDetail): void {
+  showSelection(selection: DetailSelection): void {
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
-        'aris.runDetail',
-        `ARIS Run ${run.id}`,
+        'autoResearcher.detail',
+        'Auto Researcher Detail',
         vscode.ViewColumn.One,
         {
           enableScripts: true,
@@ -31,17 +31,15 @@ export class RunDetailPanel {
         this.panel = null;
       });
       this.panel.webview.onDidReceiveMessage(async (message) => {
-        if (message?.type === 'retry') {
-          await this.actions.onRetry();
-        }
-        if (message?.type === 'copy-run-id') {
-          await this.actions.onCopyRunId();
+        if (message?.type) {
+          await this.actions.onAction(String(message.type));
         }
       });
     }
 
-    this.panel.title = `ARIS Run ${run.id}`;
-    const html = renderRunDetailHtml(run).replace('</body>', `<script>
+    const view = buildDetailView(selection);
+    this.panel.title = view.title;
+    const html = view.html.replace('</body>', `<script>
 const vscode = acquireVsCodeApi();
 for (const button of document.querySelectorAll('button[data-action]')) {
   button.addEventListener('click', () => {
@@ -51,5 +49,9 @@ for (const button of document.querySelectorAll('button[data-action]')) {
 </script></body>`);
     this.panel.webview.html = html;
     this.panel.reveal(vscode.ViewColumn.One, true);
+  }
+
+  show(run: ArisRunDetail): void {
+    this.showSelection({ kind: 'aris-run', item: run });
   }
 }
