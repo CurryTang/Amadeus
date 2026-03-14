@@ -29,6 +29,7 @@ test('buildDetailView routes tracked papers, library papers, and ARIS runs to th
       title: 'Library Paper',
       type: 'paper',
       originalUrl: '',
+      downloadUrl: '',
       tags: [],
       processingStatus: 'idle',
       read: false,
@@ -65,6 +66,7 @@ test('buildDetailView routes tracked papers, library papers, and ARIS runs to th
 
   assert.match(tracked.html, /Save to Library/);
   assert.match(library.html, /Mark Read/);
+  assert.match(library.html, /Open PDF/);
   assert.match(run.html, /Retry Run/);
   assert.equal(tracked.title, 'Tracked Paper');
   assert.equal(library.title, 'Library Paper');

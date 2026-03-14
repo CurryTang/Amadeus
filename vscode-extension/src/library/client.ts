@@ -64,18 +64,16 @@ function normalizeReadingHistory(value: unknown): LibraryPaperDetail['readingHis
   };
 }
 
-function normalizeLibraryDetail(value: unknown, id = 0): LibraryPaperDetail {
-  const record = toRecord(value);
+function normalizeLibraryDetail(documentValue: unknown, notesValue: unknown, id = 0): LibraryPaperDetail {
+  const documentRecord = toRecord(documentValue);
+  const documentSummary = normalizeLibrarySummary(documentValue);
+  const record = toRecord(notesValue);
   return {
-    id,
-    title: toStringValue(record.title),
-    type: 'paper',
-    originalUrl: '',
-    tags: [],
-    processingStatus: toStringValue(record.processingStatus),
-    read: false,
-    createdAt: null,
-    updatedAt: null,
+    ...documentSummary,
+    id: documentSummary.id || id,
+    title: documentSummary.title || toStringValue(record.title),
+    processingStatus: documentSummary.processingStatus || toStringValue(record.processingStatus),
+    downloadUrl: toStringValue(documentRecord.downloadUrl),
     notesUrl: toStringValue(record.notesUrl),
     notesContent: toStringValue(record.notesContent),
     readerMode: toStringValue(record.readerMode),
@@ -106,8 +104,11 @@ export class LibraryClient {
   }
 
   async getLibraryPaperDetail(id: number): Promise<LibraryPaperDetail> {
-    const payload = await this.request(`/documents/${id}/notes`);
-    return normalizeLibraryDetail(payload, id);
+    const [documentPayload, notesPayload] = await Promise.all([
+      this.request(`/documents/${id}`),
+      this.request(`/documents/${id}/notes`),
+    ]);
+    return normalizeLibraryDetail(documentPayload, notesPayload, id);
   }
 
   async setReadState(id: number, isRead: boolean): Promise<LibraryReadState> {

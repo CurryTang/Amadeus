@@ -20,6 +20,7 @@ export function renderLibraryPaperDetailHtml(item: LibraryPaperDetail): string {
     <h1>${escapeHtml(item.title)}</h1>
     <p>${item.read ? 'read' : 'unread'} · ${escapeHtml(item.processingStatus)}</p>
     <pre>${escapeHtml(item.notesContent || 'No notes available')}</pre>
+    <button data-action="open-library-pdf">Open PDF</button>
     <button data-action="mark-paper-read">Mark Read</button>
     <button data-action="mark-paper-unread">Mark Unread</button>
     <button data-action="queue-reader">Queue Reader</button>

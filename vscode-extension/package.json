@@ -21,6 +21,7 @@
     "onCommand:library.refresh",
     "onCommand:library.markRead",
     "onCommand:library.markUnread",
+    "onCommand:library.openPdf",
     "onCommand:library.queueReader",
     "onCommand:aris.newRun",
     "onCommand:aris.refresh",
@@ -78,6 +79,10 @@
       {
         "command": "library.markUnread",
         "title": "Auto Researcher: Mark Paper Unread"
+      },
+      {
+        "command": "library.openPdf",
+        "title": "Auto Researcher: Open Paper PDF"
       },
       {
         "command": "library.queueReader",

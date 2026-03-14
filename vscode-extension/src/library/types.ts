@@ -11,6 +11,7 @@ export type LibraryPaperSummary = {
 };
 
 export type LibraryPaperDetail = LibraryPaperSummary & {
+  downloadUrl: string;
   notesUrl: string;
   notesContent: string;
   readerMode: string;
