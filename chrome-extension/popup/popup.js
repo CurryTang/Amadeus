@@ -31,6 +31,7 @@ let currentArxivInfo = null; // Keep for backward compatibility
 let currentOpenReviewInfo = null;
 let userHasEditedTitle = false; // Prevent async metadata from overwriting user edits
 let authToken = null; // JWT for authenticated API calls
+const { buildArxivSaveRequest, shouldFetchArxivMetadata } = globalThis.AutoReaderArxivSave;
 
 // --- Auth helpers ---
 
@@ -447,8 +448,7 @@ async function handleArxivPreset(tab) {
     const arxivInfo = await chrome.tabs.sendMessage(tab.id, { action: 'getArxivInfo' });
     if (arxivInfo && arxivInfo.isArxiv) {
       currentArxivInfo = arxivInfo;
-      // If title is missing or just a placeholder (e.g. PDF pages), fetch from API
-      if (!arxivInfo.title || arxivInfo.title.startsWith('arXiv:')) {
+      if (shouldFetchArxivMetadata(arxivInfo)) {
         await fetchArxivMetadata(arxivInfo.arxivId);
       } else {
         showArxivMode(arxivInfo);
@@ -504,8 +504,7 @@ async function handleHuggingFacePreset(tab) {
         absUrl: hfInfo.absUrl,
         source: 'huggingface'
       };
-      // If we got title from HF page, show it, otherwise fetch from arXiv
-      if (hfInfo.title) {
+      if (!shouldFetchArxivMetadata(currentArxivInfo)) {
         showArxivMode(currentArxivInfo);
         showHuggingFaceBanner(hfInfo.arxivId);
       } else {
@@ -550,8 +549,11 @@ async function handleAlphaXivPreset(tab) {
         absUrl: alphaXivInfo.absUrl,
         source: 'alphaxiv'
       };
-      // Fetch full metadata from arXiv API for complete info
-      await fetchArxivMetadata(alphaXivInfo.arxivId);
+      if (shouldFetchArxivMetadata(currentArxivInfo)) {
+        await fetchArxivMetadata(alphaXivInfo.arxivId);
+      } else {
+        showArxivMode(currentArxivInfo);
+      }
       showAlphaXivBanner(alphaXivInfo.arxivId);
       return;
     }
@@ -809,8 +811,11 @@ async function fetchArxivMetadata(arxivId) {
   }
 
   // 3. Both failed — clear the placeholder
-  if (!userHasEditedTitle) {
+  if (!userHasEditedTitle && !currentArxivInfo?.title) {
     titleInput.value = '';
+  }
+  if (currentArxivInfo?.arxivId) {
+    showArxivMode(currentArxivInfo);
   }
 }
 
@@ -934,16 +939,15 @@ async function saveArxivPaper() {
   setLoading(true, 'Fetching arXiv PDF...');
 
   try {
+    const payload = buildArxivSaveRequest(currentArxivInfo, data);
+    if (!payload) {
+      throw new Error('No arXiv paper detected');
+    }
+
     const response = await fetch(`${API_BASE_URL}/upload/arxiv`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({
-        paperId: currentArxivInfo.arxivId,
-        title: data.title || currentArxivInfo.title,
-        tags: data.tags,
-        notes: data.notes,
-        analysisProvider: data.analysisProvider,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
