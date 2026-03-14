@@ -1,7 +1,7 @@
 {
   "name": "auto-researcher-aris-vscode",
-  "displayName": "Auto Researcher ARIS",
-  "description": "Compact VS Code companion for launching and monitoring ARIS runs.",
+  "displayName": "Auto Researcher",
+  "description": "Compact VS Code companion for tracked papers, library papers, and ARIS runs.",
   "version": "0.0.1",
   "publisher": "czk",
   "private": true,
@@ -12,8 +12,16 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:aris.projects",
-    "onView:aris.runs",
+    "onView:autoResearcher.trackedPapers",
+    "onView:autoResearcher.library",
+    "onView:autoResearcher.arisProjects",
+    "onView:autoResearcher.arisRuns",
+    "onCommand:tracker.refresh",
+    "onCommand:tracker.savePaper",
+    "onCommand:library.refresh",
+    "onCommand:library.markRead",
+    "onCommand:library.markUnread",
+    "onCommand:library.queueReader",
     "onCommand:aris.newRun",
     "onCommand:aris.refresh",
     "onCommand:aris.retryRun",
@@ -24,25 +32,57 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "aris",
-          "title": "ARIS",
+          "id": "autoResearcher",
+          "title": "Auto Researcher",
           "icon": "media/aris.svg"
         }
       ]
     },
     "views": {
-      "aris": [
+      "autoResearcher": [
         {
-          "id": "aris.projects",
-          "name": "Projects"
+          "id": "autoResearcher.trackedPapers",
+          "name": "Tracked Papers"
         },
         {
-          "id": "aris.runs",
-          "name": "Runs"
+          "id": "autoResearcher.library",
+          "name": "Library"
+        },
+        {
+          "id": "autoResearcher.arisProjects",
+          "name": "ARIS Projects"
+        },
+        {
+          "id": "autoResearcher.arisRuns",
+          "name": "ARIS Runs"
         }
       ]
     },
     "commands": [
+      {
+        "command": "tracker.refresh",
+        "title": "Auto Researcher: Refresh Tracked Papers"
+      },
+      {
+        "command": "tracker.savePaper",
+        "title": "Auto Researcher: Save Tracked Paper"
+      },
+      {
+        "command": "library.refresh",
+        "title": "Auto Researcher: Refresh Library"
+      },
+      {
+        "command": "library.markRead",
+        "title": "Auto Researcher: Mark Paper Read"
+      },
+      {
+        "command": "library.markUnread",
+        "title": "Auto Researcher: Mark Paper Unread"
+      },
+      {
+        "command": "library.queueReader",
+        "title": "Auto Researcher: Queue Reader"
+      },
       {
         "command": "aris.newRun",
         "title": "ARIS: New Run"
@@ -61,7 +101,7 @@
       }
     ],
     "configuration": {
-      "title": "ARIS",
+      "title": "Auto Researcher",
       "properties": {
         "aris.apiBaseUrl": {
           "type": "string",

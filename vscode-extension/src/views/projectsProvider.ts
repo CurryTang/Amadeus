@@ -1,15 +1,5 @@
 import type { ArisStore } from '../state/store';
-
-export type TreeViewItem = {
-  id: string;
-  label: string;
-  description?: string;
-  command?: {
-    command: string;
-    title: string;
-    arguments?: unknown[];
-  };
-};
+import type { TreeViewItem } from './types';
 
 export class ProjectsProvider {
   constructor(private readonly store: ArisStore) {}

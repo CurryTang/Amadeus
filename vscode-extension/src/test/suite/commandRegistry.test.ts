@@ -21,6 +21,12 @@ test('registerCommandDefinitions registers the ARIS command set', async () => {
   };
 
   registerCommandDefinitions(fakeVscode, fakeContext, {
+    refreshTrackedPapers: async () => undefined,
+    saveTrackedPaper: async () => undefined,
+    refreshLibrary: async () => undefined,
+    markPaperRead: async () => undefined,
+    markPaperUnread: async () => undefined,
+    queueReader: async () => undefined,
     newRun: async () => undefined,
     refresh: async () => undefined,
     retryRun: async () => undefined,
@@ -28,6 +34,12 @@ test('registerCommandDefinitions registers the ARIS command set', async () => {
   });
 
   assert.deepEqual(registered, [
+    COMMAND_IDS.refreshTrackedPapers,
+    COMMAND_IDS.saveTrackedPaper,
+    COMMAND_IDS.refreshLibrary,
+    COMMAND_IDS.markPaperRead,
+    COMMAND_IDS.markPaperUnread,
+    COMMAND_IDS.queueReader,
     COMMAND_IDS.newRun,
     COMMAND_IDS.refresh,
     COMMAND_IDS.retryRun,

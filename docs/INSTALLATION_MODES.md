@@ -138,11 +138,17 @@ The VS Code companion is not a separate deployment mode. It is a client surface 
 Use it when:
 
 - ARIS is already running through the normal backend/local-executor topology
-- you want a compact in-editor control surface for ARIS runs
-- you do not need Chrome-extension save flows inside VS Code
+- you want a compact in-editor control surface for tracked papers, library actions, and ARIS runs
+- you do not need Chrome-extension save flows or browser capture inside VS Code
 
 The extension currently depends on the backend exposing:
 
+- `GET /api/tracker/feed`
+- `POST /api/upload/arxiv`
+- `GET /api/documents`
+- `GET /api/documents/:id/notes`
+- `PATCH /api/documents/:id/read`
+- `POST /api/reader/queue/:documentId`
 - `GET /api/aris/context`
 - `GET /api/aris/runs`
 - `GET /api/aris/runs/:runId`
