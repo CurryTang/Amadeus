@@ -23,6 +23,11 @@ const {
   shouldAnnotateFullTrackerFeed,
 } = require('../services/tracker-feed-snapshot.service');
 const {
+  createTrackerArxivFeedMetadataState,
+  enrichTrackerFeedWithArxivMetadata,
+  needsTrackerFeedArxivEnrichment,
+} = require('../services/tracker-arxiv-feed.service');
+const {
   extractTwitterHandle,
   normalizeTwitterProfileLinks,
 } = require('../utils/twitter-profile-links');
@@ -48,9 +53,15 @@ const FEED_CACHE_MAX_ITEMS = Number.isFinite(Number(config.tracker?.feedCacheMax
   ? Math.max(1, Math.min(Number(config.tracker.feedCacheMaxItems), 20000))
   : 1000;
 const FEED_METADATA_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_METADATA_TIMEOUT_MS || '4500', 10);
-const FEED_METADATA_ENRICH_MAX = Number.isFinite(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '80', 10))
-  ? Math.max(0, Math.min(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '80', 10), 500))
-  : 80;
+const FEED_METADATA_ENRICH_MAX = Number.isFinite(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '3', 10))
+  ? Math.max(0, Math.min(parseInt(process.env.TRACKER_FEED_METADATA_ENRICH_MAX || '3', 10), 5))
+  : 3;
+const FEED_METADATA_CACHE_TTL_MS = Number.isFinite(parseInt(process.env.TRACKER_FEED_METADATA_CACHE_TTL_MS || String(12 * 60 * 60 * 1000), 10))
+  ? Math.max(60 * 1000, Math.min(parseInt(process.env.TRACKER_FEED_METADATA_CACHE_TTL_MS || String(12 * 60 * 60 * 1000), 10), 7 * 24 * 60 * 60 * 1000))
+  : 12 * 60 * 60 * 1000;
+const FEED_METADATA_MIN_INTERVAL_MS = Number.isFinite(parseInt(process.env.TRACKER_FEED_METADATA_MIN_INTERVAL_MS || '3000', 10))
+  ? Math.max(1000, Math.min(parseInt(process.env.TRACKER_FEED_METADATA_MIN_INTERVAL_MS || '3000', 10), 60 * 1000))
+  : 3000;
 const FEED_REQUEST_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_REQUEST_TIMEOUT_MS || '10000', 10);
 const FEED_PAGE_ANNOTATE_TIMEOUT_MS = parseInt(process.env.TRACKER_FEED_PAGE_ANNOTATE_TIMEOUT_MS || '4500', 10);
 const FEED_PERSONALIZATION_ENABLED = String(process.env.TRACKER_FEED_PERSONALIZATION || 'true').toLowerCase() !== 'false';
@@ -102,6 +113,7 @@ let staleProxyTriggerInFlight = false;
 let staleProxyLastAttemptAt = 0;
 const userFeedProfileCache = new Map();
 const trackerFeedPageCache = createTrackerFeedPageCache();
+const trackerArxivFeedMetadataState = createTrackerArxivFeedMetadataState();
 
 function getLastRunAgeMs(lastRunAt) {
   if (!lastRunAt) return Number.POSITIVE_INFINITY;
@@ -1415,25 +1427,9 @@ function normalizeFeedArticleItem(raw, source) {
   };
 }
 
-function needsArxivEnrichment(item) {
-  if (!item?.arxivId) return false;
-  const weakTitle = isLowSignalTitle(item.title);
-  const weakAbstract = String(item.abstract || '').trim().length < 60;
-  const noAuthors = !Array.isArray(item.authors) || item.authors.length === 0;
-  return weakTitle || (weakAbstract && noAuthors);
-}
-
 function hasLowSignalTwitterTitles(items = []) {
   if (!Array.isArray(items) || items.length === 0) return false;
-  return items.some((item) => {
-    if (!item?.arxivId) return false;
-    const primaryType = normalizeTrackerSourceType(item?.sourceType);
-    const sourceTypes = Array.isArray(item?.sourceTypes) ? item.sourceTypes : [];
-    const isTwitter = primaryType === 'twitter'
-      || sourceTypes.some((type) => normalizeTrackerSourceType(type) === 'twitter');
-    if (!isTwitter) return false;
-    return isLowSignalTitle(item.title);
-  });
+  return items.some((item) => needsTrackerFeedArxivEnrichment(item));
 }
 
 async function withTimeout(task, timeoutMs, label) {
@@ -1460,60 +1456,19 @@ function isTimeoutError(error) {
 }
 
 async function enrichFeedWithArxivMetadata(items = []) {
-  if (!Array.isArray(items) || items.length === 0 || FEED_METADATA_ENRICH_MAX <= 0) return items;
-
-  const enriched = [...items];
-  const weakCandidates = items
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => needsArxivEnrichment(item));
-
-  const twitterCandidates = weakCandidates.filter(({ item }) =>
-    String(item?.sourceType || '').toLowerCase() === 'twitter'
-  );
-  const nonTwitterCandidates = weakCandidates.filter(({ item }) =>
-    String(item?.sourceType || '').toLowerCase() !== 'twitter'
-  );
-
-  // Always prioritize weak-title Twitter items so social-post text is replaced
-  // by canonical paper metadata titles whenever possible.
-  const cap = Math.max(FEED_METADATA_ENRICH_MAX, twitterCandidates.length);
-  const candidates = [...twitterCandidates, ...nonTwitterCandidates].slice(0, cap);
-
-  if (candidates.length === 0) return enriched;
-
-  const concurrency = Math.min(4, candidates.length);
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < candidates.length) {
-      const current = candidates[cursor++];
-      const { item, idx } = current;
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const meta = await withTimeout(
-          () => arxivService.fetchMetadata(item.arxivId),
-          FEED_METADATA_TIMEOUT_MS,
-          'arxiv_metadata'
-        );
-        const next = { ...enriched[idx] };
-        next.title = chooseBestTitle(next.title, meta?.title, item.arxivId);
-        if (String(next.abstract || '').trim().length < 60 && meta?.abstract) {
-          next.abstract = String(meta.abstract).trim();
-        }
-        if ((!Array.isArray(next.authors) || next.authors.length === 0) && Array.isArray(meta?.authors)) {
-          next.authors = meta.authors;
-        }
-        if (!next.publishedAt && meta?.published) {
-          next.publishedAt = parsePostedAt(meta.published);
-        }
-        enriched[idx] = next;
-      } catch (_) {
-        // Keep original feed item when metadata enrichment fails/times out.
-      }
-    }
-  };
-
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
-  return enriched;
+  return enrichTrackerFeedWithArxivMetadata(items, {
+    maxEnrich: FEED_METADATA_ENRICH_MAX,
+    cacheTtlMs: FEED_METADATA_CACHE_TTL_MS,
+    minIntervalMs: FEED_METADATA_MIN_INTERVAL_MS,
+    state: trackerArxivFeedMetadataState,
+    chooseBestTitle,
+    parsePublishedAt: parsePostedAt,
+    fetchMetadata: (arxivId) => withTimeout(
+      () => arxivService.fetchMetadata(arxivId),
+      FEED_METADATA_TIMEOUT_MS,
+      'arxiv_metadata'
+    ),
+  });
 }
 
 function applySourceFilters(items, config) {
