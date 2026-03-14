@@ -28,6 +28,7 @@ test('LibraryStore refreshes library papers, loads selected detail, and exposes 
           title: 'Saved Paper',
           type: 'paper',
           originalUrl: 'https://arxiv.org/abs/2503.00001',
+          downloadUrl: 'https://signed.example.com/paper.pdf',
           tags: [],
           processingStatus: 'idle',
           read: false,

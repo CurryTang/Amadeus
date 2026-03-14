@@ -4,6 +4,7 @@ export const COMMAND_IDS = {
   refreshLibrary: 'library.refresh',
   markPaperRead: 'library.markRead',
   markPaperUnread: 'library.markUnread',
+  openLibraryPdf: 'library.openPdf',
   queueReader: 'library.queueReader',
   newRun: 'aris.newRun',
   refresh: 'aris.refresh',
@@ -17,6 +18,7 @@ export type CommandHandlers = {
   refreshLibrary: () => unknown | Promise<unknown>;
   markPaperRead: () => unknown | Promise<unknown>;
   markPaperUnread: () => unknown | Promise<unknown>;
+  openLibraryPdf: () => unknown | Promise<unknown>;
   queueReader: () => unknown | Promise<unknown>;
   newRun: () => unknown | Promise<unknown>;
   refresh: () => unknown | Promise<unknown>;
@@ -45,6 +47,7 @@ export function registerCommandDefinitions(
     vscodeApi.commands.registerCommand(COMMAND_IDS.refreshLibrary, handlers.refreshLibrary),
     vscodeApi.commands.registerCommand(COMMAND_IDS.markPaperRead, handlers.markPaperRead),
     vscodeApi.commands.registerCommand(COMMAND_IDS.markPaperUnread, handlers.markPaperUnread),
+    vscodeApi.commands.registerCommand(COMMAND_IDS.openLibraryPdf, handlers.openLibraryPdf),
     vscodeApi.commands.registerCommand(COMMAND_IDS.queueReader, handlers.queueReader),
     vscodeApi.commands.registerCommand(COMMAND_IDS.newRun, handlers.newRun),
     vscodeApi.commands.registerCommand(COMMAND_IDS.refresh, handlers.refresh),

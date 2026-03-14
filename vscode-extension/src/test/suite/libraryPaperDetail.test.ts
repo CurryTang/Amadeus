@@ -9,6 +9,7 @@ test('renderLibraryPaperDetailHtml includes library metadata and library-only ac
     title: 'Saved Paper',
     type: 'paper',
     originalUrl: 'https://arxiv.org/abs/2503.00001',
+    downloadUrl: 'https://signed.example.com/paper.pdf',
     tags: ['ml'],
     processingStatus: 'idle',
     read: false,
@@ -25,5 +26,6 @@ test('renderLibraryPaperDetailHtml includes library metadata and library-only ac
   assert.match(html, /Saved Paper/);
   assert.match(html, /Detailed notes/);
   assert.match(html, /Mark Read/);
+  assert.match(html, /Open PDF/);
   assert.match(html, /Queue Reader/);
 });

@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { ArisClient } from './aris/client';
 import { getAuthToken, storeAuthToken } from './auth';
@@ -6,6 +9,7 @@ import { runCopyRunIdCommand } from './commands/copyRunId';
 import { runMarkPaperReadCommand } from './commands/markPaperRead';
 import { runMarkPaperUnreadCommand } from './commands/markPaperUnread';
 import { runNewRunCommand } from './commands/newRun';
+import { runOpenLibraryPdfCommand } from './commands/openLibraryPdf';
 import { runQueueReaderCommand } from './commands/queueReader';
 import { runRefreshCommand } from './commands/refresh';
 import { runRetryRunCommand } from './commands/retryRun';
@@ -122,6 +126,10 @@ export function activate(context: vscode.ExtensionContext): void {
         if (libraryStore.selectedPaperDetail) {
           detailPanel.showSelection({ kind: 'library-paper', item: libraryStore.selectedPaperDetail });
         }
+        return;
+      }
+      if (actionType === 'open-library-pdf') {
+        await openLibraryPdf();
         return;
       }
       if (actionType === 'queue-reader') {
@@ -251,6 +259,46 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  const downloadPdfToTempFile = async (url: string, title: string): Promise<string> => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`PDF download failed with status ${response.status}`);
+    }
+
+    const pdfDir = join(tmpdir(), 'auto-researcher-vscode');
+    await mkdir(pdfDir, { recursive: true });
+    const safeTitle = title
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'paper';
+    const filePath = join(pdfDir, `${safeTitle}-${Date.now()}.pdf`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await writeFile(filePath, buffer);
+    return filePath;
+  };
+
+  const openPdfInVscode = async (filePath: string): Promise<void> => {
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(filePath));
+  };
+
+  const openLibraryPdf = async () => {
+    try {
+      await runOpenLibraryPdfCommand({
+        client: libraryClient,
+        store: libraryStore,
+        downloadPdf: downloadPdfToTempFile,
+        openPdf: openPdfInVscode,
+        openExternalUrl: async (url) => {
+          await vscode.env.openExternal(vscode.Uri.parse(url));
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      output.appendLine(`[library-pdf] ${message}`);
+      void vscode.window.showErrorMessage(`Open PDF failed: ${message}`);
+    }
+  };
+
   registerCommandDefinitions(vscode, context, {
     refreshTrackedPapers,
     saveTrackedPaper: async () => {
@@ -264,6 +312,7 @@ export function activate(context: vscode.ExtensionContext): void {
     markPaperUnread: async () => {
       await runMarkPaperUnreadCommand({ client: libraryClient, store: libraryStore });
     },
+    openLibraryPdf,
     queueReader: async () => {
       await runQueueReaderCommand({ client: libraryClient, store: libraryStore });
     },

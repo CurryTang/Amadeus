@@ -22,6 +22,18 @@ test('LibraryClient normalizes library summaries, detail, read state, and reader
       ],
       total: 1,
     }],
+    ['GET http://localhost:3000/api/documents/42', {
+      id: 42,
+      title: 'Saved Paper',
+      type: 'paper',
+      originalUrl: 'https://arxiv.org/abs/2503.00001',
+      tags: ['ml'],
+      processingStatus: 'idle',
+      isRead: false,
+      createdAt: '2026-03-13T12:00:00.000Z',
+      updatedAt: '2026-03-14T12:00:00.000Z',
+      downloadUrl: 'https://signed.example.com/paper.pdf',
+    }],
     ['GET http://localhost:3000/api/documents/42/notes', {
       id: 42,
       title: 'Saved Paper',
@@ -77,8 +89,12 @@ test('LibraryClient normalizes library summaries, detail, read state, and reader
   assert.equal(papers[0].read, false);
   assert.equal(papers[0].processingStatus, 'idle');
   assert.equal(detail.notesContent, 'Detailed notes');
+  assert.equal(detail.originalUrl, 'https://arxiv.org/abs/2503.00001');
+  assert.equal(detail.downloadUrl, 'https://signed.example.com/paper.pdf');
   assert.equal(readState.isRead, true);
   assert.equal(queued.status, 'queued');
   assert.equal(requests[0].headers?.Authorization, 'Bearer token-123');
-  assert.match(requests[2].body || '', /"isRead":true/);
+  const readRequest = requests.find((request) => request.method === 'PATCH');
+  assert.ok(readRequest);
+  assert.match(readRequest.body || '', /"isRead":true/);
 });
