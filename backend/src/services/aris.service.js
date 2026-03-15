@@ -1064,6 +1064,8 @@ function createArisService(overrides = {}) {
         host: server.host,
         user: server.user,
         port: server.port,
+        proxy_jump: server.proxy_jump || '',
+        ssh_key_path: server.ssh_key_path || '',
       };
     } else {
       const runners = listRunnerServers(servers);
