@@ -19,9 +19,9 @@ Your personal AI research assistant that automatically reads, summarizes, organi
 |:---:|:---:|
 | ![ARIS](assets/demo_aris.png) | ![Tracker](assets/demo_tracker.png) |
 
-| Chrome Extension | AI-Generated Notes |
+| Chrome Extension | |
 |:---:|:---:|
-| ![Extension](assets/demo_extension.png) | ![Notes](assets/demo_notes.png) |
+| ![Extension](assets/demo_extension.png) | |
 
 ## Features
 
