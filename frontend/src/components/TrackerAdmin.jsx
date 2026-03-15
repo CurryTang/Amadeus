@@ -485,10 +485,8 @@ function SessionPathField({ value, onChange, apiUrl, getAuthHeaders }) {
       )}
 
       <p className="ssh-form-hint">
-        <strong>How to get the session file:</strong><br />
-        1. On your Mac/PC, log into X/Twitter in a browser.<br />
-        2. Export the session: <code>npm run setup:x-session</code> in the <code>backend/</code> folder, or use Playwright MCP → save storage state.<br />
-        3. Click <em>Upload Session File</em> above — the file is sent to the server and the path is set automatically.
+        <strong>Quick setup:</strong> Run <code>cd backend && npm run setup:x-session</code> — it opens a browser, you log in, and it uploads to the server automatically.<br />
+        Or upload a session file manually with the button above.
       </p>
     </div>
   );
@@ -520,8 +518,11 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
   const lastRunErrors = Array.isArray(status?.lastRunResult)
     ? status.lastRunResult.filter((entry) => {
       if (!entry) return false;
-      if (String(entry.error || '').trim()) return true;
-      return Number(entry.failed || 0) > 0;
+      const errStr = String(entry.error || '').trim();
+      if (!errStr && Number(entry.failed || 0) <= 0) return false;
+      // Suppress stale session errors when setup-status already says ready
+      if (twitterPlaywrightSetup?.ready && /storage state not found|setup:x-session/i.test(errStr)) return false;
+      return true;
     })
     : [];
   const hasPlaywrightTwitterSource = sources.some((source) => (
@@ -812,6 +813,8 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
   const getSourceLastError = (source) => {
     const sourceType = String(source?.type || '').toLowerCase();
     const sourceName = String(source?.name || '').trim();
+    const isStaleSessionErr = (errStr) =>
+      twitterPlaywrightSetup?.ready && /storage state not found|setup:x-session/i.test(errStr);
     if (Array.isArray(status?.lastRunResult)) {
       const match = status.lastRunResult.find((entry) => (
         String(entry?.type || '').toLowerCase() === sourceType
@@ -819,8 +822,9 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
         && (String(entry?.error || '').trim() || Number(entry?.failed || 0) > 0)
       ));
       if (match) {
-        if (String(match.error || '').trim()) return formatSourceError(String(match.error).trim());
-        return 'Last run failed';
+        const errStr = String(match.error || '').trim();
+        if (errStr && !isStaleSessionErr(errStr)) return formatSourceError(errStr);
+        if (!errStr) return 'Last run failed';
       }
     }
     const feedMatch = feedPerSource.find((entry) => (
@@ -828,7 +832,10 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
       && String(entry?.source || '').trim() === sourceName
       && entry?.reason
     ));
-    return feedMatch?.reason ? formatSourceError(String(feedMatch.reason)) : '';
+    if (feedMatch?.reason && !isStaleSessionErr(String(feedMatch.reason))) {
+      return formatSourceError(String(feedMatch.reason));
+    }
+    return '';
   };
 
   const handleCancelForm = () => {
@@ -885,44 +892,62 @@ function TrackerAdmin({ apiUrl, getAuthHeaders, onClose }) {
             </div>
           )}
 
-          {hasPlaywrightTwitterSource && twitterPlaywrightSetup && !twitterPlaywrightSetup.ready && (
-            <div className="tracker-info tracker-setup-warning" style={{ marginTop: 8 }}>
-              <p><strong>Twitter/X Playwright setup is incomplete on backend node.</strong></p>
-              {Array.isArray(twitterPlaywrightSetup.issues) && twitterPlaywrightSetup.issues.map((issue, idx) => (
-                <p key={`tracker-setup-issue-${idx}`} className="admin-error" style={{ margin: '2px 0' }}>
-                  {issue}
+          {hasPlaywrightTwitterSource && twitterPlaywrightSetup && (
+            <div className={`tracker-info ${twitterPlaywrightSetup.ready ? 'tracker-setup-ok' : 'tracker-setup-warning'}`} style={{ marginTop: 8 }}>
+              {twitterPlaywrightSetup.ready ? (
+                <p style={{ margin: 0 }}>
+                  <span className="session-path-badge ok">&#10003; X session OK</span>
+                  &nbsp;{twitterPlaywrightSetup.totalTwitterPlaywrightSources} source(s) configured
+                  <button
+                    type="button"
+                    className="tracker-recheck-btn"
+                    onClick={fetchTwitterPlaywrightSetupStatus}
+                    style={{ marginLeft: 8, fontSize: '0.85em', cursor: 'pointer', background: 'none', border: '1px solid #ccc', borderRadius: 4, padding: '1px 8px' }}
+                  >
+                    Re-check
+                  </button>
                 </p>
-              ))}
-
-              {/* Cross-OS sources: quick-fix upload per source */}
-              {Array.isArray(twitterPlaywrightSetup.sourceStatuses) &&
-                twitterPlaywrightSetup.sourceStatuses.filter((s) => s.pathLooksCrossOs || !s.storageStatePathExists).map((s) => (
-                  <div key={s.id} className="session-fix-row">
-                    <span className="session-fix-label">
-                      Source <strong>{s.name}</strong>: <code>{s.storageStatePath || '(no path)'}</code>
-                      {s.pathLooksCrossOs && <span className="session-path-badge warn"> ⚠ wrong OS path</span>}
-                      {!s.storageStatePathExists && !s.pathLooksCrossOs && <span className="session-path-badge warn"> ✗ file not found</span>}
-                    </span>
-                    <SessionPathField
-                      value={s.storageStatePath || ''}
-                      onChange={async (_key, newPath) => {
-                        try {
-                          await axios.put(`${apiUrl}/tracker/sources/${s.id}`, {
-                            config: { storageStatePath: newPath },
-                          }, { headers: getAuthHeaders() });
+              ) : (
+                <>
+                  <p style={{ margin: '0 0 4px' }}><strong>Twitter/X session needs setup</strong></p>
+                  {!twitterPlaywrightSetup.chromiumExecutableExists && (
+                    <p className="admin-error" style={{ margin: '2px 0' }}>
+                      Chromium missing on server. Run: <code>npx playwright install chromium</code>
+                    </p>
+                  )}
+                  {twitterPlaywrightSetup.sourceStatuses?.some((s) => !s.storageStatePathExists) && (
+                    <div style={{ margin: '4px 0' }}>
+                      <p className="admin-error" style={{ margin: '2px 0' }}>
+                        Session file missing. Fix: <code>cd backend && npm run setup:x-session</code>
+                      </p>
+                      <SessionPathField
+                        value={twitterPlaywrightSetup.envStorageStatePath || ''}
+                        onChange={async (_key, newPath) => {
+                          // Update all broken sources at once
+                          const broken = (twitterPlaywrightSetup.sourceStatuses || []).filter((s) => !s.storageStatePathExists);
+                          for (const s of broken) {
+                            try {
+                              await axios.put(`${apiUrl}/tracker/sources/${s.id}`, {
+                                config: { storageStatePath: newPath },
+                              }, { headers: getAuthHeaders() });
+                            } catch (_) {}
+                          }
                           await fetchTwitterPlaywrightSetupStatus();
-                        } catch (_) {}
-                      }}
-                      apiUrl={apiUrl}
-                      getAuthHeaders={getAuthHeaders}
-                    />
-                  </div>
-                ))}
-
-              {twitterPlaywrightSetup?.envPathLooksCrossOs && (
-                <p className="admin-error" style={{ marginTop: 6 }}>
-                  Env var <code>X_PLAYWRIGHT_STORAGE_STATE_PATH</code> = <code>{twitterPlaywrightSetup.envStorageStatePath}</code> looks like a Mac path. Update your backend <code>.env</code> to a server-side path.
-                </p>
+                        }}
+                        apiUrl={apiUrl}
+                        getAuthHeaders={getAuthHeaders}
+                      />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="tracker-recheck-btn"
+                    onClick={fetchTwitterPlaywrightSetupStatus}
+                    style={{ marginTop: 4, fontSize: '0.85em', cursor: 'pointer', background: 'none', border: '1px solid #ccc', borderRadius: 4, padding: '2px 10px' }}
+                  >
+                    Re-check
+                  </button>
+                </>
               )}
             </div>
           )}

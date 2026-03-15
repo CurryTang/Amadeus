@@ -28,6 +28,7 @@
     "express": "^4.18.2",
     "express-rate-limit": "^8.2.1",
     "form-data": "^4.0.0",
+    "formdata-node": "^6.0.3",
     "helmet": "^7.1.0",
     "imapflow": "^1.2.9",
     "js-yaml": "^4.1.0",
@@ -38,7 +39,8 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "playwright": "^1.52.0",
-    "puppeteer": "^21.6.0"
+    "puppeteer": "^21.6.0",
+    "ws": "^8.19.0"
   },
   "optionalDependencies": {
     "@anthropic-ai/sdk": "^0.20.0",

@@ -156,7 +156,7 @@ Secret Access Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 Edit your backend `.env` file:
 
 ```bash
-# /Users/czk/auto-researcher/backend/.env
+# /path/to/Amadeus/backend/.env
 
 # Server Configuration
 PORT=3000
@@ -182,7 +182,7 @@ CORS_ORIGIN=*
 Test that everything works:
 
 ```bash
-cd /Users/czk/auto-researcher/backend
+cd /path/to/Amadeus/backend
 npm install
 npm run dev
 ```

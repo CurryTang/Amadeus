@@ -1,5 +1,5 @@
 // Configuration - will be loaded from storage
-let API_BASE_URL = 'https://your-domain.example.com/api';
+let API_BASE_URL = 'http://localhost:3000/api';
 let storedPresets = [];
 let currentPreset = null; // Currently detected preset
 
@@ -31,7 +31,7 @@ let currentArxivInfo = null; // Keep for backward compatibility
 let currentOpenReviewInfo = null;
 let userHasEditedTitle = false; // Prevent async metadata from overwriting user edits
 let authToken = null; // JWT for authenticated API calls
-const { buildArxivSaveRequest, shouldFetchArxivMetadata } = globalThis.AutoReaderArxivSave;
+const { buildArxivSaveRequest, resolveApiBaseUrl, shouldFetchArxivMetadata } = globalThis.AutoReaderArxivSave;
 
 // --- Auth helpers ---
 
@@ -226,16 +226,7 @@ function setupPasteHandlers() {
 async function loadStoredSettings() {
   try {
     const result = await chrome.storage.local.get(['apiBaseUrl', 'presets', 'defaultProvider']);
-
-    if (result.apiBaseUrl) {
-      // Migrate old direct-IP or localhost URLs to production HTTPS
-      if (result.apiBaseUrl.startsWith('http://')) {
-        API_BASE_URL = 'https://your-domain.example.com/api';
-        await chrome.storage.local.set({ apiBaseUrl: API_BASE_URL });
-      } else {
-        API_BASE_URL = result.apiBaseUrl;
-      }
-    }
+    API_BASE_URL = resolveApiBaseUrl(result.apiBaseUrl);
 
     if (result.presets && result.presets.length > 0) {
       storedPresets = result.presets;
@@ -443,24 +434,27 @@ async function checkForPresets() {
 
 // Handle arXiv preset specifically (has special API endpoint)
 async function handleArxivPreset(tab) {
-  // Try to get arXiv info from content script
-  try {
-    const arxivInfo = await chrome.tabs.sendMessage(tab.id, { action: 'getArxivInfo' });
-    if (arxivInfo && arxivInfo.isArxiv) {
-      currentArxivInfo = arxivInfo;
-      if (shouldFetchArxivMetadata(arxivInfo)) {
-        await fetchArxivMetadata(arxivInfo.arxivId);
-      } else {
-        showArxivMode(arxivInfo);
-      }
+  const arxivInfo = await getArxivInfoForTab(tab);
+  if (arxivInfo?.isArxiv) {
+    currentArxivInfo = arxivInfo;
+    if (shouldFetchArxivMetadata(arxivInfo)) {
+      await fetchArxivMetadata(arxivInfo.arxivId);
+    } else {
+      showArxivMode(arxivInfo);
     }
-  } catch (e) {
-    // Content script not available, try to parse URL directly
-    const arxivId = parseArxivUrlFromPopup(tab.url);
-    if (arxivId) {
-      currentArxivInfo = { isArxiv: true, arxivId, pdfUrl: `https://arxiv.org/pdf/${arxivId}.pdf` };
-      await fetchArxivMetadata(arxivId);
-    }
+    return;
+  }
+
+  // Final fallback: parse URL directly and ask the network for metadata.
+  const arxivId = parseArxivUrlFromPopup(tab.url);
+  if (arxivId) {
+    currentArxivInfo = {
+      isArxiv: true,
+      arxivId,
+      pdfUrl: `https://arxiv.org/pdf/${arxivId}.pdf`,
+      absUrl: `https://arxiv.org/abs/${arxivId}`,
+    };
+    await fetchArxivMetadata(arxivId);
   }
 }
 
@@ -746,6 +740,101 @@ function parseOpenReviewUrlFromPopup(url) {
   if (forumMatch) return forumMatch[1];
 
   return null;
+}
+
+async function getArxivInfoForTab(tab) {
+  if (!tab?.id) return null;
+  let fallbackArxivInfo = null;
+
+  try {
+    const arxivInfo = await chrome.tabs.sendMessage(tab.id, { action: 'getArxivInfo' });
+    if (arxivInfo?.isArxiv) {
+      if (!shouldFetchArxivMetadata(arxivInfo)) {
+        return arxivInfo;
+      }
+      fallbackArxivInfo = arxivInfo;
+    }
+  } catch (error) {
+    console.log('Content-script arXiv extraction unavailable, trying injected fallback:', error);
+  }
+
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const normalize = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+        const extractId = (url) => {
+          const patterns = [
+            /arxiv\.org\/abs\/(\d{4}\.\d{4,5}(?:v\d+)?)/i,
+            /arxiv\.org\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?)(?:\.pdf)?/i,
+            /arxiv\.org\/html\/(\d{4}\.\d{4,5}(?:v\d+)?)/i,
+            /arxiv\.org\/abs\/([a-z-]+\/\d{7}(?:v\d+)?)/i,
+            /arxiv\.org\/pdf\/([a-z-]+\/\d{7}(?:v\d+)?)(?:\.pdf)?/i,
+          ];
+          for (const pattern of patterns) {
+            const match = String(url || '').match(pattern);
+            if (match) return match[1].replace(/\.pdf$/i, '');
+          }
+          return null;
+        };
+
+        if (!window.location.hostname.includes('arxiv.org')) {
+          return { isArxiv: false };
+        }
+
+        const arxivId = extractId(window.location.href);
+        if (!arxivId) {
+          return { isArxiv: false };
+        }
+
+        const titleElement = document.querySelector('h1.title, h1.title.mathjax, main h1');
+        const authorsElement = document.querySelector('div.authors, .authors');
+        const abstractElement = document.querySelector('blockquote.abstract, .abstract');
+        const subjectElement = document.querySelector('td.subjects');
+        const citationTitle = document.querySelector('meta[name="citation_title"]')?.getAttribute('content');
+        const citationAbstract = document.querySelector('meta[name="citation_abstract"]')?.getAttribute('content');
+        const citationAuthors = Array.from(document.querySelectorAll('meta[name="citation_author"]'))
+          .map((node) => normalize(node.getAttribute('content')))
+          .filter(Boolean);
+
+        const authors = citationAuthors.length > 0
+          ? citationAuthors
+          : Array.from(authorsElement?.querySelectorAll('a') || [])
+              .map((node) => normalize(node.textContent))
+              .filter(Boolean);
+
+        const title = normalize(
+          citationTitle || titleElement?.textContent?.replace(/^Title:\s*/i, '') || ''
+        );
+        const abstract = normalize(
+          citationAbstract || abstractElement?.textContent?.replace(/^Abstract:\s*/i, '') || ''
+        );
+        const categories = normalize(subjectElement?.textContent || '')
+          .split(';')
+          .map((value) => value.trim())
+          .filter(Boolean);
+
+        return {
+          isArxiv: true,
+          arxivId,
+          title,
+          authors,
+          abstract,
+          categories,
+          pdfUrl: `https://arxiv.org/pdf/${arxivId}.pdf`,
+          absUrl: `https://arxiv.org/abs/${arxivId}`,
+        };
+      },
+    });
+
+    if (result?.result?.isArxiv) {
+      return result.result;
+    }
+  } catch (error) {
+    console.warn('Injected arXiv extraction failed:', error);
+  }
+
+  return fallbackArxivInfo;
 }
 
 // Fetch arXiv metadata directly from the arXiv Atom API (no backend required)

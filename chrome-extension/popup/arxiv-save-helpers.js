@@ -43,8 +43,14 @@
     };
   }
 
+  function resolveApiBaseUrl(rawValue) {
+    const trimmed = String(rawValue || '').trim();
+    return trimmed || 'http://localhost:3000/api';
+  }
+
   const api = {
     buildArxivSaveRequest,
+    resolveApiBaseUrl,
     shouldFetchArxivMetadata,
   };
 

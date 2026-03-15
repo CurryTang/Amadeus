@@ -78,29 +78,39 @@ function extractArxivInfo() {
 
   // Try to extract from abstract page
   if (window.location.pathname.includes('/abs/')) {
-    // Title from h1.title
-    const titleEl = document.querySelector('h1.title');
+    const normalize = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+    const titleEl = document.querySelector('h1.title, h1.title.mathjax, main h1');
+    const citationTitle = document.querySelector('meta[name="citation_title"]')?.getAttribute('content');
     if (titleEl) {
-      info.title = titleEl.textContent.replace(/^Title:\s*/i, '').trim();
+      info.title = normalize(citationTitle || titleEl.textContent.replace(/^Title:\s*/i, ''));
+    } else if (citationTitle) {
+      info.title = normalize(citationTitle);
     }
 
-    // Authors from div.authors
-    const authorsEl = document.querySelector('div.authors');
+    // Prefer visible author links, then fall back to citation meta tags.
+    const authorsEl = document.querySelector('div.authors, .authors');
     if (authorsEl) {
       const authorLinks = authorsEl.querySelectorAll('a');
       info.authors = Array.from(authorLinks).map(a => a.textContent.trim());
     }
+    if (info.authors.length === 0) {
+      info.authors = Array.from(document.querySelectorAll('meta[name="citation_author"]'))
+        .map((node) => normalize(node.getAttribute('content')))
+        .filter(Boolean);
+    }
 
-    // Abstract from blockquote.abstract
-    const abstractEl = document.querySelector('blockquote.abstract');
+    const abstractEl = document.querySelector('blockquote.abstract, .abstract');
+    const citationAbstract = document.querySelector('meta[name="citation_abstract"]')?.getAttribute('content');
     if (abstractEl) {
-      info.abstract = abstractEl.textContent.replace(/^Abstract:\s*/i, '').trim();
+      info.abstract = normalize(citationAbstract || abstractEl.textContent.replace(/^Abstract:\s*/i, ''));
+    } else if (citationAbstract) {
+      info.abstract = normalize(citationAbstract);
     }
 
     // Categories from div.subjects
     const subjectsEl = document.querySelector('td.subjects');
     if (subjectsEl) {
-      info.categories = subjectsEl.textContent.trim().split(';').map(s => s.trim());
+      info.categories = normalize(subjectsEl.textContent).split(';').map(s => s.trim()).filter(Boolean);
     }
   }
 

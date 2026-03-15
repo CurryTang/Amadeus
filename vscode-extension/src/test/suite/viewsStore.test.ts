@@ -14,7 +14,19 @@ test('ArisStore refreshes data, preserves selection, and exposes compact project
             { id: 'proj_1', name: 'Project One' },
             { id: 'proj_2', name: 'Project Two' },
           ],
-          runner: { id: 11, name: 'wsl-main', type: 'wsl', status: 'configured' },
+          runner: { id: 11, name: 'wsl-main', host: '127.0.0.1', type: 'wsl', status: 'configured' },
+          runners: [
+            { id: 11, name: 'wsl-main', host: '127.0.0.1', type: 'wsl', status: 'configured' },
+          ],
+          downstreamServers: [
+            { id: 12, name: 'gpu-a100-1', host: '10.0.0.8', status: 'configured' },
+          ],
+          defaultSelections: {
+            runnerServerId: 11,
+            downstreamServerId: 12,
+            remoteWorkspacePath: '/srv/aris/proj_1',
+            datasetRoot: '/mnt/data/set-a',
+          },
           quickActions: [],
           continueWhenOffline: true,
         };
@@ -89,9 +101,14 @@ test('ArisStore refreshes data, preserves selection, and exposes compact project
   assert.equal(store.selectedProjectId, 'proj_1');
   assert.equal(store.selectedRunId, 'run_1');
   assert.equal(store.selectedRunDetail?.logPath, '/tmp/run.log');
+  assert.equal(store.selectedProjectDetail?.projectLabel, 'Project One');
+  assert.equal(store.selectedProjectDetail?.runnerLabel, 'WSL runner: wsl-main');
+  assert.equal(store.selectedProjectDetail?.destinationLabel, 'Experiment target: gpu-a100-1');
+  assert.equal(store.selectedProjectDetail?.recentRuns.length, 1);
   assert.equal(projectItems.length, 2);
   assert.equal(runItems.length, 1);
   assert.equal(projectItems[0].label, 'Project One');
+  assert.equal(projectItems[0].description, 'WSL: wsl-main');
   assert.equal(runItems[0].label, 'review prompt');
   assert.equal(runItems[0].description, 'running');
 });

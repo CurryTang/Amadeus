@@ -31,7 +31,7 @@ OBJECT_STORAGE_PROVIDER="unknown"
 REMOTE_HOST="${DO_SERVER_IP:-${REMOTE_HOST:-}}"
 REMOTE_USER="${REMOTE_USER:-root}"
 REMOTE_DIR="${REMOTE_DIR:-/var/www/auto-researcher}"
-REPO_URL="${REPO_URL:-https://github.com/CurryTang/auto-researcher.git}"
+REPO_URL="${REPO_URL:-https://github.com/CurryTang/Amadeus.git}"
 BRANCH="${BRANCH:-master}"
 
 BACKEND_PM2_APP="${BACKEND_PM2_APP:-auto-reader-api}"

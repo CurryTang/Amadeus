@@ -14,6 +14,7 @@ import ObsidianBatchPanel from './components/ObsidianBatchPanel';
 import LatestPapers from './components/LatestPapers';
 import SendModal from './components/SendModal';
 import ArisWorkspace from './components/aris/ArisWorkspace';
+import SessionMirror from './components/session-mirror/SessionMirror';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAiNotesSettings } from './hooks/useAiNotesSettings';
 import { useObsidianExportBatch } from './hooks/useObsidianExportBatch';
@@ -539,6 +540,7 @@ function AppContent() {
                 <Tabs.Trigger value="latest">Latest</Tabs.Trigger>
                 <Tabs.Trigger value="library">Library</Tabs.Trigger>
                 <Tabs.Trigger value="aris">ARIS</Tabs.Trigger>
+                <Tabs.Trigger value="sessions">Sessions</Tabs.Trigger>
               </Tabs.List>
             </Tabs.Root>
             <div className="header-actions">
@@ -786,6 +788,13 @@ function AppContent() {
 
         {activeArea === 'aris' && (
           <ArisWorkspace
+            apiUrl={API_URL}
+            getAuthHeaders={getAuthHeaders}
+          />
+        )}
+
+        {activeArea === 'sessions' && (
+          <SessionMirror
             apiUrl={API_URL}
             getAuthHeaders={getAuthHeaders}
           />

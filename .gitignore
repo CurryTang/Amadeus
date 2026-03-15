@@ -59,5 +59,34 @@ reference/
 .playwright-mcp/
 .worktrees/
 
-# Ad-hoc test/debug screenshots
-*.png
+# Ad-hoc test/debug screenshots (root level only)
+/*.png
+
+# Test screenshots in docs
+docs/test*.png
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Internal planning docs
+docs/testbackground.tex
+docs/testplan.md
+
+# Internal implementation plans
+docs/plans/
+
+# Internal design docs
+docs/plangen.md
+docs/skill-object-schema.md
+docs/VIBE_RESEARCHER_UX_REVIEW.md
+docs/VIBE_RESEARCH_UX_DESIGN.md
+docs/VIBE_RESEARCH_V2_IMPLEMENTATION.md
+docs/DEEP_MERGE_VIBE.md
+docs/PROJECT_STRUCTURE_TEMPLATE.md
+docs/research_agent_env_spec/
+docs/update/
+docs/architecture.excalidraw

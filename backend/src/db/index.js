@@ -358,9 +358,55 @@ Why this paper might be important for researchers.`
   `);
 
   await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      client_workspace_id TEXT NOT NULL,
+      local_project_path TEXT NOT NULL,
+      local_full_path TEXT DEFAULT '',
+      sync_excludes_json TEXT DEFAULT '[]',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+
+  // Migration: add local_full_path if missing (existing DBs)
+  try {
+    await db.execute(`ALTER TABLE aris_projects ADD COLUMN local_full_path TEXT DEFAULT ''`);
+  } catch (_) {
+    // Column already exists — ignore
+  }
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_project_targets (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      ssh_server_id INTEGER NOT NULL,
+      ssh_server_name TEXT NOT NULL,
+      remote_project_path TEXT NOT NULL,
+      remote_dataset_root TEXT DEFAULT '',
+      remote_checkpoint_root TEXT DEFAULT '',
+      remote_output_root TEXT DEFAULT '',
+      shared_fs_group TEXT DEFAULT '',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES aris_projects(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_project_targets_project
+    ON aris_project_targets(project_id, created_at DESC)
+  `);
+
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS aris_runs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
+      project_name TEXT DEFAULT '',
+      target_id TEXT,
+      target_name TEXT DEFAULT '',
+      local_project_path TEXT DEFAULT '',
       workflow_type TEXT NOT NULL,
       prompt TEXT NOT NULL,
       runner_server_id INTEGER,
@@ -375,6 +421,7 @@ Why this paper might be important for researchers.`
       latest_score REAL,
       latest_verdict TEXT DEFAULT '',
       summary TEXT DEFAULT '',
+      sync_strategy TEXT DEFAULT '',
       started_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       remote_pid INTEGER,
@@ -383,6 +430,47 @@ Why this paper might be important for researchers.`
       retry_of_run_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  try {
+    const arisRunCols = await db.execute(`PRAGMA table_info(aris_runs)`);
+    const colNames = new Set((arisRunCols.rows || []).map((c) => c.name));
+    const runColumns = [
+      { name: 'project_name', definition: "TEXT DEFAULT ''" },
+      { name: 'target_id', definition: 'TEXT' },
+      { name: 'target_name', definition: "TEXT DEFAULT ''" },
+      { name: 'local_project_path', definition: "TEXT DEFAULT ''" },
+      { name: 'sync_strategy', definition: "TEXT DEFAULT ''" },
+    ];
+    for (const col of runColumns) {
+      if (colNames.has(col.name)) continue;
+      await db.execute(`ALTER TABLE aris_runs ADD COLUMN ${col.name} ${col.definition}`);
+    }
+  } catch (err) {
+    console.warn('[Migration] Could not verify/add aris_runs extended columns:', err.message);
+  }
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_run_actions (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      status TEXT NOT NULL,
+      active_phase TEXT NOT NULL,
+      downstream_server_id INTEGER,
+      downstream_server_name TEXT DEFAULT '',
+      summary TEXT DEFAULT '',
+      log_path TEXT DEFAULT '',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES aris_runs(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_run_actions_run_created
+    ON aris_run_actions(run_id, created_at ASC)
   `);
 
   // Migration: add proxy_jump column for SSH ProxyJump support.
@@ -846,6 +934,29 @@ Why this paper might be important for researchers.`
   await db.execute(`
     CREATE INDEX IF NOT EXISTS idx_agent_session_cache_path_cached
     ON agent_session_cache(project_path, cached_at DESC)
+  `);
+
+  // Session Mirror: tracks Claude Code / Codex tmux sessions on remote SSH servers
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      ssh_server_id INTEGER NOT NULL REFERENCES ssh_servers(id) ON DELETE CASCADE,
+      tmux_session_name TEXT NOT NULL,
+      agent_type TEXT NOT NULL CHECK(agent_type IN ('claude','codex')),
+      label TEXT DEFAULT '',
+      cwd TEXT DEFAULT '',
+      status TEXT DEFAULT 'running' CHECK(status IN ('running','stopped','unknown')),
+      summary TEXT DEFAULT '',
+      prompt_digest TEXT DEFAULT '',
+      started_at DATETIME,
+      last_attached_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_server
+    ON agent_sessions(ssh_server_id, updated_at DESC)
   `);
 
   // Migration: reset stuck queued/pending papers to idle (on-demand generation)

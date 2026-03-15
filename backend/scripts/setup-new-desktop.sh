@@ -14,7 +14,7 @@
 #   - CLI tools installed: gemini, codex (at least one)
 #
 # Usage:
-#   git clone https://github.com/CurryTang/auto-researcher.git
+#   git clone https://github.com/CurryTang/Amadeus.git
 #   cd auto-researcher/backend
 #   ./scripts/setup-new-desktop.sh
 

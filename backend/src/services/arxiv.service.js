@@ -56,6 +56,95 @@ function getAbsUrl(paperId) {
   return `https://arxiv.org/abs/${paperId}`;
 }
 
+function decodeHtmlEntities(text = '') {
+  return String(text || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function extractMetaContent(html = '', name = '') {
+  if (!html || !name) return '';
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = html.match(new RegExp(`<meta[^>]+name=["']${escaped}["'][^>]+content=["']([^"']*)["']`, 'i'));
+  if (!match) return '';
+  return decodeHtmlEntities(match[1]).trim();
+}
+
+function extractAllMetaContent(html = '', name = '') {
+  if (!html || !name) return [];
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`<meta[^>]+name=["']${escaped}["'][^>]+content=["']([^"']*)["']`, 'ig');
+  const values = [];
+  let match;
+  // eslint-disable-next-line no-cond-assign
+  while ((match = regex.exec(html)) !== null) {
+    const value = decodeHtmlEntities(match[1]).trim();
+    if (value) values.push(value);
+  }
+  return values;
+}
+
+async function fetchAbsPageMetadata(paperId) {
+  const absUrl = getAbsUrl(paperId);
+
+  return new Promise((resolve, reject) => {
+    const request = https.get(absUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+    }, (response) => {
+      if (response.statusCode && response.statusCode >= 400) {
+        reject(new Error(`arXiv abs page request failed: HTTP ${response.statusCode}`));
+        return;
+      }
+
+      let data = '';
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+      response.on('end', () => {
+        try {
+          const title = extractMetaContent(data, 'citation_title')
+            || extractMetaContent(data, 'og:title')
+            || `arXiv:${paperId}`;
+          const authors = extractAllMetaContent(data, 'citation_author');
+          const abstract = extractMetaContent(data, 'citation_abstract')
+            || extractMetaContent(data, 'description');
+          const publishedRaw = extractMetaContent(data, 'citation_date')
+            || extractMetaContent(data, 'citation_online_date');
+          const subjectMatch = data.match(/<span class="primary-subject">([^<]+)<\/span>/i);
+          const primaryCategoryMatch = subjectMatch
+            ? subjectMatch[1].match(/\(([^)]+)\)\s*$/)
+            : null;
+
+          resolve({
+            id: paperId,
+            title: String(title || '').trim().replace(/\s+/g, ' '),
+            authors,
+            abstract: String(abstract || '').trim().replace(/\s+/g, ' '),
+            primaryCategory: primaryCategoryMatch ? primaryCategoryMatch[1].trim() : '',
+            published: String(publishedRaw || '').trim(),
+            pdfUrl: getPdfUrl(paperId),
+            absUrl,
+          });
+        } catch (error) {
+          reject(new Error('Failed to parse arXiv abs page metadata'));
+        }
+      });
+      response.on('error', reject);
+    });
+
+    request.on('error', reject);
+    request.setTimeout(15000, () => {
+      request.destroy(new Error('arXiv abs page request timeout'));
+    });
+  });
+}
+
 /**
  * Fetch paper metadata from arXiv API
  * @param {string} paperId - arXiv paper ID
@@ -369,6 +458,7 @@ module.exports = {
   isArxivUrl,
   getPdfUrl,
   getAbsUrl,
+  fetchAbsPageMetadata,
   fetchMetadata,
   fetchPdf,
   findCodeUrl,

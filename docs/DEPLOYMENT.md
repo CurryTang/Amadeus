@@ -63,8 +63,8 @@ The project includes a deployment script at `scripts/deploy.sh`.
 
 4. **Clone the repository:**
    ```bash
-   git clone https://github.com/CurryTang/auto-researcher.git
-   cd auto-researcher/backend
+   git clone https://github.com/CurryTang/Amadeus.git
+   cd Amadeus/backend
    ```
 
 5. **Install dependencies:**

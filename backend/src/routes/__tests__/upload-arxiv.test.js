@@ -49,3 +49,37 @@ test('resolveArxivUploadMetadata falls back to provided metadata when arXiv retu
   assert.deepEqual(metadata.authors, ['Author A']);
   assert.equal(metadata.absUrl, 'https://arxiv.org/abs/2501.12345');
 });
+
+test('resolveArxivUploadMetadata falls back to scraped metadata when arXiv times out and provided metadata is weak', async () => {
+  let fallbackCalls = 0;
+
+  const metadata = await uploadRouter.resolveArxivUploadMetadata({
+    arxivId: '2603.04918',
+    providedMetadata: {
+      title: '',
+      abstract: '',
+      authors: [],
+    },
+    fetchMetadata: async () => {
+      throw new Error('arXiv metadata request timeout');
+    },
+    fetchFallbackMetadata: async (arxivId) => {
+      fallbackCalls += 1;
+      assert.equal(arxivId, '2603.04918');
+      return {
+        id: arxivId,
+        title: 'BandPO',
+        abstract: 'Fallback abstract',
+        authors: ['Yuan Li'],
+        primaryCategory: 'cs.LG',
+        published: '2026-03-05',
+        absUrl: `https://arxiv.org/abs/${arxivId}`,
+      };
+    },
+  });
+
+  assert.equal(fallbackCalls, 1);
+  assert.equal(metadata.title, 'BandPO');
+  assert.equal(metadata.abstract, 'Fallback abstract');
+  assert.deepEqual(metadata.authors, ['Yuan Li']);
+});

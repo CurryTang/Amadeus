@@ -5,6 +5,7 @@
   "description": "Save papers, books, and blogs for your research. Convert webpages to PDF and organize your reading materials.",
   "permissions": [
     "activeTab",
+    "scripting",
     "storage",
     "clipboardRead",
     "cookies"

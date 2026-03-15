@@ -9,7 +9,9 @@ export class ProjectsProvider {
     return projects.map((project) => ({
       id: project.id,
       label: project.name,
-      description: project.id === this.store.selectedProjectId ? 'selected' : undefined,
+      description: project.id === this.store.selectedProjectId
+        ? this.store.selectedProjectDetail?.runnerLabel.replace('WSL runner: ', 'WSL: ')
+        : undefined,
     }));
   }
 }

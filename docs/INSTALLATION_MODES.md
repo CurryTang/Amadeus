@@ -118,8 +118,9 @@ The actual project-side install is handled by:
 
 That flow:
 
-- clones or updates the configured ARIS repo into the target project's `.claude/skills/aris`
+- materializes the full AIRS skill tree into the target project's `.claude/skills/*`
 - applies the Auto Researcher overlay for `research-lit`
+- writes a managed `CLAUDE.md` block into the target project
 - prints the MCP registration commands for the Auto Researcher library backend
 - assumes a persistent remote workspace model where code sync is incremental and datasets remain on remote paths instead of being uploaded from the client
 - pairs naturally with managed SSH server records, where the WSL runner is the ARIS control plane and other servers are downstream experiment targets
@@ -154,5 +155,16 @@ The extension currently depends on the backend exposing:
 - `GET /api/aris/runs/:runId`
 - `POST /api/aris/runs`
 - `POST /api/aris/runs/:runId/retry`
+- `POST /api/aris/runs/:runId/actions`
+
+The ARIS web workspace also assumes:
+
+- projects are created inside the ARIS workspace, not invented as a default placeholder
+- the local project folder is linked from the browser with the File System Access API
+- each project stores one or more saved deployment targets
+- each target points to an existing SSH server record plus a remote project path
+- remote dataset/checkpoint/output roots live on the saved target, not in the main launcher
+- launches select `project + target + workflow + prompt`
+- sync should be incremental and may become a no-op when files are already current or when shared filesystem metadata applies
 
 The extension package lives in `vscode-extension/`. Development details are in `vscode-extension/README.md`.

@@ -1,6 +1,7 @@
-import type { ArisRunDetail } from '../aris/types';
+import type { ArisProjectDetail, ArisRunDetail } from '../aris/types';
 import type { LibraryPaperDetail } from '../library/types';
 import type { TrackedPaperSummary } from '../tracker/types';
+import { renderProjectDetailHtml } from './templates/projectDetailHtml';
 import { renderLibraryPaperDetailHtml } from './templates/libraryPaperDetailHtml';
 import { renderTrackedPaperDetailHtml } from './templates/trackedPaperDetailHtml';
 import { renderRunDetailHtml } from './templates/runDetailHtml';
@@ -8,6 +9,7 @@ import { renderRunDetailHtml } from './templates/runDetailHtml';
 export type DetailSelection =
   | { kind: 'tracked-paper'; item: TrackedPaperSummary }
   | { kind: 'library-paper'; item: LibraryPaperDetail }
+  | { kind: 'aris-project'; item: ArisProjectDetail }
   | { kind: 'aris-run'; item: ArisRunDetail };
 
 export function buildDetailView(selection: DetailSelection): { title: string; html: string } {
@@ -21,6 +23,11 @@ export function buildDetailView(selection: DetailSelection): { title: string; ht
       return {
         title: selection.item.title,
         html: renderLibraryPaperDetailHtml(selection.item),
+      };
+    case 'aris-project':
+      return {
+        title: `ARIS Project ${selection.item.projectLabel}`,
+        html: renderProjectDetailHtml(selection.item),
       };
     case 'aris-run':
       return {

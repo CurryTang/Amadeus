@@ -63,8 +63,8 @@
 
 4. **克隆仓库：**
    ```bash
-   git clone https://github.com/CurryTang/auto-researcher.git
-   cd auto-researcher/backend
+   git clone https://github.com/CurryTang/Amadeus.git
+   cd Amadeus/backend
    ```
 
 5. **安装依赖：**

@@ -140,13 +140,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadSettings() {
   const result = await chrome.storage.local.get(['apiBaseUrl', 'presets', 'defaultProvider']);
 
-  // Load API URL - migrate from localhost if needed
-  let apiUrl = result.apiBaseUrl || 'https://your-domain.example.com/api';
-  if (apiUrl.includes('localhost')) {
-    apiUrl = 'https://your-domain.example.com/api';
-    // Auto-save the migration
-    await chrome.storage.local.set({ apiBaseUrl: apiUrl });
-  }
+  // Load API URL without rewriting local development endpoints.
+  const apiUrl = result.apiBaseUrl || 'http://localhost:3000/api';
   apiUrlInput.value = apiUrl;
 
   // Load default provider

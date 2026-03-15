@@ -5,13 +5,13 @@ import { runNewRunCommand } from '../../commands/newRun';
 import { runRetryRunCommand } from '../../commands/retryRun';
 import { runCopyRunIdCommand } from '../../commands/copyRunId';
 
-test('runNewRunCommand collects project, workflow, and prompt then refreshes the store', async () => {
-  const createCalls: Array<Record<string, string>> = [];
+test('runNewRunCommand collects project, target, workflow, and prompt then refreshes the store', async () => {
+  const createCalls: Array<Record<string, string | undefined>> = [];
   let refreshCalls = 0;
 
   await runNewRunCommand({
     client: {
-      async createRun(payload: { projectId: string; workflowType: string; prompt: string }) {
+      async createRun(payload: { projectId: string; targetId?: string; workflowType: string; prompt: string }) {
         createCalls.push(payload);
         return {
           id: 'run_2',
@@ -31,6 +31,12 @@ test('runNewRunCommand collects project, workflow, and prompt then refreshes the
           runDirectory: '',
         };
       },
+      async listTargets() {
+        return [{ id: 'target_1', projectId: 'proj_1', sshServerId: 1, sshServerName: 'server1', remoteProjectPath: '/srv/project', remoteDatasetRoot: '', remoteCheckpointRoot: '', remoteOutputRoot: '' }];
+      },
+      async lsRemoteFiles() {
+        return ['src/main.py', 'config.yaml'];
+      },
     },
     store: {
       selectedProjectId: 'proj_1',
@@ -49,6 +55,9 @@ test('runNewRunCommand collects project, workflow, and prompt then refreshes the
       async pickProject() {
         return 'proj_1';
       },
+      async pickTarget() {
+        return 'target_1';
+      },
       async pickWorkflow() {
         return 'literature_review';
       },
@@ -60,6 +69,7 @@ test('runNewRunCommand collects project, workflow, and prompt then refreshes the
 
   assert.equal(createCalls.length, 1);
   assert.equal(createCalls[0].projectId, 'proj_1');
+  assert.equal(createCalls[0].targetId, 'target_1');
   assert.equal(createCalls[0].workflowType, 'literature_review');
   assert.equal(refreshCalls, 1);
 });

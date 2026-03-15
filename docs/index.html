@@ -3,158 +3,355 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Auto Researcher | Release-Ready AI Research Workspace</title>
-  <meta
-    name="description"
-    content="Track trends, manage papers and notes, run Vibe Researcher workflows, and ship research outputs from one connected system."
-  >
+  <title>Amadeus — Your AI Research Assistant</title>
+  <meta name="description" content="Amadeus is a personal AI research assistant that automatically reads, summarizes, organizes, and acts on academic papers. One platform for paper management, trend tracking, and autonomous research workflows.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./landing.css">
 </head>
 <body>
+
   <div class="bg-orb bg-orb-1" aria-hidden="true"></div>
   <div class="bg-orb bg-orb-2" aria-hidden="true"></div>
   <div class="bg-grid" aria-hidden="true"></div>
 
+  <!-- ==================== NAV ==================== -->
   <header class="topbar">
     <div class="container topbar-inner">
-      <a href="./index.html" class="brand">Auto Researcher</a>
+      <a href="./index.html" class="brand">Amadeus</a>
       <nav class="nav">
         <a href="#features">Features</a>
-        <a href="#flow">Workflow</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#install">Install</a>
         <a href="#architecture">Architecture</a>
+        <a class="btn btn-sm" href="https://github.com/CurryTang/Amadeus">GitHub</a>
       </nav>
     </div>
   </header>
 
   <main>
+
+    <!-- ==================== HERO ==================== -->
     <section class="hero container">
       <div class="hero-copy reveal delay-1">
-        <p class="eyebrow">AI research platform for teams moving to release</p>
-        <h1>From trend signal to shippable research artifacts</h1>
+        <p class="eyebrow">Open-source AI research platform</p>
+        <h1>Meet Amadeus, your personal research assistant</h1>
         <p class="hero-text">
-          Auto Researcher combines discovery, paper intelligence, structured notes, and
-          autonomous vibe workflows into one production-ready loop.
+          Save papers from anywhere. Get AI-powered deep reading notes with diagrams and math.
+          Track trends across arXiv, Semantic Scholar, and Twitter/X.
+          Launch autonomous research workflows that turn intent into execution.
         </p>
         <div class="hero-cta">
-          <a class="btn btn-primary" href="#features">Explore Features</a>
-          <a class="btn btn-secondary" href="#flow">See Module Flow</a>
+          <a class="btn btn-primary" href="#install">Get Started</a>
+          <a class="btn btn-secondary" href="https://github.com/CurryTang/Amadeus">View on GitHub</a>
         </div>
       </div>
 
       <div class="hero-panel reveal delay-2" role="presentation">
-        <h2>Research Ops Loop</h2>
+        <h2>What Amadeus Does</h2>
         <ol>
-          <li><span>1</span>Track fast-moving trends from selected sources.</li>
-          <li><span>2</span>Save papers and auto-organize notes in your library.</li>
-          <li><span>3</span>Run Vibe Researcher to generate plans and outputs.</li>
-          <li><span>4</span>Feed insights back to trackers for the next cycle.</li>
+          <li><span>1</span>Save papers from arXiv, OpenReview, or any PDF with the Chrome extension.</li>
+          <li><span>2</span>AI performs multi-pass deep reading and generates structured notes.</li>
+          <li><span>3</span>Track emerging papers from your favorite authors and topics.</li>
+          <li><span>4</span>Run autonomous research workflows on remote compute via SSH.</li>
         </ol>
       </div>
     </section>
 
+    <!-- ==================== FEATURES ==================== -->
     <section id="features" class="section container">
       <div class="section-head reveal delay-1">
         <p class="eyebrow">Key Features</p>
-        <h2>Four modules, one cohesive workspace</h2>
+        <h2>Everything a researcher needs in one workspace</h2>
       </div>
 
       <div class="feature-grid">
         <article class="feature-card reveal delay-1">
-          <h3>Trend Tracking</h3>
+          <div class="feature-icon">&#128269;</div>
+          <h3>One-Click Paper Saving</h3>
           <p>
-            Follow emerging papers and discussions across configured channels. Keep
-            a prioritized feed so your team sees what matters first.
+            Chrome extension detects papers on arXiv, OpenReview, and any PDF page.
+            One click saves the paper, downloads the PDF, and queues it for AI analysis.
           </p>
-          <p class="tagline">Discovery without noise overload.</p>
         </article>
 
         <article class="feature-card reveal delay-2">
-          <h3>Paper + Notes Management</h3>
+          <div class="feature-icon">&#129302;</div>
+          <h3>AI-Powered Deep Reading</h3>
           <p>
-            Save papers, centralize structured notes, and keep searchable context in
-            one place. Turn scattered reading into reusable project memory.
+            Multi-pass analysis generates comprehensive notes with Mermaid diagrams,
+            KaTeX math, method breakdowns, and code repository analysis.
           </p>
-          <p class="tagline">A library that stays operational, not archival.</p>
         </article>
 
         <article class="feature-card reveal delay-3">
-          <h3>Vibe Researcher</h3>
+          <div class="feature-icon">&#128200;</div>
+          <h3>Trend Tracking</h3>
           <p>
-            Launch autonomous research runs that break work into actionable steps,
-            execute tasks, and publish artifacts for review.
+            Subscribe to Semantic Scholar authors, keyword queries, or Twitter/X profiles.
+            Daily crawl surfaces new papers in a prioritized feed.
           </p>
-          <p class="tagline">From intent to execution with traceable outputs.</p>
         </article>
 
         <article class="feature-card reveal delay-4">
-          <h3>Module Orchestration</h3>
+          <div class="feature-icon">&#128187;</div>
+          <h3>ARIS Autonomous Workflows</h3>
           <p>
-            Connect tracker signals, reading context, and vibe runs through a single
-            workflow so insights become decisions faster.
+            Launch research runs that execute on remote SSH servers &mdash; literature reviews,
+            experiment monitoring, paper writing, and full research pipelines.
           </p>
-          <p class="tagline">Research modules that compound, not fragment.</p>
+        </article>
+
+        <article class="feature-card reveal delay-1">
+          <div class="feature-icon">&#128736;</div>
+          <h3>VS Code Companion</h3>
+          <p>
+            In-editor control surface for your paper library, ARIS run management,
+            and quick actions without leaving your coding environment.
+          </p>
+        </article>
+
+        <article class="feature-card reveal delay-2">
+          <div class="feature-icon">&#128218;</div>
+          <h3>Full-Text Search &amp; Library</h3>
+          <p>
+            Search papers by title, tags, content, and reading status.
+            Mark papers as read/unread and filter your growing library.
+          </p>
         </article>
       </div>
     </section>
 
-    <section id="flow" class="section section-alt">
+    <!-- ==================== SCREENSHOTS ==================== -->
+    <section id="screenshots" class="section section-alt">
       <div class="container">
         <div class="section-head reveal delay-1">
-          <p class="eyebrow">How They Work Together</p>
-          <h2>Continuous delivery pipeline for research</h2>
+          <p class="eyebrow">See It In Action</p>
+          <h2>Real screenshots from a live instance</h2>
+        </div>
+
+        <div class="screenshot-grid">
+          <figure class="screenshot-card reveal delay-1">
+            <img src="./screenshots/homepage.png" alt="Amadeus paper library showing saved papers with tags, status badges, and action buttons" loading="lazy">
+            <figcaption>
+              <strong>Paper Library</strong> &mdash; Browse your saved papers with status tags, source badges, and one-click actions for reading, viewing, analyzing, and downloading.
+            </figcaption>
+          </figure>
+
+          <figure class="screenshot-card reveal delay-2">
+            <img src="./screenshots/chrome-extension.png" alt="Chrome extension popup detecting an arXiv paper with save button" loading="lazy">
+            <figcaption>
+              <strong>Chrome Extension</strong> &mdash; Automatically detects arXiv papers and lets you save with one click. Supports custom titles, tags, and analysis provider selection.
+            </figcaption>
+          </figure>
+
+          <figure class="screenshot-card reveal delay-3">
+            <img src="./screenshots/login.png" alt="Amadeus login page with clean authentication UI" loading="lazy">
+            <figcaption>
+              <strong>Secure Login</strong> &mdash; Multi-user authentication with JWT-based sessions. Each user gets their own paper library and settings.
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== INSTALL ==================== -->
+    <section id="install" class="section container">
+      <div class="section-head reveal delay-1">
+        <p class="eyebrow">Getting Started</p>
+        <h2>Up and running in five minutes</h2>
+      </div>
+
+      <div class="install-steps">
+        <div class="install-step reveal delay-1">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h3>Clone the repository</h3>
+            <pre><code>git clone https://github.com/CurryTang/Amadeus.git
+cd Amadeus</code></pre>
+          </div>
+        </div>
+
+        <div class="install-step reveal delay-2">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h3>Run the interactive installer</h3>
+            <p>The installer walks you through deployment mode selection (all-in-one or proxy + local device) and generates environment files.</p>
+            <pre><code>./scripts/install.sh
+# Generates: backend/.env.generated, frontend/.env.generated</code></pre>
+          </div>
+        </div>
+
+        <div class="install-step reveal delay-3">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h3>Apply environment configs</h3>
+            <pre><code>cp backend/.env.generated backend/.env
+cp frontend/.env.generated frontend/.env</code></pre>
+          </div>
+        </div>
+
+        <div class="install-step reveal delay-4">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h3>Start the backend and frontend</h3>
+            <pre><code>cd backend &amp;&amp; npm install &amp;&amp; npm run dev
+# In another terminal:
+cd frontend &amp;&amp; npm install &amp;&amp; npm run dev</code></pre>
+          </div>
+        </div>
+
+        <div class="install-step reveal delay-1">
+          <div class="step-number">5</div>
+          <div class="step-content">
+            <h3>Install the Chrome extension</h3>
+            <p>Open <code>chrome://extensions/</code>, enable Developer mode, click "Load unpacked", and select the <code>chrome-extension/</code> folder.</p>
+          </div>
+        </div>
+
+        <div class="install-step reveal delay-2">
+          <div class="step-number">6</div>
+          <div class="step-content">
+            <h3>Optional: VS Code Companion</h3>
+            <pre><code>cd vscode-extension
+npm install &amp;&amp; npm run compile
+# Launch with Extension Development Host in VS Code</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-note reveal delay-3">
+        <h3>Key Configuration</h3>
+        <p>After setup, configure these in <code>backend/.env</code>:</p>
+        <pre><code># Database (local SQLite or Turso cloud)
+TURSO_DATABASE_URL=file:./local.db
+
+# Object storage for PDFs (AWS S3, MinIO, or Aliyun OSS)
+OBJECT_STORAGE_PROVIDER=aws-s3
+OBJECT_STORAGE_BUCKET=your-bucket
+OBJECT_STORAGE_ACCESS_KEY_ID=your-key
+OBJECT_STORAGE_SECRET_ACCESS_KEY=your-secret
+
+# Authentication
+ADMIN_TOKEN=your-secret-admin-token</code></pre>
+        <p>See the <a href="https://github.com/CurryTang/Amadeus/blob/master/docs/CONFIGURATION.md">full configuration guide</a> for all options.</p>
+      </div>
+    </section>
+
+    <!-- ==================== HOW IT WORKS ==================== -->
+    <section id="pipeline" class="section section-alt">
+      <div class="container">
+        <div class="section-head reveal delay-1">
+          <p class="eyebrow">Under the Hood</p>
+          <h2>Paper processing pipeline</h2>
         </div>
 
         <div class="flow-grid">
           <article class="flow-step reveal delay-1">
             <span class="flow-id">01</span>
-            <h3>Capture Trends</h3>
-            <p>Tracker sources surface candidate papers and signals in one queue.</p>
+            <h3>Save</h3>
+            <p>Chrome extension captures paper metadata and PDF from arXiv, OpenReview, or any URL.</p>
           </article>
           <article class="flow-step reveal delay-2">
             <span class="flow-id">02</span>
-            <h3>Curate Knowledge</h3>
-            <p>Papers are saved, summarized, tagged, and linked with project notes.</p>
+            <h3>Queue</h3>
+            <p>Paper is added to the processing queue and PDF is uploaded to object storage (S3/MinIO/OSS).</p>
           </article>
           <article class="flow-step reveal delay-3">
             <span class="flow-id">03</span>
-            <h3>Run Vibe Jobs</h3>
-            <p>Vibe Researcher turns context into plans, code edits, and reports.</p>
+            <h3>Analyze</h3>
+            <p>AI performs 3-pass deep reading: structure scan, content understanding, and deep analysis with math and diagrams.</p>
           </article>
           <article class="flow-step reveal delay-4">
             <span class="flow-id">04</span>
-            <h3>Ship + Learn</h3>
-            <p>Output artifacts and new insights loop back into the tracker layer.</p>
+            <h3>View</h3>
+            <p>Rendered notes with Mermaid diagrams, KaTeX math, method breakdowns, and linked code repositories.</p>
           </article>
         </div>
       </div>
     </section>
 
+    <!-- ==================== ARCHITECTURE ==================== -->
     <section id="architecture" class="section container">
       <div class="architecture-card reveal delay-2">
-        <p class="eyebrow">Release-Focused Architecture</p>
-        <h2>Light cloud edge, heavy local execution</h2>
+        <p class="eyebrow">Deployment Architecture</p>
+        <h2>Flexible deployment: all-in-one or proxy mode</h2>
         <p>
-          Run public APIs and routing on a low-cost cloud host, and offload heavy AI
-          workloads to your always-on local executor through FRP. This keeps launch
-          cost predictable while preserving high-throughput processing capacity.
+          Run everything on a single machine, or split into a cheap cloud proxy (nginx + FRP) and
+          your always-on local device for heavy AI workloads. No cloud GPU costs &mdash; Claude and
+          Gemini CLI run on your own hardware.
         </p>
+        <div class="arch-diagram">
+          <pre><code>&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;     &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;     &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474;  Browser &#9474;&#9472;&#9472;&#9472;&#9472;&#9658;&#9474;  Cloud Server (proxy) &#9474;&#9472;&#9472;&#9472;&#9472;&#9658;&#9474;  Local Device (WSL/PC)   &#9474;
+&#9474;          &#9474;     &#9474;  nginx + frps         &#9474;     &#9474;  PM2: API + Frontend     &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;     &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;     &#9474;  SQLite, S3 storage      &#9474;
+                                                 &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;</code></pre>
+        </div>
         <div class="arch-flow" aria-label="Architecture flow">
           <span>Client</span>
-          <span>Cloud API</span>
+          <span>Cloud Proxy</span>
           <span>FRP Bridge</span>
           <span>Local Executor</span>
         </div>
       </div>
     </section>
+
+    <!-- ==================== TECH STACK ==================== -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-head reveal delay-1">
+          <p class="eyebrow">Tech Stack</p>
+          <h2>Built with modern, proven tools</h2>
+        </div>
+        <div class="stack-grid">
+          <div class="stack-card reveal delay-1">
+            <h3>Frontend</h3>
+            <ul>
+              <li>React 18 + Next.js (standalone)</li>
+              <li>React Markdown + KaTeX + Mermaid</li>
+              <li>Service worker for offline caching</li>
+            </ul>
+          </div>
+          <div class="stack-card reveal delay-2">
+            <h3>Backend</h3>
+            <ul>
+              <li>Node.js + Express</li>
+              <li>Turso / local SQLite</li>
+              <li>AWS S3 / MinIO / Aliyun OSS</li>
+            </ul>
+          </div>
+          <div class="stack-card reveal delay-3">
+            <h3>AI</h3>
+            <ul>
+              <li>Claude Code CLI (code analysis)</li>
+              <li>Google Gemini CLI (paper analysis)</li>
+              <li>Multi-pass deep reading pipeline</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== CTA ==================== -->
+    <section class="section container cta-section">
+      <div class="cta-card reveal delay-1">
+        <h2>Ready to streamline your research?</h2>
+        <p>Amadeus is free, open-source, and self-hosted. Get started in minutes.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="https://github.com/CurryTang/Amadeus">Clone on GitHub</a>
+          <a class="btn btn-secondary" href="https://github.com/CurryTang/Amadeus/blob/master/docs/INSTALLATION_MODES.md">Deployment Modes</a>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer class="footer">
     <div class="container footer-inner">
-      <p>Auto Researcher</p>
-      <p>Trend Tracking + Paper Notes + Vibe Researcher + Orchestration</p>
+      <p>Amadeus &mdash; Open-source AI Research Assistant</p>
+      <p>MIT License &middot; <a href="https://github.com/CurryTang/Amadeus">GitHub</a></p>
     </div>
   </footer>
 </body>

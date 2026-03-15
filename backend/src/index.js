@@ -184,10 +184,14 @@ async function startServer() {
       console.log('Paper tracker scheduler is disabled on this node');
     }
 
-    app.listen(config.port, () => {
+    const server = app.listen(config.port, () => {
       console.log(`Server running on port ${config.port}`);
       console.log(`Environment: ${config.nodeEnv}`);
     });
+
+    // Attach WebSocket terminal proxy for session-mirror
+    const { attachWebSocketServer } = require('./ws/terminal-proxy');
+    attachWebSocketServer(server);
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

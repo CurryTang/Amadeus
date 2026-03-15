@@ -140,6 +140,17 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     },
   });
+  let activeArisDetailKind: 'project' | 'run' | null = null;
+
+  const showSelectedArisDetail = () => {
+    if (activeArisDetailKind === 'run' && arisStore.selectedRunDetail) {
+      detailPanel.showSelection({ kind: 'aris-run', item: arisStore.selectedRunDetail });
+      return;
+    }
+    if (activeArisDetailKind === 'project' && arisStore.selectedProjectDetail) {
+      detailPanel.showSelection({ kind: 'aris-project', item: arisStore.selectedProjectDetail });
+    }
+  };
 
   const treeAdapter = {
     getTreeItem(item: TreeViewItem) {
@@ -189,9 +200,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(arisStore.subscribe(() => {
     projectsEmitter.fire();
     runsEmitter.fire();
-    if (arisStore.selectedRunDetail) {
-      detailPanel.showSelection({ kind: 'aris-run', item: arisStore.selectedRunDetail });
-    }
+    showSelectedArisDetail();
   }));
 
   trackedPapersView.onDidChangeSelection((event) => {
@@ -219,12 +228,15 @@ export function activate(context: vscode.ExtensionContext): void {
     const project = event.selection[0] as { id?: string } | undefined;
     if (project?.id) {
       arisStore.selectProject(project.id);
+      activeArisDetailKind = 'project';
+      showSelectedArisDetail();
     }
   });
 
   runsView.onDidChangeSelection((event) => {
     const run = event.selection[0] as { id?: string } | undefined;
     if (run?.id) {
+      activeArisDetailKind = 'run';
       void arisStore.selectRun(run.id);
     }
   });
@@ -332,6 +344,25 @@ export function activate(context: vscode.ExtensionContext): void {
             });
             return picked?.value || arisStore.selectedProjectId || config.defaultProjectId;
           },
+          pickTarget: async (projectId: string) => {
+            try {
+              const targets = await client.listTargets(projectId);
+              if (targets.length === 0) return undefined;
+              if (targets.length === 1) return targets[0].id;
+              const items = targets.map((target) => ({
+                label: `${target.sshServerName} · ${target.remoteProjectPath}`,
+                description: target.remoteDatasetRoot ? `Dataset: ${target.remoteDatasetRoot}` : '',
+                value: target.id,
+              }));
+              const picked = await vscode.window.showQuickPick(items, {
+                title: 'Deployment Target',
+                placeHolder: 'Select a deployment target',
+              });
+              return picked?.value;
+            } catch {
+              return undefined;
+            }
+          },
           pickWorkflow: async () => {
             const items = (arisStore.context?.quickActions || []).map((action) => ({
               label: action.label,
@@ -343,11 +374,40 @@ export function activate(context: vscode.ExtensionContext): void {
             });
             return picked?.value || config.defaultWorkflowType;
           },
-          promptForText: async () => vscode.window.showInputBox({
-            title: 'ARIS Prompt',
-            prompt: 'Describe what ARIS should do.',
-            ignoreFocusOut: true,
-          }),
+          promptForText: async (options) => {
+            const prompt = await vscode.window.showInputBox({
+              title: 'ARIS Prompt',
+              prompt: 'Describe what ARIS should do. Press Enter, then add @file references.',
+              ignoreFocusOut: true,
+            });
+            if (!prompt?.trim()) return prompt;
+
+            // Offer file reference insertion if available
+            if (options?.getRemoteFiles) {
+              const addRef = await vscode.window.showQuickPick(
+                [{ label: 'Yes, add @file references', value: 'yes' }, { label: 'No, launch now', value: 'no' }],
+                { title: 'Add File References?', placeHolder: 'Reference project files in your prompt?' }
+              );
+              if (addRef?.value === 'yes') {
+                try {
+                  const filesList = await options.getRemoteFiles();
+                  if (filesList.length > 0) {
+                    const picked = await vscode.window.showQuickPick(
+                      filesList.map((f) => ({ label: f, picked: false })),
+                      { title: 'Select Files to Reference', placeHolder: 'Pick files to add as @references', canPickMany: true }
+                    );
+                    if (picked && picked.length > 0) {
+                      const refs = picked.map((p) => `@${p.label}`).join(' ');
+                      return `${prompt}\n\nReferenced files: ${refs}`;
+                    }
+                  }
+                } catch {
+                  // Non-critical
+                }
+              }
+            }
+            return prompt;
+          },
         },
       });
     },

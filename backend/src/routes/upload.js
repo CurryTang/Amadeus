@@ -58,6 +58,7 @@ async function resolveArxivUploadMetadata({
   arxivId,
   providedMetadata = {},
   fetchMetadata = arxivService.fetchMetadata,
+  fetchFallbackMetadata = arxivService.fetchAbsPageMetadata,
 }) {
   const normalized = normalizeProvidedArxivMetadata(arxivId, providedMetadata);
   if (normalized.hasStrongMetadata) {
@@ -67,7 +68,20 @@ async function resolveArxivUploadMetadata({
   try {
     return await fetchMetadata(arxivId);
   } catch (error) {
-    if (/HTTP 429/i.test(String(error?.message || '')) && normalized.hasFallbackMetadata) {
+    const message = String(error?.message || '');
+    const isRetryableArxivFailure = /HTTP 429/i.test(message)
+      || /timeout/i.test(message)
+      || /timed out/i.test(message);
+
+    if (isRetryableArxivFailure && typeof fetchFallbackMetadata === 'function') {
+      try {
+        return await fetchFallbackMetadata(arxivId);
+      } catch (_) {
+        // Fall through to provided metadata if scraping also fails.
+      }
+    }
+
+    if (isRetryableArxivFailure && normalized.hasFallbackMetadata) {
       return normalized.metadata;
     }
     throw error;
@@ -351,7 +365,7 @@ router.get('/arxiv/metadata', async (req, res) => {
       return res.status(400).json({ error: 'Invalid arXiv URL or paper ID' });
     }
 
-    const metadata = await arxivService.fetchMetadata(arxivId);
+    const metadata = await resolveArxivUploadMetadata({ arxivId });
     res.json(metadata);
   } catch (error) {
     console.error('Error fetching arXiv metadata:', error);

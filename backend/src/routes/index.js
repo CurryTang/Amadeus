@@ -12,6 +12,7 @@ const authRouter = require('./auth-users');
 const trackerRouter = require('./tracker');
 const importRouter = require('./import');
 const arisRouter = require('./aris');
+const sessionMirrorRouter = require('./session-mirror');
 
 router.use('/documents', documentsRouter);
 router.use('/upload', uploadRouter);
@@ -23,6 +24,7 @@ router.use('/auth', authRouter);
 router.use('/tracker', trackerRouter);
 router.use('/import', importRouter);
 router.use('/aris', arisRouter);
+router.use('/session-mirror', sessionMirrorRouter);
 
 // Health check endpoint
 router.get('/health', (req, res) => {

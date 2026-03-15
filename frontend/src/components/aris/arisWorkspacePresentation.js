@@ -1,5 +1,11 @@
 export const ARIS_QUICK_ACTIONS = [
   {
+    id: 'custom_run',
+    label: 'Custom Run',
+    workflowType: 'custom_run',
+    prefillPrompt: 'Run this custom ARIS workflow on the selected project target:',
+  },
+  {
     id: 'literature_review',
     label: 'Literature Review',
     workflowType: 'literature_review',
@@ -54,32 +60,46 @@ function normalizeString(value, fallback = '') {
   return normalized || fallback;
 }
 
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function labelWorkflow(workflowType) {
+  const key = normalizeString(workflowType, 'custom_run');
+  const match = ARIS_QUICK_ACTIONS.find((action) => action.workflowType === key || action.id === key);
+  return match?.label || 'Custom Run';
+}
+
+function labelStatus(status, activePhase = '') {
+  const normalizedStatus = normalizeString(status, 'queued');
+  const phase = normalizeString(activePhase);
+  if (normalizedStatus === 'completed') return 'Completed';
+  if (normalizedStatus === 'failed') return 'Failed';
+  if (normalizedStatus === 'running') {
+    if (phase === 'dispatch_experiment') return 'Dispatching experiment';
+    if (phase === 'wait_results') return 'Waiting for results';
+    if (phase === 'review') return 'Reviewing';
+    return 'Running on target';
+  }
+  return 'Queued';
+}
+
 export function buildArisRunCard(run = {}) {
   const workflowType = normalizeString(run.workflowType, 'custom');
-  const status = normalizeString(run.status, 'queued');
-  const activePhase = normalizeString(run.activePhase);
   const latestScore = run.latestScore;
   const latestVerdict = normalizeString(run.latestVerdict);
-
-  let statusLabel = 'Queued';
-  if (status === 'completed') statusLabel = 'Completed';
-  else if (status === 'failed') statusLabel = 'Failed';
-  else if (status === 'running') {
-    if (activePhase === 'dispatch_experiment') statusLabel = 'Dispatching experiment';
-    else if (activePhase === 'wait_results') statusLabel = 'Waiting for results';
-    else if (activePhase === 'review') statusLabel = 'Reviewing';
-    else statusLabel = 'Running on WSL';
-  }
+  const destinationName = normalizeString(run.downstreamServerName || run.targetName || run.runnerHost);
 
   return {
     id: normalizeString(run.id, 'pending-run'),
     title: normalizeString(run.title, 'ARIS Run'),
     workflowType,
-    statusLabel,
-    runnerLabel: run.runnerHost ? `WSL: ${run.runnerHost}` : 'WSL runner pending',
-    destinationLabel: run.downstreamServerName
-      ? `Compute: ${run.downstreamServerName}`
-      : 'No downstream server',
+    workflowLabel: labelWorkflow(workflowType),
+    statusLabel: labelStatus(run.status, run.activePhase),
+    runnerLabel: run.runnerHost ? `Server: ${run.runnerHost}` : 'Target server pending',
+    destinationLabel: destinationName
+      ? `Target: ${destinationName}`
+      : 'No saved target',
     scoreLabel: Number.isFinite(latestScore)
       ? `${latestScore.toFixed(1)}/10${latestVerdict ? ` · ${latestVerdict}` : ''}`
       : 'No review yet',
@@ -90,19 +110,114 @@ export function buildArisRunCard(run = {}) {
 
 export function buildArisWorkspaceContext(payload = {}) {
   const project = payload.project || {};
-  const runner = payload.runner || {};
-  const downstreamServer = payload.downstreamServer || null;
-  const remoteWorkspacePath = normalizeString(payload.remoteWorkspacePath, 'Workspace pending');
-  const datasetRoot = normalizeString(payload.datasetRoot);
+  const target = payload.target || {};
 
   return {
-    projectLabel: normalizeString(project.name, 'Default Project'),
-    runnerLabel: runner.name ? `WSL runner: ${runner.name}` : 'WSL runner pending',
-    runnerStatus: normalizeString(runner.status, 'unknown'),
-    workspaceLabel: remoteWorkspacePath,
-    datasetLabel: datasetRoot ? `Remote dataset: ${datasetRoot}` : 'Remote dataset not set',
-    destinationLabel: downstreamServer?.name
-      ? `Experiment target: ${downstreamServer.name}`
-      : 'Experiment target: not selected',
+    projectLabel: normalizeString(project.name, 'No project selected'),
+    localPathLabel: project.localProjectPath
+      ? `Client workspace: ${project.localProjectPath}`
+      : 'Client workspace not linked',
+    targetLabel: target.sshServerName
+      ? `Target: ${target.sshServerName}`
+      : 'No target selected',
+    workspaceLabel: normalizeString(target.remoteProjectPath, 'Remote path pending'),
+    datasetLabel: target.remoteDatasetRoot
+      ? `Dataset: ${target.remoteDatasetRoot}`
+      : 'Dataset root not set',
+    checkpointLabel: target.remoteCheckpointRoot
+      ? `Checkpoints: ${target.remoteCheckpointRoot}`
+      : 'Checkpoint root not set',
+    outputLabel: target.remoteOutputRoot
+      ? `Outputs: ${target.remoteOutputRoot}`
+      : 'Output root not set',
+    syncLabel: Array.isArray(project.syncExcludes) && project.syncExcludes.length > 0
+      ? `Sync excludes: ${project.syncExcludes.join(', ')}`
+      : 'Sync excludes not set',
+  };
+}
+
+export function buildArisProjectRow(project = {}) {
+  const syncExcludes = Array.isArray(project.syncExcludes) ? project.syncExcludes.filter(Boolean) : [];
+  const targetCount = Number(project.targetCount || 0) || 0;
+  const noRemote = project.noRemote === true || targetCount === 0;
+
+  return {
+    id: normalizeString(project.id, 'pending-project'),
+    title: normalizeString(project.name, 'Untitled Project'),
+    localPathLabel: project.localProjectPath
+      ? `Local workspace: ${project.localProjectPath}`
+      : 'Local workspace not linked',
+    localFullPath: normalizeString(project.localFullPath),
+    targetCountLabel: `${pluralize(targetCount, 'saved target')}`,
+    remoteModeLabel: noRemote ? 'No remote servers' : 'Remote servers configured',
+    excludeSummary: syncExcludes.length > 0
+      ? `Excludes: ${syncExcludes.join(', ')}`
+      : 'Excludes: none',
+  };
+}
+
+export function buildArisTargetRow(target = {}) {
+  return {
+    id: normalizeString(target.id, 'pending-target'),
+    title: normalizeString(target.sshServerName, 'Unassigned server'),
+    remotePathLabel: normalizeString(target.remoteProjectPath, 'Remote path pending'),
+    datasetLabel: target.remoteDatasetRoot
+      ? `Dataset: ${target.remoteDatasetRoot}`
+      : 'Dataset: not set',
+    checkpointLabel: target.remoteCheckpointRoot
+      ? `Checkpoints: ${target.remoteCheckpointRoot}`
+      : 'Checkpoints: not set',
+    outputLabel: target.remoteOutputRoot
+      ? `Outputs: ${target.remoteOutputRoot}`
+      : 'Outputs: not set',
+    sharedFsLabel: target.sharedFsGroup
+      ? `Shared FS: ${target.sharedFsGroup}`
+      : 'Shared FS: none',
+  };
+}
+
+export function buildArisRunActionRow(action = {}) {
+  const actionType = normalizeString(action.actionType, 'continue');
+  const labels = {
+    continue: 'Continue Run',
+    run_experiment: 'Run Experiment',
+    monitor: 'Monitor Run',
+    review: 'Review Outputs',
+    retry: 'Retry Run',
+  };
+
+  return {
+    id: normalizeString(action.id, 'pending-action'),
+    actionType,
+    actionLabel: labels[actionType] || 'Follow-up Action',
+    statusLabel: normalizeString(action.status) === 'running' && !normalizeString(action.activePhase)
+      ? 'Running'
+      : labelStatus(action.status, action.activePhase),
+    prompt: normalizeString(action.prompt),
+    targetLabel: action.downstreamServerName
+      ? `Target: ${action.downstreamServerName}`
+      : 'Same target as parent run',
+    createdAt: normalizeString(action.createdAt),
+  };
+}
+
+export function buildArisRunDetail(run = {}) {
+  const destinationName = normalizeString(run.downstreamServerName || run.targetName || run.runnerHost);
+  return {
+    id: normalizeString(run.id, 'pending-run'),
+    title: normalizeString(run.title, 'ARIS Run'),
+    workflowType: normalizeString(run.workflowType, 'custom_run'),
+    workflowLabel: labelWorkflow(run.workflowType),
+    statusLabel: labelStatus(run.status, run.activePhase),
+    prompt: normalizeString(run.prompt),
+    runnerLabel: run.runnerHost ? `Server: ${run.runnerHost}` : 'Target server pending',
+    destinationLabel: destinationName
+      ? `Target: ${destinationName}`
+      : 'No saved target',
+    workspaceLabel: normalizeString(run.remoteWorkspacePath, 'Workspace pending'),
+    datasetLabel: normalizeString(run.datasetRoot, 'Not set'),
+    logPath: normalizeString(run.logPath),
+    runDirectory: normalizeString(run.runDirectory),
+    actionRows: Array.isArray(run.actions) ? run.actions.map((action) => buildArisRunActionRow(action)) : [],
   };
 }

@@ -8,6 +8,8 @@ const dotenv = require('dotenv');
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
+const DEFAULT_API_URL = 'https://your-domain.example.com/api';
+
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -15,11 +17,10 @@ function parseArgs(argv) {
     if ((arg === '--out' || arg === '-o') && argv[i + 1]) {
       out.outputPath = argv[i + 1];
       i += 1;
-      continue;
-    }
-    if (arg === '--help' || arg === '-h') {
+    } else if (arg === '--no-upload') {
+      out.noUpload = true;
+    } else if (arg === '--help' || arg === '-h') {
       out.help = true;
-      continue;
     }
   }
   return out;
@@ -27,68 +28,103 @@ function parseArgs(argv) {
 
 function usage() {
   console.log([
-    'Setup X/Twitter Playwright session storage state',
+    'Setup X/Twitter Playwright session — login locally, auto-upload to server',
     '',
     'Usage:',
-    '  node scripts/setup-x-session.js [--out /absolute/path/x-session.json]',
+    '  npm run setup:x-session              # login + upload to server',
+    '  npm run setup:x-session -- --no-upload  # save locally only',
     '',
-    'Defaults:',
-    '  --out uses X_PLAYWRIGHT_STORAGE_STATE_PATH when present,',
-    '  otherwise ~/.playwright/x-session.json',
+    'Env vars (from backend/.env):',
+    '  ADMIN_TOKEN         — auth token for the API (required for upload)',
+    `  API_BASE_URL        — server URL (default: ${DEFAULT_API_URL})`,
   ].join('\n'));
 }
 
 function waitForEnter(promptText) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
-    rl.question(promptText, () => {
-      rl.close();
-      resolve();
-    });
+    rl.question(promptText, () => { rl.close(); resolve(); });
   });
+}
+
+async function uploadSession(sessionJson, apiUrl, token) {
+  // Use built-in fetch (Node 18+)
+  const res = await fetch(`${apiUrl}/tracker/twitter/playwright/session-upload`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ sessionJson }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (args.help) {
-    usage();
-    process.exit(0);
-  }
+  if (args.help) { usage(); process.exit(0); }
 
-  const defaultPath = process.env.X_PLAYWRIGHT_STORAGE_STATE_PATH
-    || path.join(os.homedir(), '.playwright', 'x-session.json');
-  const outputPath = path.resolve(args.outputPath || defaultPath);
-  const outputDir = path.dirname(outputPath);
-  fs.mkdirSync(outputDir, { recursive: true });
+  const localPath = path.resolve(
+    args.outputPath
+    || process.env.X_PLAYWRIGHT_STORAGE_STATE_PATH
+    || path.join(os.homedir(), '.playwright', 'x-session.json'),
+  );
+  fs.mkdirSync(path.dirname(localPath), { recursive: true });
 
   let chromium;
   try {
     chromium = require('playwright').chromium;
-  } catch (error) {
-    console.error('Playwright is not installed. Run: npm install && npx playwright install chromium');
+  } catch (_) {
+    console.error('Playwright not installed. Run: npm install && npx playwright install chromium');
     process.exit(1);
   }
 
-  console.log(`Opening Chromium for X login...`);
-  console.log(`Session file target: ${outputPath}`);
-
+  // 1. Open browser for login
+  console.log('Opening Chromium — log into X/Twitter in the browser window...');
   const browser = await chromium.launch({ headless: false });
+  let sessionJson;
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.goto('https://x.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await waitForEnter('After you finish login in the opened browser, press Enter here to save session: ');
-    await context.storageState({ path: outputPath });
-    console.log(`Saved X Playwright session: ${outputPath}`);
-    console.log('');
-    console.log('Set this in backend/.env on the same machine:');
-    console.log(`X_PLAYWRIGHT_STORAGE_STATE_PATH=${outputPath}`);
+    await waitForEnter('\nPress Enter after you finish logging in: ');
+    sessionJson = await context.storageState();
+    // Save local copy
+    fs.writeFileSync(localPath, JSON.stringify(sessionJson, null, 2));
+    console.log(`\nSaved locally: ${localPath}`);
   } finally {
     await browser.close();
+  }
+
+  // 2. Auto-upload to server
+  if (args.noUpload) {
+    console.log('\nSkipped upload (--no-upload). To upload later, use the UI or re-run without --no-upload.');
+    return;
+  }
+
+  const apiUrl = process.env.API_BASE_URL || DEFAULT_API_URL;
+  const token = process.env.ADMIN_TOKEN;
+  if (!token) {
+    console.log('\nNo ADMIN_TOKEN in .env — skipping upload. Set it and re-run, or upload via the UI.');
+    return;
+  }
+
+  console.log(`\nUploading to ${apiUrl} ...`);
+  try {
+    const result = await uploadSession(sessionJson, apiUrl, token);
+    console.log(`Uploaded! Server path: ${result.path}`);
+    console.log('\nDone — trackers are ready to use.');
+  } catch (err) {
+    console.error(`Upload failed: ${err.message}`);
+    console.log('You can upload manually via the Paper Tracker UI.');
   }
 }
 
 main().catch((error) => {
-  console.error(`Failed to setup X session: ${error.message || error}`);
+  console.error(`Failed: ${error.message || error}`);
   process.exit(1);
 });

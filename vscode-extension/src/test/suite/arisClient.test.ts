@@ -8,7 +8,15 @@ test('ArisClient normalizes context, run list, run detail, create, and retry res
   const responseByRequest = new Map<string, unknown>([
     ['GET http://localhost:3000/api/aris/context', {
       projects: [{ id: 'proj_1', name: 'Project One' }],
-      runner: { id: 11, name: 'wsl-main', type: 'wsl', status: 'configured' },
+      runner: { id: 11, name: 'wsl-main', host: '127.0.0.1', type: 'wsl', status: 'configured' },
+      runners: [{ id: 11, name: 'wsl-main', host: '127.0.0.1', type: 'wsl', status: 'configured' }],
+      downstreamServers: [{ id: 12, name: 'gpu-a100-1', host: '10.0.0.8', status: 'configured' }],
+      defaultSelections: {
+        runnerServerId: 11,
+        downstreamServerId: 12,
+        remoteWorkspacePath: '/srv/aris/proj_1',
+        datasetRoot: '/mnt/data/dataset',
+      },
       quickActions: [{ id: 'literature_review', label: 'Literature Review', workflowType: 'literature_review' }],
       continueWhenOffline: true,
     }],
@@ -91,6 +99,10 @@ test('ArisClient normalizes context, run list, run detail, create, and retry res
   const retried = await client.retryRun('run_1');
 
   assert.equal(context.projects[0].id, 'proj_1');
+  assert.equal(context.runner.host, '127.0.0.1');
+  assert.equal(context.runners?.[0]?.id, 11);
+  assert.equal(context.downstreamServers?.[0]?.id, 12);
+  assert.equal(context.defaultSelections?.remoteWorkspacePath, '/srv/aris/proj_1');
   assert.equal(runs[0].id, 'run_1');
   assert.equal(run.logPath, '/tmp/run.log');
   assert.equal(created.workflowType, 'run_experiment');

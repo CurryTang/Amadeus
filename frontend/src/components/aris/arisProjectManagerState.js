@@ -58,7 +58,7 @@ export function projectToSettingsDraft(project = null, targets = []) {
     syncExcludesText: Array.isArray(project.syncExcludes) && project.syncExcludes.length > 0
       ? project.syncExcludes.join('\n')
       : DEFAULT_SYNC_EXCLUDES_TEXT,
-    noRemote: !targets || targets.length === 0,
+    noRemote: project.noRemote === true && (!targets || targets.length === 0),
     remoteEndpoints: nextTargets,
   };
 }
