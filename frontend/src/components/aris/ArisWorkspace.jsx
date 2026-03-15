@@ -307,6 +307,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [actionPrompt, setActionPrompt] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
   const [retryingRun, setRetryingRun] = useState(false);
+  const [runOutputs, setRunOutputs] = useState(null);
+  const [loadingOutputs, setLoadingOutputs] = useState(false);
 
   const quickActions = contextData?.quickActions?.length ? contextData.quickActions : ARIS_QUICK_ACTIONS;
 
@@ -343,6 +345,32 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       return detail;
     } finally {
       if (!silent) setLoadingDetail(false);
+    }
+  };
+
+  const fetchRunOutputs = async (run) => {
+    if (!run?.runDirectory || !run?.runnerServerId) {
+      setRunOutputs(null);
+      return;
+    }
+    setLoadingOutputs(true);
+    try {
+      const response = await axios.post(`${apiUrl}/ssh-servers/${run.runnerServerId}/ls`, {
+        path: run.runDirectory + '/outputs/',
+      }, { headers: getAuthHeaders() });
+      const entries = response.data?.entries || [];
+      if (entries.length === 0) {
+        const rootResponse = await axios.post(`${apiUrl}/ssh-servers/${run.runnerServerId}/ls`, {
+          path: run.runDirectory + '/',
+        }, { headers: getAuthHeaders() });
+        setRunOutputs(rootResponse.data?.entries || []);
+      } else {
+        setRunOutputs(entries);
+      }
+    } catch {
+      setRunOutputs(null);
+    } finally {
+      setLoadingOutputs(false);
     }
   };
 
@@ -459,6 +487,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     };
   }, [apiUrl, getAuthHeaders, selectedRunId]);
 
+  useEffect(() => {
+    setRunOutputs(null);
+  }, [selectedRunId]);
+
   const workspaceContext = useMemo(() => buildArisWorkspaceContext({
     project: selectedProject || {},
     target: selectedTarget || {},
@@ -535,11 +567,23 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   };
 
   const handleAddRemoteEndpoint = () => {
-    setProjectSettingsDraft((prev) => ({
-      ...prev,
-      noRemote: false,
-      remoteEndpoints: [...prev.remoteEndpoints, createEmptyRemoteEndpointDraft()],
-    }));
+    setProjectSettingsDraft((prev) => {
+      const existing = prev.remoteEndpoints || [];
+      const lastEndpoint = existing[existing.length - 1];
+      const newEndpoint = createEmptyRemoteEndpointDraft();
+      // Inherit paths from the last endpoint as defaults
+      if (lastEndpoint) {
+        newEndpoint.remoteProjectPath = lastEndpoint.remoteProjectPath || '';
+        newEndpoint.remoteDatasetRoot = lastEndpoint.remoteDatasetRoot || '';
+        newEndpoint.remoteCheckpointRoot = lastEndpoint.remoteCheckpointRoot || '';
+        newEndpoint.remoteOutputRoot = lastEndpoint.remoteOutputRoot || '';
+      }
+      return {
+        ...prev,
+        noRemote: false,
+        remoteEndpoints: [...existing, newEndpoint],
+      };
+    });
   };
 
   const handleDeleteRemoteEndpoint = (index) => {
@@ -791,6 +835,16 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           <div className="aris-panel-header">
             <h3>Launch</h3>
             <span className="aris-status-pill">{selectedTarget ? 'Target Ready' : 'Project Setup Needed'}</span>
+            {selectedProject?.localFullPath && (
+              <button
+                className="aris-vscode-btn"
+                onClick={() => window.open(`vscode://file${selectedProject.localFullPath}`, '_blank')}
+                type="button"
+                title={`Open ${selectedProject.localFullPath} in VS Code`}
+              >
+                Open in VS Code
+              </button>
+            )}
           </div>
 
           <div className="aris-launch-fields">
@@ -1055,6 +1109,35 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                           {action.createdAt && <span>{new Date(action.createdAt).toLocaleString()}</span>}
                         </div>
                       </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="aris-run-outputs">
+                <div className="aris-panel-header">
+                  <h3>Run Outputs</h3>
+                  <button
+                    className="aris-secondary-btn"
+                    onClick={() => fetchRunOutputs(selectedRunDetail)}
+                    disabled={loadingOutputs}
+                  >
+                    {loadingOutputs ? 'Loading…' : runOutputs ? 'Refresh' : 'Browse Files'}
+                  </button>
+                </div>
+                {runOutputs === null ? (
+                  <div className="aris-empty-card">
+                    Click &ldquo;Browse Files&rdquo; to list files in the run directory.
+                  </div>
+                ) : runOutputs.length === 0 ? (
+                  <div className="aris-empty-card">No output files found in run directory.</div>
+                ) : (
+                  <div className="aris-output-list">
+                    {runOutputs.map((entry) => (
+                      <div key={entry.name} className={`aris-output-entry${entry.type === 'dir' ? ' is-dir' : ''}`}>
+                        <span className="aris-output-icon">{entry.type === 'dir' ? '\uD83D\uDCC1' : '\uD83D\uDCC4'}</span>
+                        <span className="aris-output-name">{entry.name}</span>
+                      </div>
                     ))}
                   </div>
                 )}

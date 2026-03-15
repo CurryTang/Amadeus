@@ -10530,6 +10530,44 @@ button.vibe-skill-chip.is-active {
   scrollbar-width: thin;
 }
 
+.aris-run-outputs {
+  border-top: 1px solid rgba(24, 54, 45, 0.08);
+  padding-top: 16px;
+}
+
+.aris-output-list {
+  display: grid;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.aris-output-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #2c4b43;
+  background: rgba(24, 54, 45, 0.03);
+}
+
+.aris-output-entry.is-dir {
+  font-weight: 600;
+}
+
+.aris-output-icon {
+  flex-shrink: 0;
+}
+
+.aris-output-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .aris-follow-up,
 .aris-action-history {
   display: grid;
