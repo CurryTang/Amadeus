@@ -1,6 +1,7 @@
 const path = require('path');
 const { getDb } = require('../db');
 const sshTransport = require('./ssh-transport.service');
+const { createArisProjectFilesService } = require('./arisProjectFiles.service');
 
 const ARIS_WORKFLOW_TYPES = [
   'literature_review',
@@ -13,20 +14,34 @@ const ARIS_WORKFLOW_TYPES = [
   'monitor_experiment',
 ];
 
+const ARIS_CUSTOM_WORKFLOW_TYPE = 'custom_run';
+const ARIS_ACTION_TYPES = [
+  'continue',
+  'run_experiment',
+  'monitor',
+  'review',
+  'retry',
+];
+
 const quickActions = [
-  { id: 'literature_review', label: 'Literature Review', workflowType: 'literature_review' },
-  { id: 'idea_discovery', label: 'Idea Discovery', workflowType: 'idea_discovery' },
-  { id: 'run_experiment', label: 'Run Experiment', workflowType: 'run_experiment' },
-  { id: 'auto_review_loop', label: 'Auto Review Loop', workflowType: 'auto_review_loop' },
-  { id: 'paper_writing', label: 'Paper Writing', workflowType: 'paper_writing' },
-  { id: 'paper_improvement', label: 'Paper Improvement', workflowType: 'paper_improvement' },
-  { id: 'full_pipeline', label: 'Full Pipeline', workflowType: 'full_pipeline' },
-  { id: 'monitor_experiment', label: 'Monitor Experiment', workflowType: 'monitor_experiment' },
+  { id: 'custom_run', label: 'Custom Run', workflowType: 'custom_run', prefillPrompt: 'Run this custom ARIS workflow on the selected project target:' },
+  { id: 'literature_review', label: 'Literature Review', workflowType: 'literature_review', prefillPrompt: 'Survey the literature and related work for:' },
+  { id: 'idea_discovery', label: 'Idea Discovery', workflowType: 'idea_discovery', prefillPrompt: 'Discover promising research ideas around:' },
+  { id: 'run_experiment', label: 'Run Experiment', workflowType: 'run_experiment', prefillPrompt: 'Run the following experiment on the persistent remote workspace:' },
+  { id: 'auto_review_loop', label: 'Auto Review Loop', workflowType: 'auto_review_loop', prefillPrompt: 'Start an autonomous review loop for this research direction:' },
+  { id: 'paper_writing', label: 'Paper Writing', workflowType: 'paper_writing', prefillPrompt: 'Turn the current narrative into a paper draft for:' },
+  { id: 'paper_improvement', label: 'Paper Improvement', workflowType: 'paper_improvement', prefillPrompt: 'Improve the current paper draft in the remote ARIS workspace:' },
+  { id: 'full_pipeline', label: 'Full Pipeline', workflowType: 'full_pipeline', prefillPrompt: 'Run the full ARIS research pipeline for:' },
+  { id: 'monitor_experiment', label: 'Monitor Experiment', workflowType: 'monitor_experiment', prefillPrompt: 'Monitor the current experiment and summarize progress for:' },
 ];
 
 const DEFAULT_REMOTE_AGENT_BIN = process.env.ARIS_REMOTE_AGENT_BIN || 'claude';
 const DEFAULT_REMOTE_AGENT_ARGS = ['--print', '--dangerously-skip-permissions'];
+const projectStore = [];
+const targetStore = [];
 const launchStore = [];
+const actionStore = [];
+const arisProjectFilesService = createArisProjectFilesService();
 
 function isNonEmpty(value) {
   return String(value || '').trim().length > 0;
@@ -47,11 +62,61 @@ function buildRunDirectory(remoteWorkspacePath, runId) {
   return path.posix.join(String(remoteWorkspacePath || ''), '.auto-researcher', 'aris-runs', String(runId || 'pending-run'));
 }
 
+function normalizeJsonArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(Boolean).map((item) => String(item).trim()).filter(Boolean);
+      }
+    } catch (_) {
+      return value.split(',').map((item) => String(item).trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function normalizeProject(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    name: row.name ?? 'Untitled Project',
+    clientWorkspaceId: row.clientWorkspaceId ?? row.client_workspace_id ?? '',
+    localProjectPath: row.localProjectPath ?? row.local_project_path ?? '',
+    localFullPath: row.localFullPath ?? row.local_full_path ?? '',
+    syncExcludes: normalizeJsonArray(row.syncExcludes ?? row.sync_excludes_json ?? row.sync_excludes),
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+    updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? null,
+  };
+}
+
+function normalizeTarget(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? '',
+    sshServerId: row.sshServerId ?? row.ssh_server_id ?? null,
+    sshServerName: row.sshServerName ?? row.ssh_server_name ?? '',
+    remoteProjectPath: row.remoteProjectPath ?? row.remote_project_path ?? '',
+    remoteDatasetRoot: row.remoteDatasetRoot ?? row.remote_dataset_root ?? '',
+    remoteCheckpointRoot: row.remoteCheckpointRoot ?? row.remote_checkpoint_root ?? '',
+    remoteOutputRoot: row.remoteOutputRoot ?? row.remote_output_root ?? '',
+    sharedFsGroup: row.sharedFsGroup ?? row.shared_fs_group ?? '',
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+    updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? null,
+  };
+}
+
 function normalizeLaunch(row = {}) {
   if (!row || !row.id) return null;
   return {
     id: row.id,
     projectId: row.projectId ?? row.project_id ?? '',
+    projectName: row.projectName ?? row.project_name ?? '',
+    targetId: row.targetId ?? row.target_id ?? null,
+    targetName: row.targetName ?? row.target_name ?? '',
+    localProjectPath: row.localProjectPath ?? row.local_project_path ?? '',
     workflowType: row.workflowType ?? row.workflow_type ?? '',
     prompt: row.prompt ?? '',
     title: row.title ?? '',
@@ -67,6 +132,7 @@ function normalizeLaunch(row = {}) {
     latestScore: row.latestScore ?? row.latest_score ?? null,
     latestVerdict: row.latestVerdict ?? row.latest_verdict ?? '',
     summary: row.summary ?? '',
+    syncStrategy: row.syncStrategy ?? row.sync_strategy ?? '',
     startedAt: toIsoOrNull(row.startedAt ?? row.started_at) ?? new Date().toISOString(),
     updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? toIsoOrNull(row.startedAt ?? row.started_at) ?? null,
     remotePid: row.remotePid ?? row.remote_pid ?? null,
@@ -76,9 +142,105 @@ function normalizeLaunch(row = {}) {
   };
 }
 
+function normalizeAction(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    runId: row.runId ?? row.run_id ?? '',
+    actionType: row.actionType ?? row.action_type ?? 'continue',
+    prompt: row.prompt ?? '',
+    status: row.status ?? 'queued',
+    activePhase: row.activePhase ?? row.active_phase ?? 'queued',
+    downstreamServerId: row.downstreamServerId ?? row.downstream_server_id ?? null,
+    downstreamServerName: row.downstreamServerName ?? row.downstream_server_name ?? '',
+    summary: row.summary ?? '',
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+    updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? toIsoOrNull(row.createdAt ?? row.created_at) ?? null,
+    logPath: row.logPath ?? row.log_path ?? '',
+  };
+}
+
+function isRunnerCandidate(server = {}) {
+  const name = String(server.name || '').toLowerCase();
+  const host = String(server.host || '').trim();
+  const role = String(server.runner_role || server.role || '').toLowerCase();
+  return role === 'aris_wsl'
+    || /wsl|local|executor/.test(name)
+    || host === '127.0.0.1'
+    || host === 'localhost';
+}
+
+function toRunnerSummary(server = {}) {
+  return {
+    id: server.id ?? null,
+    name: server.name || server.host || 'wsl-default',
+    host: server.host || '127.0.0.1',
+    user: server.user || process.env.ARIS_WSL_RUNNER_USER || 'czk',
+    type: 'wsl',
+    status: server.status || 'configured',
+  };
+}
+
+function toDownstreamSummary(server = {}) {
+  return {
+    id: server.id ?? null,
+    name: server.name || server.host || 'compute',
+    host: server.host || '',
+    user: server.user || '',
+    status: server.status || 'configured',
+  };
+}
+
+function toSshServerSummary(server = {}) {
+  return {
+    id: server.id ?? null,
+    name: server.name || server.host || 'server',
+    host: server.host || '',
+    user: server.user || '',
+    port: server.port || 22,
+    sharedFsEnabled: Number(server.shared_fs_enabled || 0) === 1,
+    sharedFsGroup: server.shared_fs_group || '',
+  };
+}
+
+function listRunnerServers(servers = []) {
+  const explicit = servers.filter((server) => isRunnerCandidate(server));
+  if (explicit.length > 0) return explicit.map((server) => toRunnerSummary(server));
+  if (servers.length > 0) return [toRunnerSummary(pickRunnerServer(servers))];
+  return [toRunnerSummary(pickRunnerServer([]))];
+}
+
+function listDownstreamServers(servers = [], runnerServerId = null) {
+  return servers
+    .filter((server) => String(server.id) !== String(runnerServerId))
+    .filter((server) => !isRunnerCandidate(server))
+    .map((server) => toDownstreamSummary(server));
+}
+
+function inferSyncStrategy(project = {}, target = {}, server = {}) {
+  if (Number(server.shared_fs_enabled || 0) === 1 || isNonEmpty(target.sharedFsGroup)) {
+    return 'shared_filesystem';
+  }
+  if (project.clientWorkspaceId) {
+    return 'incremental_rsync';
+  }
+  return 'remote_workspace_only';
+}
+
+function describeSyncStrategy(syncStrategy = '') {
+  if (syncStrategy === 'shared_filesystem') {
+    return 'Sync plan: shared filesystem reuse, no copy unless path remap is needed.';
+  }
+  if (syncStrategy === 'incremental_rsync') {
+    return 'Sync plan: incremental rsync from linked client workspace; unchanged files are skipped.';
+  }
+  return 'Sync plan: use the existing remote workspace directly.';
+}
+
 function buildWorkflowInvocation(launch = {}) {
   const prompt = String(launch.prompt || '').trim();
   const commands = {
+    custom_run: '',
     literature_review: '/research-lit',
     idea_discovery: '/idea-discovery',
     run_experiment: '/run-experiment',
@@ -89,7 +251,7 @@ function buildWorkflowInvocation(launch = {}) {
     monitor_experiment: '/monitor-experiment',
   };
   const skillCommand = commands[launch.workflowType] || '/research-pipeline';
-  const lines = [`${skillCommand} ${prompt}`.trim()];
+  const lines = [skillCommand ? `${skillCommand} ${prompt}`.trim() : prompt];
 
   if (isNonEmpty(launch.datasetRoot)) {
     lines.push('');
@@ -137,7 +299,7 @@ REMOTE_AGENT_BIN=${sshTransport.shellEscape(remoteAgentBin)}
 
 cd "$WORKSPACE"
 
-if [ ! -d ".claude/skills/aris" ] && [ ! -d ".claude/skills" ]; then
+if [ ! -f ".claude/skills/research-lit/SKILL.md" ] && [ ! -f ".claude/skills/research-pipeline/SKILL.md" ]; then
   echo "ARIS skills are not installed in $WORKSPACE/.claude/skills" >&2
   exit 1
 fi
@@ -222,6 +384,224 @@ async function defaultListServers() {
   }
 }
 
+async function defaultListProjects() {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          name,
+          client_workspace_id,
+          local_project_path,
+          local_full_path,
+          sync_excludes_json,
+          created_at,
+          updated_at
+        FROM aris_projects
+        ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+      `,
+      args: [],
+    });
+    return (result.rows || []).map(normalizeProject).filter(Boolean);
+  } catch (_) {
+    return projectStore.map((project) => ({ ...project }));
+  }
+}
+
+async function defaultGetProjectById(projectId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          name,
+          client_workspace_id,
+          local_project_path,
+          local_full_path,
+          sync_excludes_json,
+          created_at,
+          updated_at
+        FROM aris_projects
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [projectId],
+    });
+    return normalizeProject(result.rows?.[0]);
+  } catch (_) {
+    return projectStore.find((project) => project.id === projectId) || null;
+  }
+}
+
+async function defaultSaveProject(project) {
+  const normalized = normalizeProject(project);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_projects (
+          id,
+          name,
+          client_workspace_id,
+          local_project_path,
+          local_full_path,
+          sync_excludes_json,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.name,
+        normalized.clientWorkspaceId,
+        normalized.localProjectPath,
+        normalized.localFullPath || '',
+        JSON.stringify(normalized.syncExcludes),
+        normalized.createdAt,
+        normalized.updatedAt || normalized.createdAt,
+      ],
+    });
+  } catch (_) {
+    const index = projectStore.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) projectStore.splice(index, 1);
+    projectStore.unshift({ ...normalized });
+  }
+}
+
+async function defaultListTargets(projectId = '') {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          ssh_server_id,
+          ssh_server_name,
+          remote_project_path,
+          remote_dataset_root,
+          remote_checkpoint_root,
+          remote_output_root,
+          shared_fs_group,
+          created_at,
+          updated_at
+        FROM aris_project_targets
+        ${projectId ? 'WHERE project_id = ?' : ''}
+        ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+      `,
+      args: projectId ? [projectId] : [],
+    });
+    return (result.rows || []).map(normalizeTarget).filter(Boolean);
+  } catch (_) {
+    return targetStore
+      .filter((target) => !projectId || target.projectId === projectId)
+      .map((target) => ({ ...target }));
+  }
+}
+
+async function defaultGetTargetById(targetId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          ssh_server_id,
+          ssh_server_name,
+          remote_project_path,
+          remote_dataset_root,
+          remote_checkpoint_root,
+          remote_output_root,
+          shared_fs_group,
+          created_at,
+          updated_at
+        FROM aris_project_targets
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [targetId],
+    });
+    return normalizeTarget(result.rows?.[0]);
+  } catch (_) {
+    return targetStore.find((target) => target.id === targetId) || null;
+  }
+}
+
+async function defaultSaveTarget(target) {
+  const normalized = normalizeTarget(target);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_project_targets (
+          id,
+          project_id,
+          ssh_server_id,
+          ssh_server_name,
+          remote_project_path,
+          remote_dataset_root,
+          remote_checkpoint_root,
+          remote_output_root,
+          shared_fs_group,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.projectId,
+        normalized.sshServerId,
+        normalized.sshServerName,
+        normalized.remoteProjectPath,
+        normalized.remoteDatasetRoot,
+        normalized.remoteCheckpointRoot,
+        normalized.remoteOutputRoot,
+        normalized.sharedFsGroup,
+        normalized.createdAt,
+        normalized.updatedAt || normalized.createdAt,
+      ],
+    });
+  } catch (_) {
+    const index = targetStore.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) targetStore.splice(index, 1);
+    targetStore.unshift({ ...normalized });
+  }
+}
+
+async function defaultDeleteProject(projectId) {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: 'DELETE FROM aris_projects WHERE id = ?',
+      args: [projectId],
+    });
+  } catch (_) {
+    const projectIndex = projectStore.findIndex((entry) => entry.id === projectId);
+    if (projectIndex >= 0) projectStore.splice(projectIndex, 1);
+    for (let index = targetStore.length - 1; index >= 0; index -= 1) {
+      if (String(targetStore[index].projectId) === String(projectId)) {
+        targetStore.splice(index, 1);
+      }
+    }
+  }
+}
+
+async function defaultDeleteTarget(targetId) {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: 'DELETE FROM aris_project_targets WHERE id = ?',
+      args: [targetId],
+    });
+  } catch (_) {
+    const targetIndex = targetStore.findIndex((entry) => entry.id === targetId);
+    if (targetIndex >= 0) targetStore.splice(targetIndex, 1);
+  }
+}
+
 async function defaultListLaunches() {
   try {
     const db = getDb();
@@ -230,6 +610,10 @@ async function defaultListLaunches() {
         SELECT
           id,
           project_id,
+          project_name,
+          target_id,
+          target_name,
+          local_project_path,
           workflow_type,
           prompt,
           runner_server_id,
@@ -244,6 +628,7 @@ async function defaultListLaunches() {
           latest_score,
           latest_verdict,
           summary,
+          sync_strategy,
           started_at,
           updated_at,
           remote_pid,
@@ -262,6 +647,38 @@ async function defaultListLaunches() {
   }
 }
 
+async function defaultListRunActions(runId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          run_id,
+          action_type,
+          prompt,
+          status,
+          active_phase,
+          downstream_server_id,
+          downstream_server_name,
+          summary,
+          created_at,
+          updated_at,
+          log_path
+        FROM aris_run_actions
+        WHERE run_id = ?
+        ORDER BY datetime(created_at) ASC
+      `,
+      args: [runId],
+    });
+    return (result.rows || []).map(normalizeAction).filter(Boolean);
+  } catch (_) {
+    return actionStore
+      .filter((action) => action.runId === runId)
+      .map((action) => ({ ...action }));
+  }
+}
+
 async function defaultGetLaunchById(runId) {
   try {
     const db = getDb();
@@ -270,6 +687,10 @@ async function defaultGetLaunchById(runId) {
         SELECT
           id,
           project_id,
+          project_name,
+          target_id,
+          target_name,
+          local_project_path,
           workflow_type,
           prompt,
           runner_server_id,
@@ -284,6 +705,7 @@ async function defaultGetLaunchById(runId) {
           latest_score,
           latest_verdict,
           summary,
+          sync_strategy,
           started_at,
           updated_at,
           remote_pid,
@@ -311,6 +733,10 @@ async function defaultSaveLaunch(launch) {
         INSERT OR REPLACE INTO aris_runs (
           id,
           project_id,
+          project_name,
+          target_id,
+          target_name,
+          local_project_path,
           workflow_type,
           prompt,
           runner_server_id,
@@ -325,17 +751,22 @@ async function defaultSaveLaunch(launch) {
           latest_score,
           latest_verdict,
           summary,
+          sync_strategy,
           started_at,
           updated_at,
           remote_pid,
           log_path,
           run_directory,
           retry_of_run_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         normalized.id,
         normalized.projectId,
+        normalized.projectName,
+        normalized.targetId,
+        normalized.targetName,
+        normalized.localProjectPath,
         normalized.workflowType,
         normalized.prompt,
         normalized.runnerServerId,
@@ -350,6 +781,7 @@ async function defaultSaveLaunch(launch) {
         normalized.latestScore,
         normalized.latestVerdict,
         normalized.summary,
+        normalized.syncStrategy,
         normalized.startedAt,
         normalized.updatedAt || normalized.startedAt,
         normalized.remotePid,
@@ -366,6 +798,49 @@ async function defaultSaveLaunch(launch) {
   }
 }
 
+async function defaultSaveRunAction(action) {
+  const normalized = normalizeAction(action);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_run_actions (
+          id,
+          run_id,
+          action_type,
+          prompt,
+          status,
+          active_phase,
+          downstream_server_id,
+          downstream_server_name,
+          summary,
+          created_at,
+          updated_at,
+          log_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.runId,
+        normalized.actionType,
+        normalized.prompt,
+        normalized.status,
+        normalized.activePhase,
+        normalized.downstreamServerId,
+        normalized.downstreamServerName,
+        normalized.summary,
+        normalized.createdAt,
+        normalized.updatedAt || normalized.createdAt,
+        normalized.logPath,
+      ],
+    });
+  } catch (_) {
+    const existingIndex = actionStore.findIndex((entry) => entry.id === normalized.id);
+    if (existingIndex >= 0) actionStore.splice(existingIndex, 1);
+    actionStore.push({ ...normalized });
+  }
+}
+
 async function defaultDispatchLaunch({ launch, runner }) {
   if (!runner?.host || !runner?.user) {
     throw new Error('ARIS WSL runner is not configured in SSH servers');
@@ -377,21 +852,182 @@ async function defaultDispatchLaunch({ launch, runner }) {
   return parseRemoteLaunchOutput(result.stdout);
 }
 
+async function defaultDispatchRunAction({ run, action, runner }) {
+  if (!runner?.host || !runner?.user) {
+    throw new Error('ARIS WSL runner is not configured in SSH servers');
+  }
+
+  const actionDirectory = path.posix.join(
+    buildRunDirectory(run.remoteWorkspacePath, run.id),
+    'actions',
+    String(action.id)
+  );
+  const promptPath = path.posix.join(actionDirectory, 'prompt.txt');
+  const logPath = path.posix.join(actionDirectory, 'action.log');
+  const commandPath = path.posix.join(actionDirectory, 'launch-action.sh');
+  const actionPrompt = [
+    `Parent run: ${run.id}`,
+    `Action type: ${action.actionType}`,
+    `Parent workflow: ${run.workflowType}`,
+    `Workspace: ${run.remoteWorkspacePath}`,
+    run.datasetRoot ? `Dataset root: ${run.datasetRoot}` : '',
+    action.downstreamServerName ? `Preferred experiment server: ${action.downstreamServerName}` : '',
+    '',
+    action.prompt,
+  ].filter(Boolean).join('\n');
+
+  const scriptBody = `
+set -euo pipefail
+
+ACTION_DIR=${sshTransport.shellEscape(actionDirectory)}
+PROMPT_FILE=${sshTransport.shellEscape(promptPath)}
+LOG_FILE=${sshTransport.shellEscape(logPath)}
+COMMAND_FILE=${sshTransport.shellEscape(commandPath)}
+REMOTE_AGENT_BIN=${sshTransport.shellEscape(DEFAULT_REMOTE_AGENT_BIN)}
+WORKSPACE=${sshTransport.shellEscape(run.remoteWorkspacePath)}
+
+mkdir -p "$ACTION_DIR"
+
+cat > "$PROMPT_FILE" <<'EOF_PROMPT'
+${actionPrompt}
+EOF_PROMPT
+
+cat > "$COMMAND_FILE" <<'EOF_COMMAND'
+#!/usr/bin/env bash
+set -euo pipefail
+REMOTE_AGENT_BIN=${sshTransport.shellEscape(DEFAULT_REMOTE_AGENT_BIN)}
+PROMPT_FILE=${sshTransport.shellEscape(promptPath)}
+cd ${sshTransport.shellEscape(run.remoteWorkspacePath)}
+PROMPT="$(cat ${sshTransport.shellEscape(promptPath)})"
+exec "$REMOTE_AGENT_BIN" ${DEFAULT_REMOTE_AGENT_ARGS.map((arg) => sshTransport.shellEscape(arg)).join(' ')} "$PROMPT"
+EOF_COMMAND
+
+chmod +x "$COMMAND_FILE"
+nohup "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
+printf '%s\n' "$LOG_FILE"
+`.trim();
+
+  const result = await sshTransport.script(runner, scriptBody, [], { timeoutMs: 30000 });
+  return {
+    status: 'queued',
+    activePhase: 'queued',
+    summary: 'Queued on the parent run workspace',
+    logPath: String(result.stdout || '').trim(),
+  };
+}
+
+async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '' } = {}) {
+  return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath });
+}
+
 function createArisService(overrides = {}) {
   const deps = {
     listServers: overrides.listServers || defaultListServers,
+    listProjects: overrides.listProjects || defaultListProjects,
+    getProjectById: overrides.getProjectById || defaultGetProjectById,
+    saveProject: overrides.saveProject || defaultSaveProject,
+    deleteProject: overrides.deleteProject || defaultDeleteProject,
+    listTargets: overrides.listTargets || defaultListTargets,
+    getTargetById: overrides.getTargetById || defaultGetTargetById,
+    saveTarget: overrides.saveTarget || defaultSaveTarget,
+    deleteTarget: overrides.deleteTarget || defaultDeleteTarget,
     listLaunches: overrides.listLaunches || defaultListLaunches,
     getLaunchById: overrides.getLaunchById || defaultGetLaunchById,
     dispatchLaunch: overrides.dispatchLaunch || defaultDispatchLaunch,
     saveLaunch: overrides.saveLaunch || defaultSaveLaunch,
+    listRunActions: overrides.listRunActions || defaultListRunActions,
+    saveRunAction: overrides.saveRunAction || defaultSaveRunAction,
+    dispatchRunAction: overrides.dispatchRunAction || defaultDispatchRunAction,
+    buildProjectFiles: overrides.buildProjectFiles || defaultBuildProjectFiles,
   };
+
+  async function reconcileProjectTargets(projectId, payload = {}) {
+    const endpointIntent = Object.prototype.hasOwnProperty.call(payload, 'remoteEndpoints')
+      || Object.prototype.hasOwnProperty.call(payload, 'noRemote');
+    if (!endpointIntent) {
+      return null;
+    }
+
+    const noRemote = payload.noRemote === true;
+    const remoteEndpoints = noRemote
+      ? []
+      : (Array.isArray(payload.remoteEndpoints) ? payload.remoteEndpoints : []).map((endpoint) => ({
+        id: endpoint?.id || '',
+        sshServerId: endpoint?.sshServerId ?? null,
+        remoteProjectPath: String(endpoint?.remoteProjectPath || '').trim(),
+        remoteDatasetRoot: String(endpoint?.remoteDatasetRoot || '').trim(),
+        remoteCheckpointRoot: String(endpoint?.remoteCheckpointRoot || '').trim(),
+        remoteOutputRoot: String(endpoint?.remoteOutputRoot || '').trim(),
+      }));
+
+    if (!noRemote && remoteEndpoints.length === 0) {
+      throw new Error('remoteEndpoints are required when noRemote is false');
+    }
+
+    const servers = await deps.listServers();
+    const existingTargets = (await deps.listTargets(projectId))
+      .filter((target) => String(target.projectId) === String(projectId));
+    const keptTargetIds = new Set();
+    const savedTargets = [];
+
+    for (let index = 0; index < remoteEndpoints.length; index += 1) {
+      const endpoint = remoteEndpoints[index];
+      if (!endpoint.sshServerId) {
+        throw new Error(`remoteEndpoints[${index}].sshServerId is required`);
+      }
+      if (!endpoint.remoteProjectPath) {
+        throw new Error(`remoteEndpoints[${index}].remoteProjectPath is required`);
+      }
+
+      const server = servers.find((item) => String(item.id) === String(endpoint.sshServerId));
+      if (!server) {
+        throw new Error(`remoteEndpoints[${index}] SSH server not found`);
+      }
+
+      const existingTarget = endpoint.id
+        ? existingTargets.find((target) => String(target.id) === String(endpoint.id))
+        : null;
+      if (endpoint.id && !existingTarget) {
+        throw new Error(`remoteEndpoints[${index}] target not found`);
+      }
+
+      const now = new Date().toISOString();
+      const target = normalizeTarget({
+        ...existingTarget,
+        id: existingTarget?.id || `aris_target_${Date.now()}_${index}`,
+        projectId,
+        sshServerId: server.id,
+        sshServerName: server.name || server.host || '',
+        remoteProjectPath: endpoint.remoteProjectPath,
+        remoteDatasetRoot: endpoint.remoteDatasetRoot,
+        remoteCheckpointRoot: endpoint.remoteCheckpointRoot,
+        remoteOutputRoot: endpoint.remoteOutputRoot,
+        sharedFsGroup: server.shared_fs_group || existingTarget?.sharedFsGroup || '',
+        createdAt: existingTarget?.createdAt || now,
+        updatedAt: now,
+      });
+
+      await deps.saveTarget(target);
+      keptTargetIds.add(String(target.id));
+      savedTargets.push(target);
+    }
+
+    for (const target of existingTargets) {
+      if (!keptTargetIds.has(String(target.id))) {
+        await deps.deleteTarget(target.id);
+      }
+    }
+
+    return savedTargets;
+  }
 
   async function buildLaunchFromPayload(payload = {}, { username = 'czk', retryOfRunId = null } = {}) {
     const workflowType = String(payload.workflowType || '').trim();
     const prompt = String(payload.prompt || '').trim();
     const projectId = String(payload.projectId || '').trim();
+    const targetId = String(payload.targetId || '').trim();
 
-    if (!ARIS_WORKFLOW_TYPES.includes(workflowType)) {
+    if (![ARIS_CUSTOM_WORKFLOW_TYPE, ...ARIS_WORKFLOW_TYPES].includes(workflowType)) {
       throw new Error('Invalid workflowType');
     }
     if (!projectId) {
@@ -402,16 +1038,60 @@ function createArisService(overrides = {}) {
     }
 
     const servers = await deps.listServers();
-    const runner = pickRunnerServer(servers);
-    const downstreamServerId = payload.downstreamServerId ?? null;
-    const downstreamServer = downstreamServerId
-      ? servers.find((server) => String(server.id) === String(downstreamServerId))
-      : pickDownstreamServer(servers, runner.id);
+    let resolvedProject = null;
+    let resolvedTarget = null;
+    let runner = null;
+    let downstreamServer = null;
+
+    if (targetId) {
+      resolvedProject = await deps.getProjectById(projectId);
+      if (!resolvedProject) {
+        throw new Error('Project not found');
+      }
+      resolvedTarget = await deps.getTargetById(targetId);
+      if (!resolvedTarget || String(resolvedTarget.projectId) !== String(projectId)) {
+        throw new Error('Target not found');
+      }
+      const server = servers.find((item) => String(item.id) === String(resolvedTarget.sshServerId));
+      if (!server) {
+        throw new Error('Target SSH server not found');
+      }
+      runner = {
+        id: server.id,
+        name: server.name || server.host || '',
+        host: server.host,
+        user: server.user,
+        port: server.port,
+      };
+    } else {
+      const runners = listRunnerServers(servers);
+      const requestedRunnerId = payload.runnerServerId ?? null;
+      runner = requestedRunnerId
+        ? (runners.find((server) => String(server.id) === String(requestedRunnerId)) || null)
+        : (runners[0] || null);
+      if (!runner) {
+        throw new Error('runnerServerId is required');
+      }
+      const downstreamServers = listDownstreamServers(servers, runner.id);
+      const downstreamServerId = payload.downstreamServerId ?? null;
+      downstreamServer = downstreamServerId
+        ? downstreamServers.find((server) => String(server.id) === String(downstreamServerId))
+        : (downstreamServers[0] || null);
+    }
+
+    const serverForSync = resolvedTarget
+      ? servers.find((item) => String(item.id) === String(resolvedTarget.sshServerId))
+      : null;
+    const syncStrategy = inferSyncStrategy(resolvedProject || {}, resolvedTarget || {}, serverForSync || {});
 
     return {
       launch: {
         id: `aris_run_${Date.now()}`,
         projectId,
+        projectName: resolvedProject?.name || '',
+        targetId: resolvedTarget?.id || null,
+        targetName: resolvedTarget?.sshServerName || '',
+        localProjectPath: resolvedProject?.localProjectPath || '',
         workflowType,
         prompt,
         title: String(payload.title || '').trim(),
@@ -419,8 +1099,17 @@ function createArisService(overrides = {}) {
         runnerHost: runner.name || runner.host || '',
         downstreamServerId: downstreamServer?.id ?? null,
         downstreamServerName: downstreamServer?.name ?? '',
-        remoteWorkspacePath: String(payload.remoteWorkspacePath || buildDefaultWorkspacePath(projectId, username)).trim(),
-        datasetRoot: String(payload.datasetRoot || process.env.ARIS_REMOTE_DATASET_ROOT || '').trim(),
+        remoteWorkspacePath: String(
+          resolvedTarget?.remoteProjectPath
+          || payload.remoteWorkspacePath
+          || buildDefaultWorkspacePath(projectId, username)
+        ).trim(),
+        datasetRoot: String(
+          resolvedTarget?.remoteDatasetRoot
+          || payload.datasetRoot
+          || process.env.ARIS_REMOTE_DATASET_ROOT
+          || ''
+        ).trim(),
         requiresUpload: false,
         status: 'queued',
         activePhase: 'queued',
@@ -428,7 +1117,8 @@ function createArisService(overrides = {}) {
         latestVerdict: '',
         startedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        summary: '',
+        summary: describeSyncStrategy(syncStrategy),
+        syncStrategy,
         remotePid: null,
         logPath: '',
         runDirectory: '',
@@ -451,7 +1141,8 @@ function createArisService(overrides = {}) {
     launch.remotePid = dispatchResult?.remotePid ?? null;
     launch.logPath = dispatchResult?.logPath || '';
     launch.runDirectory = dispatchResult?.runDirectory || buildRunDirectory(launch.remoteWorkspacePath, launch.id);
-    launch.summary = launch.logPath ? `Remote log: ${launch.logPath}` : '';
+    const summaryParts = [launch.summary || '', launch.logPath ? `Remote log: ${launch.logPath}` : ''].filter(Boolean);
+    launch.summary = summaryParts.join('\n');
     launch.updatedAt = new Date().toISOString();
 
     await deps.saveLaunch(launch);
@@ -461,24 +1152,163 @@ function createArisService(overrides = {}) {
   return {
     async getWorkspaceContext({ username = 'czk' } = {}) {
       const servers = await deps.listServers();
-      const runner = pickRunnerServer(servers);
-      const downstreamServer = pickDownstreamServer(servers, runner.id);
-      const projectId = 'default-project';
+      const projects = await deps.listProjects();
+      const targets = await deps.listTargets();
+      const availableSshServers = servers.map((server) => toSshServerSummary(server));
+      const defaultProject = projects[0] || null;
+      const defaultTarget = defaultProject
+        ? targets.find((target) => String(target.projectId) === String(defaultProject.id)) || null
+        : null;
 
       return {
-        projects: [
-          {
-            id: projectId,
-            name: 'Default Project',
-          },
-        ],
+        projects: projects.map((project) => ({
+          ...project,
+          targetCount: targets.filter((target) => String(target.projectId) === String(project.id)).length,
+          noRemote: !targets.some((target) => String(target.projectId) === String(project.id)),
+        })),
+        targets,
+        availableSshServers,
         quickActions,
-        runner,
-        downstreamServer,
-        remoteWorkspacePath: buildDefaultWorkspacePath(projectId, username),
-        datasetRoot: process.env.ARIS_REMOTE_DATASET_ROOT || '',
         continueWhenOffline: true,
+        defaultSelections: {
+          projectId: defaultProject?.id || '',
+          targetId: defaultTarget?.id || '',
+        },
       };
+    },
+
+    async listProjects() {
+      const projects = await deps.listProjects();
+      const targets = await deps.listTargets();
+      return projects.map((project) => ({
+        ...project,
+        targetCount: targets.filter((target) => String(target.projectId) === String(project.id)).length,
+        noRemote: !targets.some((target) => String(target.projectId) === String(project.id)),
+      }));
+    },
+
+    async createProject(payload = {}) {
+      const name = String(payload.name || '').trim();
+      const clientWorkspaceId = String(payload.clientWorkspaceId || '').trim();
+      const localProjectPath = String(payload.localProjectPath || '').trim();
+      if (!name) throw new Error('name is required');
+      if (!clientWorkspaceId) throw new Error('clientWorkspaceId is required');
+      if (!localProjectPath) throw new Error('localProjectPath is required');
+
+      const project = normalizeProject({
+        id: `aris_project_${Date.now()}`,
+        name,
+        clientWorkspaceId,
+        localProjectPath,
+        localFullPath: String(payload.localFullPath || '').trim(),
+        syncExcludes: payload.syncExcludes || [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await deps.saveProject(project);
+      const targets = await reconcileProjectTargets(project.id, payload);
+      const projectFiles = await deps.buildProjectFiles({
+        projectName: project.name,
+        localProjectPath: project.localProjectPath,
+      });
+      const responseProject = targets ? { ...project, targets } : project;
+      return {
+        ...responseProject,
+        projectFiles,
+      };
+    },
+
+    async updateProject(projectId, payload = {}) {
+      const existing = await deps.getProjectById(projectId);
+      if (!existing) throw new Error('Project not found');
+      const updated = normalizeProject({
+        ...existing,
+        ...payload,
+        id: existing.id,
+        clientWorkspaceId: payload.clientWorkspaceId ?? existing.clientWorkspaceId,
+        localProjectPath: payload.localProjectPath ?? existing.localProjectPath,
+        localFullPath: payload.localFullPath ?? existing.localFullPath ?? '',
+        syncExcludes: payload.syncExcludes ?? existing.syncExcludes,
+        updatedAt: new Date().toISOString(),
+      });
+      await deps.saveProject(updated);
+      const targets = await reconcileProjectTargets(updated.id, payload);
+      const projectFiles = await deps.buildProjectFiles({
+        projectName: updated.name,
+        localProjectPath: updated.localProjectPath,
+      });
+      const responseProject = targets ? { ...updated, targets } : updated;
+      return {
+        ...responseProject,
+        projectFiles,
+      };
+    },
+
+    async listTargets(projectId = '') {
+      return deps.listTargets(projectId);
+    },
+
+    async createTarget(projectId, payload = {}) {
+      const existingProject = await deps.getProjectById(projectId);
+      if (!existingProject) throw new Error('Project not found');
+      const sshServerId = payload.sshServerId ?? null;
+      if (!sshServerId) throw new Error('sshServerId is required');
+      const remoteProjectPath = String(payload.remoteProjectPath || '').trim();
+      if (!remoteProjectPath) throw new Error('remoteProjectPath is required');
+      const servers = await deps.listServers();
+      const server = servers.find((item) => String(item.id) === String(sshServerId));
+      if (!server) throw new Error('SSH server not found');
+
+      const target = normalizeTarget({
+        id: `aris_target_${Date.now()}`,
+        projectId,
+        sshServerId: server.id,
+        sshServerName: server.name || server.host || '',
+        remoteProjectPath,
+        remoteDatasetRoot: payload.remoteDatasetRoot || '',
+        remoteCheckpointRoot: payload.remoteCheckpointRoot || '',
+        remoteOutputRoot: payload.remoteOutputRoot || '',
+        sharedFsGroup: server.shared_fs_group || payload.sharedFsGroup || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await deps.saveTarget(target);
+      return target;
+    },
+
+    async updateTarget(targetId, payload = {}) {
+      const existing = await deps.getTargetById(targetId);
+      if (!existing) throw new Error('Target not found');
+      const servers = await deps.listServers();
+      const sshServerId = payload.sshServerId ?? existing.sshServerId;
+      const server = servers.find((item) => String(item.id) === String(sshServerId));
+      if (!server) throw new Error('SSH server not found');
+      const updated = normalizeTarget({
+        ...existing,
+        ...payload,
+        id: existing.id,
+        projectId: existing.projectId,
+        sshServerId: server.id,
+        sshServerName: server.name || server.host || '',
+        sharedFsGroup: server.shared_fs_group || payload.sharedFsGroup || existing.sharedFsGroup || '',
+        updatedAt: new Date().toISOString(),
+      });
+      await deps.saveTarget(updated);
+      return updated;
+    },
+
+    async deleteTarget(targetId) {
+      const existing = await deps.getTargetById(targetId);
+      if (!existing) throw new Error('Target not found');
+      await deps.deleteTarget(existing.id);
+      return existing;
+    },
+
+    async deleteProject(projectId) {
+      const existing = await deps.getProjectById(projectId);
+      if (!existing) throw new Error('Project not found');
+      await deps.deleteProject(existing.id);
+      return existing;
     },
 
     async createLaunchRequest(payload = {}, { username = 'czk' } = {}) {
@@ -493,6 +1323,7 @@ function createArisService(overrides = {}) {
         return {
           id: normalized.id,
           projectId: normalized.projectId,
+          targetId: normalized.targetId,
           workflowType: normalized.workflowType,
           title: normalized.title,
           prompt: normalized.prompt,
@@ -514,7 +1345,12 @@ function createArisService(overrides = {}) {
     async getRun(runId) {
       const launch = await deps.getLaunchById(runId);
       if (!launch) return null;
-      return normalizeLaunch(launch);
+      const normalized = normalizeLaunch(launch);
+      const actions = await deps.listRunActions(runId);
+      return {
+        ...normalized,
+        actions,
+      };
     },
 
     async retryRun(runId, { username = 'czk' } = {}) {
@@ -525,6 +1361,7 @@ function createArisService(overrides = {}) {
 
       const { launch, runner, downstreamServer } = await buildLaunchFromPayload({
         projectId: existing.projectId,
+        targetId: existing.targetId,
         workflowType: existing.workflowType,
         prompt: existing.prompt,
         title: existing.title,
@@ -538,10 +1375,69 @@ function createArisService(overrides = {}) {
 
       return dispatchAndPersistLaunch(launch, runner, downstreamServer);
     },
+
+    async createRunAction(runId, payload = {}, { username = 'czk' } = {}) {
+      const existing = await deps.getLaunchById(runId);
+      if (!existing) {
+        throw new Error('Run not found');
+      }
+
+      const actionType = String(payload.actionType || '').trim();
+      const prompt = String(payload.prompt || '').trim();
+      if (!ARIS_ACTION_TYPES.includes(actionType)) {
+        throw new Error('Invalid actionType');
+      }
+      if (!prompt) {
+        throw new Error('prompt is required');
+      }
+
+      const servers = await deps.listServers();
+      const runners = listRunnerServers(servers);
+      const runner = runners.find((server) => String(server.id) === String(existing.runnerServerId))
+        || runners[0]
+        || toRunnerSummary(pickRunnerServer([], username));
+      const downstreamServers = listDownstreamServers(servers, runner.id);
+      const downstreamServer = payload.downstreamServerId
+        ? downstreamServers.find((server) => String(server.id) === String(payload.downstreamServerId))
+        : downstreamServers.find((server) => String(server.id) === String(existing.downstreamServerId))
+          || null;
+
+      const action = {
+        id: `aris_action_${Date.now()}`,
+        runId: existing.id,
+        actionType,
+        prompt,
+        status: 'queued',
+        activePhase: 'queued',
+        downstreamServerId: downstreamServer?.id ?? null,
+        downstreamServerName: downstreamServer?.name ?? '',
+        summary: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        logPath: '',
+      };
+
+      const dispatchResult = await deps.dispatchRunAction({
+        run: existing,
+        action,
+        runner,
+        username,
+      });
+
+      action.status = dispatchResult?.status || action.status;
+      action.activePhase = dispatchResult?.activePhase || action.activePhase;
+      action.summary = dispatchResult?.summary || action.summary;
+      action.logPath = dispatchResult?.logPath || '';
+      action.updatedAt = new Date().toISOString();
+      await deps.saveRunAction(action);
+      return normalizeAction(action);
+    },
   };
 }
 
 module.exports = {
+  ARIS_ACTION_TYPES,
+  ARIS_CUSTOM_WORKFLOW_TYPE,
   ARIS_WORKFLOW_TYPES,
   createArisService,
 };
