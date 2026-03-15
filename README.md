@@ -252,6 +252,14 @@ Define project (link local workspace)
 | **Infra** | PM2, FRP (reverse proxy), nginx |
 | **Extension** | Chrome Manifest V3, VS Code Extension API |
 
+## Acknowledgements
+
+- The ARIS (Autonomous Research In Sleep) workflow system is built on top of [Auto-claude-code-research-in-sleep](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep) by [@wanshuiyin](https://github.com/wanshuiyin), which pioneered the idea of running Claude Code autonomously on research tasks while you sleep.
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) by Anthropic — agent-based code analysis and autonomous research execution
+- [Gemini](https://deepmind.google/technologies/gemini/) by Google — multi-pass paper analysis
+- [Mermaid](https://mermaid.js.org/) — diagram rendering in notes
+- [KaTeX](https://katex.org/) — math formula rendering
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

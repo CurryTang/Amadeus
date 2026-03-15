@@ -247,6 +247,14 @@ npm install && npm run compile
 | **基础设施** | PM2、FRP（反向代理）、nginx |
 | **扩展** | Chrome Manifest V3、VS Code Extension API |
 
+## 致谢
+
+- ARIS（Autonomous Research In Sleep）自主研究工作流系统基于 [@wanshuiyin](https://github.com/wanshuiyin) 的 [Auto-claude-code-research-in-sleep](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep) 构建，该项目开创了让 Claude Code 在你睡觉时自主执行研究任务的理念。
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic) — Agent 代码分析与自主研究执行
+- [Gemini](https://deepmind.google/technologies/gemini/) (Google) — 多轮论文分析
+- [Mermaid](https://mermaid.js.org/) — 笔记图表渲染
+- [KaTeX](https://katex.org/) — 数学公式渲染
+
 ## 贡献
 
 欢迎贡献！请随时提交 Pull Request。
