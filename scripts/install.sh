@@ -412,23 +412,158 @@ echo "Generated:"
 echo "  - ${BACKEND_ENV_OUT}"
 echo "  - ${FRONTEND_ENV_OUT}"
 echo "  - ${PROFILE_OUT}"
+
+# ─── Optional: Set up MinIO ──────────────────────────────────────────────────
+if [[ "${object_provider}" == "minio" ]]; then
+  echo ""
+  echo "─── MinIO Setup ───"
+  echo "You selected MinIO for PDF storage."
+  read -r -p "Set up MinIO now? (Y/n): " setup_minio
+  if [[ ! "${setup_minio}" =~ ^[Nn] ]]; then
+    minio_ready=false
+
+    # Check if MinIO is installed
+    if command -v minio >/dev/null 2>&1; then
+      echo "  MinIO binary found."
+    else
+      echo "  MinIO not found. Installing..."
+      if command -v brew >/dev/null 2>&1; then
+        brew install minio/stable/minio 2>&1 | tail -3
+      elif command -v apt-get >/dev/null 2>&1; then
+        echo "  Install MinIO manually: https://min.io/docs/minio/linux/index.html"
+        echo "  Skipping MinIO setup — you can re-run this step later."
+      else
+        echo "  Install MinIO manually: https://min.io/download"
+        echo "  Skipping MinIO setup — you can re-run this step later."
+      fi
+    fi
+
+    if command -v minio >/dev/null 2>&1; then
+      minio_data="${HOME}/minio-data"
+      read -r -p "MinIO data directory [${minio_data}]: " minio_data_input
+      minio_data="${minio_data_input:-${minio_data}}"
+      mkdir -p "${minio_data}"
+
+      # Check if MinIO is already running
+      if curl -s http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
+        echo "  MinIO is already running on port 9000."
+        minio_ready=true
+      else
+        echo "  Starting MinIO server..."
+        MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+          minio server "${minio_data}" --address :9000 --console-address :9001 &>/tmp/minio-install.log &
+        minio_pid=$!
+        sleep 2
+        if curl -s http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
+          echo "  MinIO started (PID: ${minio_pid})."
+          echo "  Console: http://127.0.0.1:9001 (minioadmin/minioadmin)"
+          minio_ready=true
+        else
+          echo "  Failed to start MinIO. Check /tmp/minio-install.log"
+        fi
+      fi
+
+      # Create bucket if MinIO client is available
+      if [[ "${minio_ready}" == "true" ]]; then
+        if command -v mc >/dev/null 2>&1; then
+          mc alias set amadeus-local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1
+          if mc ls amadeus-local/auto-reader-documents >/dev/null 2>&1; then
+            echo "  Bucket 'auto-reader-documents' already exists."
+          else
+            mc mb amadeus-local/auto-reader-documents >/dev/null 2>&1
+            mc anonymous set download amadeus-local/auto-reader-documents >/dev/null 2>&1
+            echo "  Created bucket 'auto-reader-documents' with public download."
+          fi
+        else
+          echo "  MinIO client (mc) not found — install it to create the bucket automatically:"
+          if command -v brew >/dev/null 2>&1; then
+            echo "    brew install minio/stable/mc"
+          else
+            echo "    https://min.io/docs/minio/linux/reference/minio-mc.html"
+          fi
+          echo "  Then run:"
+          echo "    mc alias set local http://127.0.0.1:9000 minioadmin minioadmin"
+          echo "    mc mb local/auto-reader-documents"
+          echo "    mc anonymous set download local/auto-reader-documents"
+        fi
+      fi
+
+      echo ""
+      echo "  Note: MinIO runs in the background. To start it on boot, create a"
+      echo "  launchd plist (macOS) or systemd service (Linux), or just re-run:"
+      echo "    MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \\"
+      echo "      minio server ${minio_data} --address :9000 --console-address :9001 &"
+    fi
+  else
+    echo "  Skipped. You can set up MinIO later — see the README for instructions."
+  fi
+fi
+
+# ─── Optional: Install dependencies and start ────────────────────────────────
 echo ""
-echo "Next steps:"
-echo "  1) Review generated files (credentials are already set)."
-echo "  2) Apply env files:"
-echo "       cp ${BACKEND_ENV_OUT} ${ROOT_DIR}/backend/.env"
-echo "       cp ${FRONTEND_ENV_OUT} ${ROOT_DIR}/frontend/.env"
-echo "  3) Install dependencies:"
-echo "       cd ${ROOT_DIR}/backend && npm install"
-echo "       cd ${ROOT_DIR}/frontend && npm install"
-echo "  4) Start the app:"
-echo "       cd ${ROOT_DIR}/backend && node src/index.js"
-echo "       cd ${ROOT_DIR}/frontend && npx next dev"
-echo "  5) If using FRP mode, run:"
-echo "       ${ROOT_DIR}/scripts/set-do-tracker-proxy.sh"
-echo "       ${ROOT_DIR}/scripts/verify-frp-offload.sh"
+echo "─── Install & Start ───"
+read -r -p "Apply env files and install dependencies now? (Y/n): " do_install
+if [[ ! "${do_install}" =~ ^[Nn] ]]; then
+  echo "  Applying env files..."
+  cp "${BACKEND_ENV_OUT}" "${ROOT_DIR}/backend/.env"
+  cp "${FRONTEND_ENV_OUT}" "${ROOT_DIR}/frontend/.env"
+
+  echo "  Installing backend dependencies..."
+  (cd "${ROOT_DIR}/backend" && npm install --no-audit --no-fund 2>&1 | tail -3)
+
+  echo "  Installing frontend dependencies..."
+  (cd "${ROOT_DIR}/frontend" && npm install --no-audit --no-fund 2>&1 | tail -3)
+
+  echo ""
+  read -r -p "Start the app now? (Y/n): " do_start
+  if [[ ! "${do_start}" =~ ^[Nn] ]]; then
+    echo "  Starting backend on port ${backend_port}..."
+    (cd "${ROOT_DIR}/backend" && node src/index.js &>/tmp/amadeus-backend.log &)
+    backend_pid=$!
+    sleep 2
+
+    echo "  Starting frontend..."
+    (cd "${ROOT_DIR}/frontend" && npx next dev &>/tmp/amadeus-frontend.log &)
+    frontend_pid=$!
+    sleep 3
+
+    echo ""
+    echo "  Backend:  http://127.0.0.1:${backend_port}  (PID: ${backend_pid}, log: /tmp/amadeus-backend.log)"
+    echo "  Frontend: http://127.0.0.1:3000  (PID: ${frontend_pid}, log: /tmp/amadeus-frontend.log)"
+    echo ""
+    echo "  Login with username 'czk' and the password you set."
+    echo ""
+    echo "  To stop: kill ${backend_pid} ${frontend_pid}"
+  else
+    echo ""
+    echo "  To start later:"
+    echo "    cd ${ROOT_DIR}/backend && node src/index.js"
+    echo "    cd ${ROOT_DIR}/frontend && npx next dev"
+  fi
+else
+  echo ""
+  echo "Next steps:"
+  echo "  1) Apply env files:"
+  echo "       cp ${BACKEND_ENV_OUT} ${ROOT_DIR}/backend/.env"
+  echo "       cp ${FRONTEND_ENV_OUT} ${ROOT_DIR}/frontend/.env"
+  echo "  2) Install dependencies:"
+  echo "       cd ${ROOT_DIR}/backend && npm install"
+  echo "       cd ${ROOT_DIR}/frontend && npm install"
+  echo "  3) Start the app:"
+  echo "       cd ${ROOT_DIR}/backend && node src/index.js"
+  echo "       cd ${ROOT_DIR}/frontend && npx next dev"
+fi
+
+echo ""
+if [[ "${object_provider}" != "minio" ]]; then
+  echo "Remember to configure your object storage credentials in backend/.env"
+fi
+echo "If using FRP mode, run:"
+echo "  DO_HOST=<your-server> ${ROOT_DIR}/scripts/set-do-tracker-proxy.sh"
+echo "  DO_HOST=<your-server> PUBLIC_TRACKER_STATUS_URL=<your-url> ${ROOT_DIR}/scripts/verify-frp-offload.sh"
 if [[ "${aris_integration_enabled}" == "true" ]]; then
-  echo "  6) To install ARIS into a project and register the MCP backend:"
-  echo "       ARIS_SKILLS_REPO=${aris_skills_repo} ${ROOT_DIR}/scripts/setup-aris-integration.sh /path/to/project"
-  echo "       claude mcp add auto-researcher -s project -- node ${ROOT_DIR}/backend/src/mcp/auto-researcher-mcp-server.js"
+  echo ""
+  echo "To install ARIS into a project and register the MCP backend:"
+  echo "  ARIS_SKILLS_REPO=${aris_skills_repo} ${ROOT_DIR}/scripts/setup-aris-integration.sh /path/to/project"
+  echo "  claude mcp add auto-researcher -s project -- node ${ROOT_DIR}/backend/src/mcp/auto-researcher-mcp-server.js"
 fi
