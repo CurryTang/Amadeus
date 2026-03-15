@@ -10976,6 +10976,279 @@ button.vibe-skill-chip.is-active {
   }
 }
 
+/* ─── iPhone / small mobile (≤480px) ─────────────────────────────────────── */
+@media (max-width: 480px) {
+  /* ── Global header ── */
+  .header {
+    padding: 10px 12px 8px;
+  }
+  .header-content h1 {
+    font-size: 20px;
+  }
+  .header-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .header-right {
+    gap: 6px;
+    width: 100%;
+  }
+  .area-tabs .rt-TabsList,
+  .sub-tabs .rt-TabsList {
+    padding: 2px;
+    border-radius: 8px;
+  }
+  .area-tabs .rt-TabsTrigger,
+  .sub-tabs .rt-TabsTrigger {
+    font-size: 0.8rem;
+    padding: 4px 10px;
+  }
+  .header .rt-Button.header-btn {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+  }
+  .header-actions {
+    gap: 5px;
+  }
+  .header-sub-row {
+    margin-top: 6px;
+    min-height: 28px;
+  }
+
+  /* ── Paper feed toolbar ── */
+  .latest-papers-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .latest-papers-toolbar-left {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .latest-category-select {
+    flex: 1;
+    max-width: none;
+    min-width: 0;
+  }
+  .latest-keyword-input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  .latest-papers-toolbar-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .latest-papers-cache-info {
+    font-size: 0.72rem;
+  }
+
+  /* ── Paper cards — single column ── */
+  .latest-papers-list {
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+  }
+  .latest-paper-card {
+    padding: 12px;
+  }
+  .latest-paper-header {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .latest-paper-meta {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .latest-paper-source {
+    font-size: 0.65rem;
+  }
+  .latest-paper-title {
+    font-size: 0.92rem;
+  }
+  .latest-paper-authors {
+    font-size: 0.78rem;
+  }
+  .latest-paper-abstract {
+    font-size: 0.82rem;
+    -webkit-line-clamp: 3;
+  }
+
+  /* ── Main content area ── */
+  .main {
+    padding: 10px;
+  }
+
+  /* ── ARIS workspace ── */
+  .aris-workspace {
+    padding: 10px;
+    gap: 14px;
+  }
+  .aris-hero {
+    padding: 16px;
+    border-radius: 14px;
+  }
+  .aris-hero h2 {
+    font-size: 1.2rem;
+  }
+  .aris-hero p {
+    font-size: 0.82rem;
+  }
+  .aris-hero-label {
+    font-size: 0.65rem;
+  }
+  .aris-hero-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .aris-refresh-btn,
+  .aris-secondary-btn {
+    font-size: 0.78rem;
+    padding: 5px 10px;
+  }
+
+  /* ARIS grid → single column, no side-by-side */
+  .aris-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* Launch panel */
+  .aris-launch-panel,
+  .aris-context-panel,
+  .aris-runs-panel {
+    padding: 14px;
+    border-radius: 14px;
+  }
+  .aris-panel-header h3 {
+    font-size: 1rem;
+  }
+  .aris-field > span {
+    font-size: 0.72rem;
+  }
+  .aris-field select,
+  .aris-field input,
+  .aris-field textarea {
+    font-size: 0.85rem;
+    padding: 8px 10px;
+  }
+
+  /* Quick action chips — 2-column on small screens */
+  .aris-quick-actions {
+    gap: 6px;
+  }
+  .aris-quick-action-btn {
+    font-size: 0.72rem;
+    padding: 4px 8px;
+  }
+
+  /* Launch footer */
+  .aris-launch-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .aris-launch-footer-info {
+    font-size: 0.78rem;
+  }
+  .aris-launch-btn {
+    width: 100%;
+  }
+
+  /* Context panel */
+  .aris-context-list dt {
+    font-size: 0.68rem;
+  }
+  .aris-context-list dd {
+    font-size: 0.82rem;
+    word-break: break-all;
+  }
+
+  /* Runs + Detail grid → stacked */
+  .aris-runs-detail-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .aris-run-list {
+    max-height: 360px;
+  }
+  .aris-run-card {
+    padding: 12px;
+    border-radius: 12px;
+  }
+  .aris-run-card h4 {
+    font-size: 0.9rem;
+  }
+  .aris-run-meta {
+    font-size: 0.72rem;
+    gap: 4px;
+  }
+  .aris-run-summary {
+    font-size: 0.78rem;
+    -webkit-line-clamp: 2;
+  }
+
+  /* Run detail panel */
+  .aris-run-detail-panel {
+    max-height: none;
+  }
+  .aris-detail-copy {
+    font-size: 0.8rem;
+    max-height: 120px;
+  }
+  .aris-run-detail-top {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .aris-follow-up textarea {
+    min-height: 80px;
+  }
+
+  /* Project manager modal */
+  .aris-project-manager-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .aris-project-manager {
+    border-radius: 16px 16px 0 0;
+    max-height: 92vh;
+    width: 100%;
+  }
+  .aris-project-manager-grid {
+    grid-template-columns: 1fr;
+  }
+  .aris-project-manager-header {
+    padding: 12px 14px;
+  }
+  .aris-project-manager-body {
+    padding: 12px;
+  }
+  .aris-manager-sidebar {
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .aris-project-item {
+    padding: 10px;
+    font-size: 0.82rem;
+  }
+  .aris-project-item strong {
+    font-size: 0.88rem;
+  }
+  .aris-manager-field label {
+    font-size: 0.78rem;
+  }
+  .aris-endpoint-card {
+    padding: 12px;
+  }
+
+  /* WSL status banner */
+  .aris-wsl-banner {
+    font-size: 0.75rem;
+    padding: 6px 10px;
+  }
+}
+
 /* ---- Obsidian vault export button on DocumentCard ---- */
 .vault-btn { background: #f0fdf4 !important; border-color: #6ee7b7 !important; color: #065f46 !important; }
 .vault-btn:hover { background: #dcfce7 !important; }
