@@ -69,6 +69,6 @@ test('shouldFetchArxivMetadata only when popup lacks usable metadata', () => {
 test('resolveApiBaseUrl preserves local http endpoints and defaults to local api', () => {
   assert.equal(resolveApiBaseUrl('http://localhost:3000/api'), 'http://localhost:3000/api');
   assert.equal(resolveApiBaseUrl('http://127.0.0.1:3000/api'), 'http://127.0.0.1:3000/api');
-  assert.equal(resolveApiBaseUrl('https://your-domain.example.com/api'), 'https://your-domain.example.com/api');
+  assert.equal(resolveApiBaseUrl('https://example.com/api'), 'https://example.com/api');
   assert.equal(resolveApiBaseUrl(''), 'http://localhost:3000/api');
 });

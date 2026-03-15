@@ -8,7 +8,7 @@ const dotenv = require('dotenv');
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
-const DEFAULT_API_URL = 'https://your-domain.example.com/api';
+const DEFAULT_API_URL = process.env.API_BASE_URL || 'http://127.0.0.1:3000/api';
 
 function parseArgs(argv) {
   const out = {};

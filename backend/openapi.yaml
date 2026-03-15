@@ -10,7 +10,7 @@ info:
     Example: `Authorization: Bearer <your-token>`
 
     ## Base URL
-    Production: `https://your-domain.example.com/api/researchops`
+    Production: `https://your-domain/api/researchops`
 
     ## Agent Usage
     This spec is machine-readable. Fetch `/api/researchops/openapi` to get tool definitions.
@@ -510,7 +510,7 @@ paths:
                 serverId: { type: string, default: local-default }
             example:
               name: "My Research Project"
-              projectPath: "~/projects/my-research"
+              projectPath: "/home/user/projects/my-research"
               serverId: "local-default"
       responses:
         "201":

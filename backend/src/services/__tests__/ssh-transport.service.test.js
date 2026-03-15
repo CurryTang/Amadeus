@@ -58,7 +58,7 @@ test('buildSshCommandLine shell-wraps the ssh invocation and target command', ()
   const commandLine = transport.buildSshCommandLine(server, ['bash', '-lc', 'echo ok']);
 
   assert.match(commandLine, /^'ssh' /);
-  assert.match(commandLine, /'testuser@chatdse\.egr\.msu\.edu'/);
+  assert.match(commandLine, /'testuser@compute\.example\.edu'/);
   assert.match(commandLine, /echo ok/);
 });
 
@@ -108,7 +108,7 @@ test('copyTo shells out through scp with shared transport args', async () => {
   assert.equal(calls[0].command, 'bash');
   assert.match(calls[0].args[1], /^'scp' /);
   assert.match(calls[0].args[1], /'\/tmp\/local\.txt'/);
-  assert.match(calls[0].args[1], /'testuser@chatdse\.egr\.msu\.edu:\/remote\/file\.txt'/);
+  assert.match(calls[0].args[1], /'testuser@compute\.example\.edu:\/remote\/file\.txt'/);
 });
 
 test('script retries transient connection-close failures by default', async () => {

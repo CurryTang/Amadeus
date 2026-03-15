@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DO_HOST="${DO_HOST:-REDACTED_SERVER_IP}"
+DO_HOST="${DO_HOST:?Set DO_HOST to your server IP or hostname}"
 DO_USER="${DO_USER:-root}"
 DO_REPO_PATH="${DO_REPO_PATH:-/var/www/auto-researcher}"
 DO_ENV_FILE="${DO_ENV_FILE:-$DO_REPO_PATH/backend/.env}"

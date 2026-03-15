@@ -4,6 +4,7 @@ IMPLEMENTATION_PLAN.md
 RUNNING_SERVICES.md
 CLAUDE.md
 AGENTS.md
+E2E_TEST_REPORT.md
 
 # Environment files
 .env

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DO_HOST="${DO_HOST:-REDACTED_SERVER_IP}"
+DO_HOST="${DO_HOST:?Set DO_HOST to your server IP or hostname}"
 DO_USER="${DO_USER:-root}"
 DO_REPO_PATH="${DO_REPO_PATH:-/var/www/auto-researcher}"
 DO_API_LOCAL_URL="${DO_API_LOCAL_URL:-http://127.0.0.1:3000/api/health}"
 DO_FRP_LOCAL_URL="${DO_FRP_LOCAL_URL:-http://127.0.0.1:7001/health}"
-PUBLIC_TRACKER_STATUS_URL="${PUBLIC_TRACKER_STATUS_URL:-https://your-domain.example.com/api/tracker/status}"
+PUBLIC_TRACKER_STATUS_URL="${PUBLIC_TRACKER_STATUS_URL:?Set PUBLIC_TRACKER_STATUS_URL to your public API URL}"
 
 if ! command -v ssh >/dev/null 2>&1; then
   echo "ssh is required"

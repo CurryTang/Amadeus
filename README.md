@@ -5,7 +5,7 @@ Your personal AI research assistant that automatically reads, summarizes, organi
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)
 
-**[English](#features) | [中文文档](docs/README_CN.md)**
+**[Documentation](https://currytang.github.io/Amadeus/) | [English](#features) | [中文文档](docs/README_CN.md)**
 
 ---
 
@@ -84,119 +84,155 @@ The install script lets you choose your deployment mode:
 
 The proxy mode lets heavy AI workloads (Claude Code CLI, Gemini CLI) run on your own hardware with no cloud GPU costs. See [Installation Modes](docs/INSTALLATION_MODES.md) for all options.
 
-## Quick Start
+## Quick Start (Minimal Local Setup)
+
+The fastest way to get running — **SQLite + MinIO**, no cloud accounts needed.
 
 ### Prerequisites
 
-- Node.js >= 20.0.0
-- npm
-- A supported AI CLI (at least one): [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), or [Codex CLI](https://github.com/openai/codex)
-- Object storage account (AWS S3, MinIO, or Aliyun OSS) for PDF storage
+- Node.js >= 20.0.0, npm
+- [MinIO](https://min.io/docs/minio/macos/index.html) for local PDF storage (or any S3-compatible service)
 
-### 1. Clone the Repository
+### 1. Clone and Install
 
 ```bash
 git clone https://github.com/CurryTang/Amadeus.git
 cd Amadeus
+
+cd backend && npm install && cd ..
+cd frontend && npm install && cd ..
 ```
 
-### 2. Run the Interactive Installer
+### 2. Start MinIO
 
-The installer walks you through deployment mode selection and generates environment files with all required configuration.
+```bash
+# Install MinIO (macOS)
+brew install minio/stable/minio minio/stable/mc
+
+# Start MinIO server
+mkdir -p ~/minio-data
+MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+  minio server ~/minio-data --address :9000 --console-address :9001 &
+
+# Create the storage bucket
+mc alias set local http://127.0.0.1:9000 minioadmin minioadmin
+mc mb local/auto-reader-documents
+mc anonymous set download local/auto-reader-documents
+```
+
+### 3. Configure
+
+**Option A: Interactive installer** (recommended for first-time setup):
+
+```bash
+./scripts/install.sh          # Walks through all options, creates user accounts
+cp backend/.env.generated backend/.env
+cp frontend/.env.generated frontend/.env
+```
+
+**Option B: Manual minimal `.env`**:
+
+```bash
+cat > backend/.env << 'EOF'
+PORT=3000
+NODE_ENV=development
+CORS_ORIGIN=*
+AUTH_ENABLED=true
+ADMIN_TOKEN=change-me-to-a-random-string
+JWT_SECRET=change-me-to-a-64-char-random-string
+CZK_PASSWORD=your-login-password
+TURSO_DATABASE_URL=file:./local.db
+OBJECT_STORAGE_PROVIDER=minio
+OBJECT_STORAGE_BUCKET=auto-reader-documents
+OBJECT_STORAGE_REGION=us-east-1
+OBJECT_STORAGE_ACCESS_KEY_ID=minioadmin
+OBJECT_STORAGE_SECRET_ACCESS_KEY=minioadmin
+OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:9000
+OBJECT_STORAGE_FORCE_PATH_STYLE=true
+OBJECT_STORAGE_PUBLIC_BASE_URL=http://127.0.0.1:9000/auto-reader-documents
+TRACKER_ENABLED=true
+TRACKER_EXECUTION_TARGET=backend
+READER_ENABLED=true
+READER_DEFAULT_PROVIDER=gemini-cli
+READER_CONCURRENCY=1
+EOF
+
+cat > frontend/.env << 'EOF'
+NEXT_PUBLIC_DEV_API_URL=/api
+NEXT_DEV_BACKEND_URL=http://127.0.0.1:3000
+NEXT_PUBLIC_API_URL=http://127.0.0.1:3000/api
+EOF
+```
+
+### 4. Start
+
+```bash
+# Terminal 1: Backend
+cd backend && node src/index.js
+
+# Terminal 2: Frontend
+cd frontend && npx next dev
+```
+
+Open http://localhost:3000 and log in with username `czk` and the password you set.
+
+### 5. (Optional) Chrome Extension
+
+1. Open `chrome://extensions/` → enable **Developer mode**
+2. Click **Load unpacked** → select the `chrome-extension/` folder
+3. Click the extension icon → Settings → set server URL to `http://localhost:3000`
+4. Navigate to any arXiv paper and click **Save arXiv PDF**
+
+---
+
+## Remote Server Deployment
+
+For always-on access, deploy the backend on a cloud server (or any always-on device) and optionally use a reverse proxy.
+
+### All-in-one (single server)
+
+Run both backend and frontend on the same server. Use the interactive installer and choose "All local":
+
+```bash
+./scripts/install.sh    # Select mode 2: "All local"
+```
+
+Set `NEXT_PUBLIC_API_URL=https://your-domain/api` in `frontend/.env` and place nginx in front for HTTPS.
+
+### Proxy + Local Device (FRP)
+
+A cheap cloud VPS acts as an HTTPS reverse proxy, forwarding traffic via [FRP](https://github.com/fatedier/frp) to your always-on local device (WSL, desktop, NAS) that runs everything:
+
+```
+┌──────────┐     ┌──────────────────────┐     ┌─────────────────────────┐
+│  Browser │────>│  Cloud VPS (proxy)    │────>│  Local Device (WSL/PC)  │
+│          │     │  nginx + frps         │     │  PM2: API + Frontend    │
+└──────────┘     └──────────────────────┘     │  SQLite, MinIO/S3       │
+                                               └─────────────────────────┘
+```
+
+This lets heavy AI workloads (Claude Code CLI, Gemini CLI) run on your own hardware with no cloud GPU costs. See [FRP Setup Guide](docs/FRP_SETUP_GUIDE.md) for configuration.
+
+---
+
+## Full Setup (Interactive Installer)
+
+For advanced setups (Turso cloud DB, AWS S3, FRP proxy, ARIS integration), use the full interactive installer:
 
 ```bash
 ./scripts/install.sh
 ```
 
-This generates:
-- `backend/.env.generated` — backend configuration (database, storage, auth, AI providers)
-- `frontend/.env.generated` — frontend configuration (API URL)
-- `deployment.mode.generated` — deployment topology
+It walks you through:
+- Deployment mode (all-local, proxy+FRP, cloud)
+- Storage provider (MinIO, AWS S3, Aliyun OSS)
+- Database (local SQLite or Turso cloud)
+- User account creation (passwords set interactively)
+- Networking (direct, FRP, Tailscale)
+- AI provider selection
+- ARIS research workflow integration
 
-### 3. Apply and Review Configuration
-
-```bash
-cp backend/.env.generated backend/.env
-cp frontend/.env.generated frontend/.env
-```
-
-Open `backend/.env` and configure these key sections:
-
-**Database** (metadata storage):
-```bash
-# Local SQLite (simplest, no setup needed)
-TURSO_DATABASE_URL=file:./local.db
-
-# Or Turso cloud (hosted libSQL)
-# TURSO_DATABASE_URL=libsql://your-db.turso.io
-# TURSO_AUTH_TOKEN=your_turso_token
-```
-
-**Object Storage** (PDF files):
-```bash
-OBJECT_STORAGE_PROVIDER=aws-s3    # aws-s3 | minio | aliyun-oss
-OBJECT_STORAGE_BUCKET=your-bucket
-OBJECT_STORAGE_REGION=us-east-1
-OBJECT_STORAGE_ACCESS_KEY_ID=your-key
-OBJECT_STORAGE_SECRET_ACCESS_KEY=your-secret
-```
-
-For MinIO (self-hosted, free):
-```bash
-OBJECT_STORAGE_PROVIDER=minio
-OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:9000
-OBJECT_STORAGE_FORCE_PATH_STYLE=true
-```
-
-**Authentication**:
-```bash
-AUTH_ENABLED=true
-ADMIN_TOKEN=your-secret-admin-token
-JWT_SECRET=your-random-64-char-hex-string
-```
-
-**AI Providers** (at least one):
-```bash
-GEMINI_API_KEY=your-gemini-key        # For Gemini API provider
-# Or install Gemini/Claude/Codex CLI globally — no key needed if CLI is configured
-```
-
-See [Configuration Guide](docs/CONFIGURATION.md) for all options.
-
-### 4. Start the Backend
-
-```bash
-cd backend
-npm install
-npm run dev     # Development with hot reload
-# npm start     # Production
-```
-
-### 5. Start the Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev     # Development at http://localhost:3000
-# npm run build && npm start  # Production (standalone)
-```
-
-### 6. Install the Chrome Extension
-
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable **Developer mode** (top right toggle)
-3. Click **Load unpacked** and select the `chrome-extension/` folder
-4. Click the extension icon → Settings → set your server URL (e.g. `http://localhost:3000`)
-5. Navigate to any arXiv paper and click **Save arXiv PDF**
-
-### 7. (Optional) VS Code Extension
-
-```bash
-cd vscode-extension
-npm install && npm run compile
-```
-
-Then press `F5` in VS Code to launch an Extension Development Host. See [VS Code Companion README](vscode-extension/README.md).
+See [Configuration Guide](docs/CONFIGURATION.md) and [Installation Modes](docs/INSTALLATION_MODES.md) for all options.
 
 ## How It Works
 

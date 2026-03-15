@@ -253,6 +253,57 @@ if [[ "${research_meta_choice}" == "2" ]]; then
   mongodb_uri="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/auto_researcher?retryWrites=true&w=majority"
 fi
 
+# ─── User account setup ───────────────────────────────────────────────────────
+echo ""
+echo "─── User Account Setup ───"
+echo "The app supports two built-in user accounts: 'czk' (primary) and 'lyf' (optional)."
+
+# Generate secure random strings for admin token and JWT secret
+admin_token="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 32 || true)"
+jwt_secret="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 64 || true)"
+
+# Primary user (czk)
+while true; do
+  read -r -s -p "Set password for user 'czk': " czk_password
+  echo ""
+  if [[ -z "${czk_password}" ]]; then
+    echo "Password cannot be empty."
+    continue
+  fi
+  read -r -s -p "Confirm password: " czk_password_confirm
+  echo ""
+  if [[ "${czk_password}" != "${czk_password_confirm}" ]]; then
+    echo "Passwords do not match. Try again."
+    continue
+  fi
+  break
+done
+
+# Optional second user (lyf)
+lyf_password=""
+read -r -p "Set up second user 'lyf'? (y/N): " add_lyf
+if [[ "${add_lyf}" =~ ^[Yy] ]]; then
+  while true; do
+    read -r -s -p "Set password for user 'lyf': " lyf_password
+    echo ""
+    if [[ -z "${lyf_password}" ]]; then
+      echo "Password cannot be empty."
+      continue
+    fi
+    read -r -s -p "Confirm password: " lyf_password_confirm
+    echo ""
+    if [[ "${lyf_password}" != "${lyf_password_confirm}" ]]; then
+      echo "Passwords do not match. Try again."
+      continue
+    fi
+    break
+  done
+fi
+
+echo ""
+echo "Admin API token and JWT secret auto-generated."
+echo ""
+
 prompt_location_with_recommendation "Frontend build/compile location" "${frontend_compile_default}"
 frontend_compile_on="${REPLY_LOCATION}"
 prompt_location_with_recommendation "Backend build/compile location" "${backend_compile_default}"
@@ -271,10 +322,10 @@ NODE_ENV=production
 
 # Auth
 AUTH_ENABLED=true
-ADMIN_TOKEN=<set-admin-token>
-JWT_SECRET=<set-64-char-random-secret>
-CZK_PASSWORD=<set-user-password>
-LYF_PASSWORD=<set-user-password>
+ADMIN_TOKEN=${admin_token}
+JWT_SECRET=${jwt_secret}
+CZK_PASSWORD=${czk_password}
+LYF_PASSWORD=${lyf_password}
 
 # Metadata stores
 # Documents/tags/auth use libSQL/Turso
@@ -363,15 +414,21 @@ echo "  - ${FRONTEND_ENV_OUT}"
 echo "  - ${PROFILE_OUT}"
 echo ""
 echo "Next steps:"
-echo "  1) Review generated files and replace placeholder credentials."
+echo "  1) Review generated files (credentials are already set)."
 echo "  2) Apply env files:"
 echo "       cp ${BACKEND_ENV_OUT} ${ROOT_DIR}/backend/.env"
 echo "       cp ${FRONTEND_ENV_OUT} ${ROOT_DIR}/frontend/.env"
-echo "  3) If using FRP mode, run:"
+echo "  3) Install dependencies:"
+echo "       cd ${ROOT_DIR}/backend && npm install"
+echo "       cd ${ROOT_DIR}/frontend && npm install"
+echo "  4) Start the app:"
+echo "       cd ${ROOT_DIR}/backend && node src/index.js"
+echo "       cd ${ROOT_DIR}/frontend && npx next dev"
+echo "  5) If using FRP mode, run:"
 echo "       ${ROOT_DIR}/scripts/set-do-tracker-proxy.sh"
 echo "       ${ROOT_DIR}/scripts/verify-frp-offload.sh"
 if [[ "${aris_integration_enabled}" == "true" ]]; then
-  echo "  4) To install ARIS into a project and register the MCP backend:"
+  echo "  6) To install ARIS into a project and register the MCP backend:"
   echo "       ARIS_SKILLS_REPO=${aris_skills_repo} ${ROOT_DIR}/scripts/setup-aris-integration.sh /path/to/project"
   echo "       claude mcp add auto-researcher -s project -- node ${ROOT_DIR}/backend/src/mcp/auto-researcher-mcp-server.js"
 fi

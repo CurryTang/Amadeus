@@ -16,7 +16,7 @@
 
 set -e
 
-DESKTOP_USER="${DESKTOP_USER:-user}"
+DESKTOP_USER="${DESKTOP_USER:?Set DESKTOP_USER to your SSH username}"
 DESKTOP_SSH_PORT=7002
 DESKTOP_HOST="127.0.0.1"
 
@@ -162,6 +162,6 @@ case "${1:-help}" in
         echo "  run <cmd>     Run arbitrary command on desktop"
         echo ""
         echo "Environment:"
-        echo "  DESKTOP_USER  SSH user (default: jjoo1)"
+        echo "  DESKTOP_USER  SSH user (required)"
         ;;
 esac

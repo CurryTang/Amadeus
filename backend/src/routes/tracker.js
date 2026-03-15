@@ -1476,12 +1476,15 @@ function applySourceFilters(items, config) {
     .split(/[\n,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
   const watchedAuthors = String(config.watchedAuthors || '')
     .split(/\n+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const lookbackRaw = parseInt(config.lookbackDays ?? config.maxAgeDays ?? '', 10);
-  const lookbackDays = Number.isFinite(lookbackRaw) ? Math.max(1, Math.min(lookbackRaw, 3650)) : 0;
+  // Only use maxAgeDays for display filtering. lookbackDays is a fetch parameter
+  // (how far back to query the source API) and must NOT double as a display filter —
+  // items near the boundary are always slightly older than the lookback window.
+  const maxAgeRaw = parseInt(config.maxAgeDays ?? '', 10);
+  const maxAgeDays = Number.isFinite(maxAgeRaw) ? Math.max(1, Math.min(maxAgeRaw, 3650)) : 0;
   const hasTextFilters = keywords.length > 0 || watchedAuthors.length > 0;
-  if (!hasTextFilters && lookbackDays <= 0) return items;
+  if (!hasTextFilters && maxAgeDays <= 0) return items;
   const nowMs = Date.now();
-  const maxAgeMs = lookbackDays > 0 ? lookbackDays * 24 * 60 * 60 * 1000 : 0;
+  const maxAgeMs = maxAgeDays > 0 ? maxAgeDays * 24 * 60 * 60 * 1000 : 0;
   return items.filter((item) => {
     if (maxAgeMs > 0) {
       const itemMs = getItemTimestampMs(item);

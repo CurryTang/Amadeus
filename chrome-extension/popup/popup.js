@@ -54,7 +54,9 @@ async function checkAuth() {
 
   // 2. Try web app cookie (consistent session across web + extension)
   try {
-    const cookie = await chrome.cookies.get({ url: 'https://your-domain.example.com', name: 'auth_token' });
+    // Use the configured API base URL to derive the cookie domain
+    const cookieUrl = API_BASE_URL.replace(/\/api\/?$/, '') || 'http://localhost:3000';
+    const cookie = await chrome.cookies.get({ url: cookieUrl, name: 'auth_token' });
     if (cookie) {
       const res = await fetch(`${API_BASE_URL}/auth/verify`, {
         headers: { 'Authorization': `Bearer ${cookie.value}` },

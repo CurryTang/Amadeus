@@ -12,7 +12,7 @@
   ],
   "host_permissions": [
     "http://localhost:3000/*",
-    "https://your-domain.example.com/*",
+    "https://*/*",
     "https://*.amazonaws.com/*",
     "https://export.arxiv.org/*"
   ],
