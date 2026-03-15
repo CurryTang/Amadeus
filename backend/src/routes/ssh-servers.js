@@ -725,33 +725,38 @@ router.post('/:id/ls', requireAuth, async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Server not found' });
     const server = result.rows[0];
 
-    const prefix = normalizeRemotePath(req.body?.path || req.body?.prefix || '');
+    let prefix = normalizeRemotePath(req.body?.path || req.body?.prefix || '');
     if (!prefix) return res.json({ entries: [], parent: '/' });
 
-    // Use runSshCommand (exec, no stdin) — stdin piping breaks through ProxyJump.
-    const safePrefix = prefix.replace(/'/g, "'\\''");
-    const cmd = `P='${safePrefix}'; case "$P" in ~|~/*) P="$HOME\${P#\\~}";; esac; if [ -d "$P" ]; then D="$P"; else D="$(dirname "$P")"; fi; [ -d "$D" ] || exit 0; echo "PARENT:$D"; ls -1Ap "$D" 2>/dev/null | head -200`;
-    const output = await runSshCommand(server, ['bash', '-c', cmd], { timeoutMs: 8000 });
-    const lines = (output?.stdout || '').split('\n').filter(Boolean);
+    // Resolve ~ to home dir first if needed
+    if (prefix === '~' || prefix.startsWith('~/')) {
+      try {
+        const homeResult = await runSshCommand(server, ['echo', '$HOME'], { timeoutMs: 5000 });
+        const home = (homeResult?.stdout || '').trim();
+        if (home) prefix = prefix === '~' ? home : home + prefix.slice(1);
+      } catch { /* fall through with ~ */ }
+    }
 
-    let parent = '/';
+    // Determine parent directory to list
+    const isDir = prefix.endsWith('/');
+    const parentPath = isDir ? prefix.replace(/\/+$/, '') || '/' : path.posix.dirname(prefix);
+    const filterBase = isDir ? '' : path.posix.basename(prefix).toLowerCase();
+
+    // Simple ls — no bash -c, no quoting issues
+    const output = await runSshCommand(server, ['ls', '-1Ap', parentPath], { timeoutMs: 8000 });
+    const lines = (output?.stdout || '').split('\n').filter(Boolean);
     const entries = [];
-    const filterPrefix = prefix.endsWith('/') ? '' : path.basename(prefix).toLowerCase();
 
     for (const line of lines) {
-      if (line.startsWith('PARENT:')) {
-        parent = line.slice(7);
-        continue;
-      }
-      const isDir = line.endsWith('/');
-      const name = isDir ? line.slice(0, -1) : line;
+      const entryIsDir = line.endsWith('/');
+      const name = entryIsDir ? line.slice(0, -1) : line;
       if (!name || name === '.' || name === '..') continue;
-      if (filterPrefix && !name.toLowerCase().startsWith(filterPrefix)) continue;
-      entries.push({ name, type: isDir ? 'dir' : 'file' });
+      if (filterBase && !name.toLowerCase().startsWith(filterBase)) continue;
+      entries.push({ name, type: entryIsDir ? 'dir' : 'file' });
       if (entries.length >= 100) break;
     }
 
-    res.json({ entries, parent });
+    res.json({ entries, parent: parentPath });
   } catch (err) {
     res.json({ entries: [], parent: '/', error: err.message });
   }
