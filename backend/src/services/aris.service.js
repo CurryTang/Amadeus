@@ -1192,8 +1192,6 @@ function createArisService(overrides = {}) {
       const clientWorkspaceId = String(payload.clientWorkspaceId || '').trim();
       const localProjectPath = String(payload.localProjectPath || '').trim();
       if (!name) throw new Error('name is required');
-      if (!clientWorkspaceId) throw new Error('clientWorkspaceId is required');
-      if (!localProjectPath) throw new Error('localProjectPath is required');
 
       const project = normalizeProject({
         id: `aris_project_${Date.now()}`,
