@@ -989,7 +989,8 @@ function createArisService(overrides = {}) {
         ? existingTargets.find((target) => String(target.id) === String(endpoint.id))
         : null;
       if (endpoint.id && !existingTarget) {
-        throw new Error(`remoteEndpoints[${index}] target not found`);
+        // Stale id (e.g. target was in-memory and lost after restart) — treat as new
+        console.warn(`[ARIS] reconcile: endpoint[${index}] id=${endpoint.id} not found in DB, treating as new`);
       }
 
       const now = new Date().toISOString();
