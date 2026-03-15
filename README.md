@@ -11,9 +11,13 @@ Your personal AI research assistant that automatically reads, summarizes, organi
 
 ## Screenshots
 
-| Web Interface | Chrome Extension |
+| Latest Feed | Paper Library |
 |:---:|:---:|
-| ![Homepage](assets/demo_homepage.png) | ![Chrome Extension](assets/demo_chrome.png) |
+| ![Latest Feed](assets/demo_homepage.png) | ![Library](assets/demo_library.png) |
+
+| ARIS Workspace | Tracker Admin |
+|:---:|:---:|
+| ![ARIS](assets/demo_aris.png) | ![Tracker](assets/demo_tracker.png) |
 
 ## Features
 

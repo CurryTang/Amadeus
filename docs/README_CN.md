@@ -6,9 +6,13 @@
 
 ## 截图
 
-| 网页界面 | Chrome 扩展 |
+| 最新论文 | 论文库 |
 |:---:|:---:|
-| ![主页](../assets/demo_homepage.png) | ![Chrome 扩展](../assets/demo_chrome.png) |
+| ![最新论文](../assets/demo_homepage.png) | ![论文库](../assets/demo_library.png) |
+
+| ARIS 工作区 | 追踪器管理 |
+|:---:|:---:|
+| ![ARIS](../assets/demo_aris.png) | ![追踪器](../assets/demo_tracker.png) |
 
 ## 功能特点
 
