@@ -728,21 +728,10 @@ router.post('/:id/ls', requireAuth, async (req, res) => {
     const prefix = normalizeRemotePath(req.body?.path || req.body?.prefix || '');
     if (!prefix) return res.json({ entries: [], parent: '/' });
 
-    // Simple approach: use ls -1Ap to list entries with trailing / for dirs.
-    // If prefix is a directory, list it. Otherwise list parent and filter.
-    const lsScript = [
-      'set -e',
-      'INPUT="$1"',
-      'case "$INPUT" in ~|~/*) INPUT="$HOME${INPUT#\\~}" ;; esac',
-      'if [ -d "$INPUT" ]; then PARENT="$INPUT"; FILTER="";',
-      'else PARENT="$(dirname "$INPUT")"; FILTER="$(basename "$INPUT")"; fi',
-      '[ -d "$PARENT" ] || exit 0',
-      'echo "PARENT:$PARENT"',
-      'ls -1Ap "$PARENT" 2>/dev/null | head -200',
-    ].join('\n');
-
-    const output = await runSshBashScript(server, lsScript, [prefix], { timeoutMs: 8000 });
-    console.log('[SSH-LS] prefix=%s stdout=%s stderr=%s', prefix, (output?.stdout || '').substring(0, 300), (output?.stderr || '').substring(0, 300));
+    // Use runSshCommand (exec, no stdin) — stdin piping breaks through ProxyJump.
+    const safePrefix = prefix.replace(/'/g, "'\\''");
+    const cmd = `P='${safePrefix}'; case "$P" in ~|~/*) P="$HOME\${P#\\~}";; esac; if [ -d "$P" ]; then D="$P"; else D="$(dirname "$P")"; fi; [ -d "$D" ] || exit 0; echo "PARENT:$D"; ls -1Ap "$D" 2>/dev/null | head -200`;
+    const output = await runSshCommand(server, ['bash', '-c', cmd], { timeoutMs: 8000 });
     const lines = (output?.stdout || '').split('\n').filter(Boolean);
 
     let parent = '/';
