@@ -10192,6 +10192,12 @@ button.vibe-skill-chip.is-active {
   line-height: 1.5;
 }
 
+.aris-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .aris-refresh-btn,
 .aris-run-btn,
 .aris-action-chip {
@@ -10279,6 +10285,7 @@ button.vibe-skill-chip.is-active {
 }
 
 .aris-field select,
+.aris-field input,
 .aris-field textarea {
   width: 100%;
   border: 1px solid rgba(32, 57, 49, 0.14);
@@ -10292,6 +10299,12 @@ button.vibe-skill-chip.is-active {
 .aris-field textarea {
   resize: vertical;
   min-height: 140px;
+}
+
+.aris-launch-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .aris-quick-actions {
@@ -10336,6 +10349,16 @@ button.vibe-skill-chip.is-active {
   font-weight: 700;
 }
 
+.aris-secondary-btn {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(26, 92, 73, 0.18);
+  background: #edf6f2;
+  color: #1d5a48;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .aris-context-list {
   display: grid;
   gap: 14px;
@@ -10369,21 +10392,56 @@ button.vibe-skill-chip.is-active {
   word-break: break-word;
 }
 
+.aris-context-subtext {
+  color: #698177 !important;
+  font-size: 0.86rem;
+}
+
 .aris-empty-card {
   padding: 20px;
   color: #4d665c;
 }
 
+.aris-runs-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
+  gap: 20px;
+}
+
 .aris-run-list {
   display: grid;
   gap: 14px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.aris-run-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.aris-run-list::-webkit-scrollbar-thumb {
+  background: rgba(24, 54, 45, 0.15);
+  border-radius: 4px;
+}
+
+.aris-run-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(24, 54, 45, 0.3);
 }
 
 .aris-run-card {
+  width: 100%;
+  text-align: left;
   padding: 16px 18px;
   border-radius: 16px;
   background: linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%);
   border: 1px solid rgba(27, 59, 50, 0.08);
+  cursor: pointer;
+}
+
+.aris-run-card.is-selected {
+  border-color: rgba(26, 92, 73, 0.4);
+  box-shadow: 0 14px 24px rgba(23, 74, 58, 0.1);
 }
 
 .aris-run-card-header {
@@ -10422,10 +10480,427 @@ button.vibe-skill-chip.is-active {
   margin: 12px 0 0;
   color: #2c4b43;
   line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.aris-run-detail-panel {
+  min-height: 420px;
+  max-height: 680px;
+  overflow-y: auto;
+}
+
+.aris-run-detail-panel::-webkit-scrollbar {
+  width: 5px;
+}
+
+.aris-run-detail-panel::-webkit-scrollbar-thumb {
+  background: rgba(24, 54, 45, 0.15);
+  border-radius: 4px;
+}
+
+.aris-run-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.aris-run-detail-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.aris-run-detail-top h4 {
+  margin: 0 0 4px;
+  color: #17362c;
+}
+
+.aris-run-detail-top p {
+  margin: 0;
+  color: #557065;
+}
+
+.aris-detail-copy {
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.aris-follow-up,
+.aris-action-history {
+  display: grid;
+  gap: 12px;
+}
+
+.aris-launch-footer--detail {
+  margin-top: 0;
+}
+
+.aris-action-list {
+  display: grid;
+  gap: 10px;
+}
+
+.aris-action-row {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f4faf7 100%);
+  border: 1px solid rgba(27, 59, 50, 0.08);
+}
+
+.aris-action-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aris-action-row-top strong {
+  color: #17362c;
+}
+
+.aris-action-row-top span {
+  color: #1f5c49;
+  font-weight: 700;
+}
+
+.aris-action-row p {
+  margin: 10px 0 0;
+  color: #36524a;
+  line-height: 1.5;
+}
+
+.aris-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 21, 18, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 2000;
+}
+
+.aris-project-manager {
+  width: min(1120px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  padding: 20px;
+  border-radius: 22px;
+  background: #fffdf8;
+  border: 1px solid rgba(24, 54, 45, 0.08);
+  box-shadow: 0 24px 60px rgba(18, 37, 31, 0.22);
+}
+
+.aris-project-manager-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.aris-manager-column {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.aris-manager-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aris-manager-section-head strong {
+  color: #17362c;
+  font-size: 0.95rem;
+}
+
+.aris-manager-list,
+.aris-manager-form {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.aris-manager-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.aris-manager-editor-head strong {
+  color: #17362c;
+  font-size: 0.98rem;
+}
+
+.aris-manager-editor-head p {
+  margin: 6px 0 0;
+  color: #5d776c;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.aris-manager-card {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(27, 59, 50, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #f6fbf8 100%);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.aris-manager-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aris-vscode-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 120, 212, 0.25);
+  background: rgba(0, 120, 212, 0.08);
+  color: #0078d4;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.aris-vscode-btn:hover {
+  background: rgba(0, 120, 212, 0.16);
+}
+
+.aris-manager-card.is-selected {
+  border-color: rgba(26, 92, 73, 0.42);
+  box-shadow: 0 14px 24px rgba(23, 74, 58, 0.1);
+}
+
+.aris-manager-card strong {
+  color: #17362c;
+  margin-bottom: 2px;
+}
+
+.aris-manager-card span {
+  color: #5d776c;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.aris-manager-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(27, 59, 50, 0.12);
+  background: #f6fbf8;
+  color: #17362c;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.aris-manager-toggle input {
+  margin: 0;
+}
+
+.aris-endpoint-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.aris-endpoint-stack.is-disabled {
+  opacity: 0.78;
+}
+
+.aris-endpoint-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(27, 59, 50, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #f6fbf8 100%);
+}
+
+.aris-endpoint-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aris-endpoint-card-head strong {
+  color: #17362c;
+}
+
+.aris-endpoint-card-head p {
+  margin: 4px 0 0;
+  color: #5d776c;
+  font-size: 0.85rem;
+}
+
+.aris-close-icon-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  border: 1px solid rgba(132, 41, 41, 0.14);
+  border-radius: 999px;
+  background: #fff4f2;
+  color: #8f2f2b;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.aris-close-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.aris-manager-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aris-linked-workspace {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(27, 59, 50, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #f6fbf8 100%);
+}
+
+.aris-linked-workspace-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.aris-linked-workspace strong {
+  color: #17362c;
+}
+
+.aris-linked-workspace p {
+  margin: 4px 0 0;
+  color: #5d776c;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.aris-local-path-input {
+  margin-top: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(27, 59, 50, 0.12);
+  font-size: 0.85rem;
+  color: #2d4a3e;
+  background: #fff;
+}
+
+.aris-local-path-input::placeholder {
+  color: #9bb3a8;
+}
+
+/* ─── Path Autocomplete & Mention Dropdown ───────────────────────────────── */
+
+.aris-path-autocomplete,
+.aris-mention-textarea {
+  position: relative;
+  width: 100%;
+}
+
+.aris-path-autocomplete input {
+  width: 100%;
+}
+
+.aris-mention-textarea textarea {
+  width: 100%;
+}
+
+.aris-autocomplete-dropdown,
+.aris-mention-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2100;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border-radius: 12px;
+  border: 1px solid rgba(24, 54, 45, 0.12);
+  background: #fffdf8;
+  box-shadow: 0 12px 32px rgba(18, 37, 31, 0.16);
+}
+
+.aris-autocomplete-dropdown {
+  top: 100%;
+  margin-top: 4px;
+}
+
+.aris-mention-dropdown {
+  bottom: 100%;
+  margin-bottom: 4px;
+}
+
+.aris-autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: 0.88rem;
+  color: #2d4a3e;
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aris-autocomplete-item.is-selected {
+  background: rgba(26, 92, 73, 0.08);
+}
+
+.aris-autocomplete-item.is-dir {
+  font-weight: 600;
+}
+
+.aris-autocomplete-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #5d776c;
 }
 
 @media (max-width: 960px) {
   .aris-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aris-runs-detail-grid {
     grid-template-columns: 1fr;
   }
 
@@ -10434,6 +10909,30 @@ button.vibe-skill-chip.is-active {
   }
 
   .aris-launch-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .aris-launch-inline-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aris-run-detail-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .aris-project-manager-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aris-linked-workspace {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .aris-manager-editor-head,
+  .aris-manager-actions {
     flex-direction: column;
     align-items: stretch;
   }
