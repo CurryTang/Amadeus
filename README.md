@@ -62,7 +62,7 @@ Your personal AI research assistant that automatically reads, summarizes, organi
 - **Configurable** server URL, analysis provider, tags, and document type
 
 ### Export & Integration
-- **Obsidian export** — export notes as Markdown files compatible with Obsidian vaults
+- **Obsidian export** — export AI-generated notes as Markdown files directly into your Obsidian vault. Requires [Obsidian CLI](https://help.obsidian.md/cli) (v1.8+) — install it from Obsidian Settings > General > "Install CLI". The CLI is used for vault discovery and file indexing; notes are written with YAML frontmatter (title, source, doc_id, URL) for full Obsidian compatibility.
 - **MCP server** — expose the paper library as an MCP tool for Claude Code and other AI agents
 - **VS Code extension** — browse papers, launch ARIS runs, and view notes without leaving the editor
 
@@ -97,6 +97,8 @@ The fastest way to get running — **SQLite + MinIO**, no cloud accounts needed.
 
 - Node.js >= 20.0.0, npm
 - [MinIO](https://min.io/docs/minio/macos/index.html) for local PDF storage (or any S3-compatible service)
+- (Optional) [Obsidian](https://obsidian.md) + [Obsidian CLI](https://help.obsidian.md/cli) for exporting notes to your vault
+- (Optional) A supported AI CLI for paper analysis: [Codex CLI](https://github.com/openai/codex) (default), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
 ### 1. Clone and Install
 
