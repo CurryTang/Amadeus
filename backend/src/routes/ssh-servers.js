@@ -717,6 +717,126 @@ router.post('/:id/shared-fs/check', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/ssh-servers/:id/ls — list directory contents on remote server for path autocomplete
+router.post('/:id/ls', requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const result = await db.execute({ sql: `SELECT * FROM ssh_servers WHERE id = ?`, args: [req.params.id] });
+    if (!result.rows.length) return res.status(404).json({ error: 'Server not found' });
+    const server = result.rows[0];
+
+    const prefix = normalizeRemotePath(req.body?.path || req.body?.prefix || '');
+    if (!prefix) return res.json({ entries: [], parent: '/' });
+
+    // Build a script that resolves the path and lists contents efficiently
+    // If prefix ends with /, list that directory. Otherwise list parent and filter by basename prefix.
+    const lsScript = [
+      'set -eu',
+      'INPUT="$1"',
+      'case "$INPUT" in',
+      "  '~'|'~/'*) INPUT=\"$HOME${INPUT#\\~}\" ;;",
+      'esac',
+      // If input ends with / or is a directory, list its contents
+      'if [ -d "$INPUT" ]; then',
+      '  PARENT="$INPUT"',
+      '  FILTER=""',
+      'else',
+      '  PARENT="$(dirname "$INPUT")"',
+      '  FILTER="$(basename "$INPUT")"',
+      'fi',
+      'if [ ! -d "$PARENT" ]; then',
+      '  echo "[]"',
+      '  exit 0',
+      'fi',
+      // Use find with maxdepth 1 for efficiency; output JSON-ish lines
+      'cd "$PARENT"',
+      'echo "{"',
+      'echo "\"parent\":\"$PARENT\","',
+      'echo "\"entries\":["',
+      'FIRST=1',
+      'for entry in "$PARENT"/*; do',
+      '  [ -e "$entry" ] || continue',
+      '  NAME="$(basename "$entry")"',
+      '  # Filter by prefix if provided',
+      '  if [ -n "$FILTER" ]; then',
+      '    case "$NAME" in',
+      '      "$FILTER"*) ;;',
+      '      *) continue ;;',
+      '    esac',
+      '  fi',
+      '  TYPE="file"',
+      '  [ -d "$entry" ] && TYPE="dir"',
+      '  if [ "$FIRST" = "1" ]; then FIRST=0; else echo ","; fi',
+      '  printf \'{"name":"%s","type":"%s"}\' "$NAME" "$TYPE"',
+      'done',
+      'echo ""',
+      'echo "]}"',
+    ].join('\n');
+
+    const output = await runSshBashScript(server, lsScript, [prefix], { timeoutMs: 8000 });
+    const stdout = (output?.stdout || '').trim();
+
+    try {
+      const parsed = JSON.parse(stdout);
+      // Limit to 100 entries for performance
+      const entries = (parsed.entries || []).slice(0, 100);
+      res.json({ entries, parent: parsed.parent || '/' });
+    } catch {
+      res.json({ entries: [], parent: '/' });
+    }
+  } catch (err) {
+    // Return empty on SSH errors (server offline, etc.) — don't break the UI
+    res.json({ entries: [], parent: '/', error: err.message });
+  }
+});
+
+// POST /api/ssh-servers/:id/ls-files — list project files recursively (for @ mentions)
+router.post('/:id/ls-files', requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const result = await db.execute({ sql: `SELECT * FROM ssh_servers WHERE id = ?`, args: [req.params.id] });
+    if (!result.rows.length) return res.status(404).json({ error: 'Server not found' });
+    const server = result.rows[0];
+
+    const projectPath = normalizeRemotePath(req.body?.projectPath || '');
+    if (!projectPath) return res.json({ files: [] });
+
+    const query = String(req.body?.query || '').trim();
+    const maxFiles = Math.min(Number(req.body?.maxFiles) || 50, 200);
+
+    // Use find to list files, filtered by query, limited to maxFiles
+    const findScript = [
+      'set -eu',
+      'PROJECT="$1"',
+      'QUERY="$2"',
+      'MAX="$3"',
+      'case "$PROJECT" in',
+      "  '~'|'~/'*) PROJECT=\"$HOME${PROJECT#\\~}\" ;;",
+      'esac',
+      'if [ ! -d "$PROJECT" ]; then',
+      '  echo "[]"',
+      '  exit 0',
+      'fi',
+      'cd "$PROJECT"',
+      // Find files, skip hidden dirs and common large dirs, output relative paths
+      'find . -maxdepth 6 \\( -name ".git" -o -name "node_modules" -o -name "__pycache__" -o -name ".venv" -o -name "venv" -o -name ".tox" -o -name "dist" -o -name "build" -o -name ".next" \\) -prune -o -type f -print 2>/dev/null | sed "s|^\\./||" | {',
+      '  if [ -n "$QUERY" ]; then',
+      '    grep -i "$QUERY" || true',
+      '  else',
+      '    cat',
+      '  fi',
+      '} | head -n "$MAX"',
+    ].join('\n');
+
+    const output = await runSshBashScript(server, findScript, [projectPath, query, String(maxFiles)], { timeoutMs: 10000 });
+    const stdout = (output?.stdout || '').trim();
+    const files = stdout ? stdout.split('\n').filter(Boolean) : [];
+    res.json({ files });
+  } catch (err) {
+    res.json({ files: [], error: err.message });
+  }
+});
+
 // POST /api/ssh-servers/:id/authorize-key — push public key via sshpass + ssh-copy-id
 router.post('/:id/authorize-key', requireAuth, async (req, res) => {
   const { password } = req.body;
