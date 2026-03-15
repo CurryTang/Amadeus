@@ -135,9 +135,9 @@ export function useAiNotesSettings() {
   const [model, setModelState] = useState(() => {
     try {
       const stored = localStorage.getItem(LS_KEY);
-      if (stored) return JSON.parse(stored).model || 'gpt-5.4-codex';
+      if (stored) return JSON.parse(stored).model || 'gpt-5.3-codex';
     } catch (_) {}
-    return 'gpt-5.4-codex';
+    return 'gpt-5.3-codex';
   });
 
   const [thinkingBudget, setThinkingBudgetState] = useState(() => {

@@ -151,7 +151,7 @@ module.exports = {
   // Codex CLI Configuration (OpenAI Codex)
   codexCli: {
     path: process.env.CODEX_CLI_PATH || 'codex',
-    model: process.env.CODEX_CLI_MODEL || 'gpt-5.4-codex',
+    model: process.env.CODEX_CLI_MODEL || 'gpt-5.3-codex',
     sandbox: process.env.CODEX_CLI_SANDBOX || 'workspace-write',
     approval: process.env.CODEX_CLI_APPROVAL || 'never',
   },
