@@ -564,7 +564,8 @@ async function defaultSaveTarget(target) {
         normalized.updatedAt || normalized.createdAt,
       ],
     });
-  } catch (_) {
+  } catch (dbErr) {
+    console.error('[ARIS] saveTarget DB error (falling back to memory):', dbErr.message || dbErr);
     const index = targetStore.findIndex((entry) => entry.id === normalized.id);
     if (index >= 0) targetStore.splice(index, 1);
     targetStore.unshift({ ...normalized });
