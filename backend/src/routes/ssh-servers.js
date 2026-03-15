@@ -742,6 +742,7 @@ router.post('/:id/ls', requireAuth, async (req, res) => {
     ].join('\n');
 
     const output = await runSshBashScript(server, lsScript, [prefix], { timeoutMs: 8000 });
+    console.log('[SSH-LS] prefix=%s stdout=%s stderr=%s', prefix, (output?.stdout || '').substring(0, 300), (output?.stderr || '').substring(0, 300));
     const lines = (output?.stdout || '').split('\n').filter(Boolean);
 
     let parent = '/';
