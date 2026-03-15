@@ -728,64 +728,41 @@ router.post('/:id/ls', requireAuth, async (req, res) => {
     const prefix = normalizeRemotePath(req.body?.path || req.body?.prefix || '');
     if (!prefix) return res.json({ entries: [], parent: '/' });
 
-    // Build a script that resolves the path and lists contents efficiently
-    // If prefix ends with /, list that directory. Otherwise list parent and filter by basename prefix.
+    // Simple approach: use ls -1Ap to list entries with trailing / for dirs.
+    // If prefix is a directory, list it. Otherwise list parent and filter.
     const lsScript = [
-      'set -eu',
+      'set -e',
       'INPUT="$1"',
-      'case "$INPUT" in',
-      "  '~'|'~/'*) INPUT=\"$HOME${INPUT#\\~}\" ;;",
-      'esac',
-      // If input ends with / or is a directory, list its contents
-      'if [ -d "$INPUT" ]; then',
-      '  PARENT="$INPUT"',
-      '  FILTER=""',
-      'else',
-      '  PARENT="$(dirname "$INPUT")"',
-      '  FILTER="$(basename "$INPUT")"',
-      'fi',
-      'if [ ! -d "$PARENT" ]; then',
-      '  echo "[]"',
-      '  exit 0',
-      'fi',
-      // Use find with maxdepth 1 for efficiency; output JSON-ish lines
-      'cd "$PARENT"',
-      'echo "{"',
-      'echo "\"parent\":\"$PARENT\","',
-      'echo "\"entries\":["',
-      'FIRST=1',
-      'for entry in "$PARENT"/*; do',
-      '  [ -e "$entry" ] || continue',
-      '  NAME="$(basename "$entry")"',
-      '  # Filter by prefix if provided',
-      '  if [ -n "$FILTER" ]; then',
-      '    case "$NAME" in',
-      '      "$FILTER"*) ;;',
-      '      *) continue ;;',
-      '    esac',
-      '  fi',
-      '  TYPE="file"',
-      '  [ -d "$entry" ] && TYPE="dir"',
-      '  if [ "$FIRST" = "1" ]; then FIRST=0; else echo ","; fi',
-      '  printf \'{"name":"%s","type":"%s"}\' "$NAME" "$TYPE"',
-      'done',
-      'echo ""',
-      'echo "]}"',
+      'case "$INPUT" in ~|~/*) INPUT="$HOME${INPUT#\\~}" ;; esac',
+      'if [ -d "$INPUT" ]; then PARENT="$INPUT"; FILTER="";',
+      'else PARENT="$(dirname "$INPUT")"; FILTER="$(basename "$INPUT")"; fi',
+      '[ -d "$PARENT" ] || exit 0',
+      'echo "PARENT:$PARENT"',
+      'ls -1Ap "$PARENT" 2>/dev/null | head -200',
     ].join('\n');
 
     const output = await runSshBashScript(server, lsScript, [prefix], { timeoutMs: 8000 });
-    const stdout = (output?.stdout || '').trim();
+    const lines = (output?.stdout || '').split('\n').filter(Boolean);
 
-    try {
-      const parsed = JSON.parse(stdout);
-      // Limit to 100 entries for performance
-      const entries = (parsed.entries || []).slice(0, 100);
-      res.json({ entries, parent: parsed.parent || '/' });
-    } catch {
-      res.json({ entries: [], parent: '/' });
+    let parent = '/';
+    const entries = [];
+    const filterPrefix = prefix.endsWith('/') ? '' : path.basename(prefix).toLowerCase();
+
+    for (const line of lines) {
+      if (line.startsWith('PARENT:')) {
+        parent = line.slice(7);
+        continue;
+      }
+      const isDir = line.endsWith('/');
+      const name = isDir ? line.slice(0, -1) : line;
+      if (!name || name === '.' || name === '..') continue;
+      if (filterPrefix && !name.toLowerCase().startsWith(filterPrefix)) continue;
+      entries.push({ name, type: isDir ? 'dir' : 'file' });
+      if (entries.length >= 100) break;
     }
+
+    res.json({ entries, parent });
   } catch (err) {
-    // Return empty on SSH errors (server offline, etc.) — don't break the UI
     res.json({ entries: [], parent: '/', error: err.message });
   }
 });
