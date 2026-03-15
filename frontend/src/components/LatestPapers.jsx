@@ -165,7 +165,7 @@ function PaperCard({ paper, onSave, onOpen, saving, isAuthenticated, position })
   );
 }
 
-function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }) {
+function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false, autoGenerate = false, analysisProvider = 'codex-cli' }) {
   const [papers, setPapers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -484,6 +484,10 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
         if (!payload) {
           return;
         }
+        if (autoGenerate) {
+          payload.autoGenerate = true;
+          payload.analysisProvider = analysisProvider;
+        }
         await axios.post(
           `${apiUrl}/upload/arxiv`,
           payload,
@@ -501,6 +505,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false }
             type: 'blog',
             tags: ['tracker:rss', `source:${String(sourceLabel).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`],
             notes: paper.summary || paper.abstract || '',
+            ...(autoGenerate ? { autoGenerate: true, analysisProvider } : {}),
           },
           { headers: getAuthHeaders() }
         );

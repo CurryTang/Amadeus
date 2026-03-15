@@ -2,10 +2,11 @@
 
 Your personal AI research assistant that automatically reads, summarizes, organizes, and acts on academic papers.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=github)](https://currytang.github.io/Amadeus/)
 
-**[Documentation](https://currytang.github.io/Amadeus/) | [English](#features) | [中文文档](docs/README_CN.md)**
+**[Documentation & Guides](https://currytang.github.io/Amadeus/) | [English](#features) | [中文文档](docs/README_CN.md)**
 
 ---
 

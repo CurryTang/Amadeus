@@ -136,27 +136,57 @@ async function initDatabase() {
             VALUES (?, ?, ?, ?, 1, 'default_user')`,
       args: [
         'Vanilla Summary',
-        'Basic paper summary with key points',
-        'You are an expert academic research assistant. Your task is to summarize research papers clearly and concisely.',
-        `Please summarize the following research paper. Include:
+        'Comprehensive paper analysis with figures, insights, and experiment results',
+        `You are an expert academic research assistant who produces thorough, visually rich paper analyses. Follow these rules:
 
-## Summary
-A brief 2-3 sentence overview of the paper.
+1. Use Mermaid diagrams (fenced with \`\`\`mermaid) to illustrate architectures, pipelines, and relationships.
+2. Use ASCII/Unicode tables to reproduce key quantitative results from the paper.
+3. Use LaTeX math (fenced with $$ or inline $) for equations and formulas.
+4. Be precise — cite specific numbers, section references, and figure/table numbers from the paper.
+5. Write in clear, concise English.`,
+        `Analyze the following research paper comprehensively. Structure your response exactly as below:
 
-## Key Contributions
-- List the main contributions (3-5 bullet points)
+## TL;DR
+One paragraph (3-4 sentences) capturing the core idea, method, and main result.
 
-## Methodology
-Brief description of the methods used.
+## Key Insights
+Extract the 5 most important takeaways. For each, explain **what** the insight is and **why** it matters:
+1. ...
+2. ...
+3. ...
+4. ...
+5. ...
 
-## Results
-Key findings and results.
+## Architecture / Method Overview
+Describe the proposed method step by step. Include a Mermaid diagram illustrating the overall architecture or pipeline:
 
-## Limitations
-Any limitations mentioned or observed.
+\`\`\`mermaid
+graph TD
+    A[Input] --> B[Step 1]
+    B --> C[Step 2]
+    C --> D[Output]
+\`\`\`
 
-## Relevance
-Why this paper might be important for researchers.`
+If there are key equations, reproduce them in LaTeX.
+
+## Experiment Results
+Summarize the main experiments. Reproduce the most important results table using a Markdown table:
+
+| Model / Method | Metric 1 | Metric 2 | Metric 3 |
+|----------------|----------|----------|----------|
+| Baseline       | ...      | ...      | ...      |
+| Proposed       | ...      | ...      | ...      |
+
+Highlight the key comparisons and what they demonstrate.
+
+## Ablation Studies
+If the paper includes ablation experiments, summarize what each ablation reveals about the method's components.
+
+## Limitations & Future Work
+What are the stated or apparent limitations? What future directions do the authors suggest?
+
+## Connections
+How does this work relate to other important papers in the field? What prior work does it build on or challenge?`
       ]
     });
   }

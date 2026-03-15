@@ -15,6 +15,7 @@ export const MODEL_OPTIONS = {
     { value: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5' },
   ],
   'codex-cli': [
+    { value: 'gpt-5.4-codex',       label: 'GPT-5.4-Codex' },
     { value: 'gpt-5.3-codex',       label: 'GPT-5.3-Codex' },
     { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark' },
     { value: 'gpt-5.2-codex',       label: 'GPT-5.2-Codex' },
@@ -126,17 +127,17 @@ export function useAiNotesSettings() {
   const [provider, setProviderState] = useState(() => {
     try {
       const stored = localStorage.getItem(LS_KEY);
-      if (stored) return JSON.parse(stored).provider || 'claude-code';
+      if (stored) return JSON.parse(stored).provider || 'codex-cli';
     } catch (_) {}
-    return 'claude-code';
+    return 'codex-cli';
   });
 
   const [model, setModelState] = useState(() => {
     try {
       const stored = localStorage.getItem(LS_KEY);
-      if (stored) return JSON.parse(stored).model || 'claude-sonnet-4-6';
+      if (stored) return JSON.parse(stored).model || 'gpt-5.4-codex';
     } catch (_) {}
-    return 'claude-sonnet-4-6';
+    return 'gpt-5.4-codex';
   });
 
   const [thinkingBudget, setThinkingBudgetState] = useState(() => {
@@ -153,6 +154,14 @@ export function useAiNotesSettings() {
       if (stored) return JSON.parse(stored).reasoningEffort || 'extra-high';
     } catch (_) {}
     return 'extra-high';
+  });
+
+  const [autoGenerate, setAutoGenerateState] = useState(() => {
+    try {
+      const stored = localStorage.getItem(LS_KEY);
+      if (stored) return JSON.parse(stored).autoGenerate ?? false;
+    } catch (_) {}
+    return false;
   });
 
   const [vaultHandle, setVaultHandle] = useState(null);
@@ -181,6 +190,15 @@ export function useAiNotesSettings() {
       const stored = localStorage.getItem(LS_KEY);
       const parsed = stored ? JSON.parse(stored) : {};
       localStorage.setItem(LS_KEY, JSON.stringify({ ...parsed, refinementRounds: newRounds }));
+    } catch (_) {}
+  }, []);
+
+  const saveAutoGenerate = useCallback((value) => {
+    setAutoGenerateState(value);
+    try {
+      const stored = localStorage.getItem(LS_KEY);
+      const parsed = stored ? JSON.parse(stored) : {};
+      localStorage.setItem(LS_KEY, JSON.stringify({ ...parsed, autoGenerate: value }));
     } catch (_) {}
   }, []);
 
@@ -245,6 +263,8 @@ export function useAiNotesSettings() {
     model,
     thinkingBudget,
     reasoningEffort,
+    autoGenerate,
+    saveAutoGenerate,
     saveProviderSettings,
     vaultHandle,
     vaultName,

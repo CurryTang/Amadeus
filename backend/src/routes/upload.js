@@ -5,7 +5,27 @@ const s3Service = require('../services/s3.service');
 const documentService = require('../services/document.service');
 const converterService = require('../services/converter.service');
 const arxivService = require('../services/arxiv.service');
+const queueService = require('../services/queue.service');
 const { requireAuth } = require('../middleware/auth');
+
+/**
+ * Auto-queue a document for AI notes generation if requested.
+ * Called after document creation when `autoGenerate` flag is truthy.
+ */
+async function maybeAutoQueue(document, { autoGenerate, readerMode, analysisProvider } = {}) {
+  if (!autoGenerate) return;
+  try {
+    await documentService.updateDocument(document.id, {
+      readerMode: readerMode || 'auto_reader_v2',
+      analysisProvider: analysisProvider || 'codex-cli',
+    });
+    await queueService.enqueueDocument(document.id);
+    console.log(`[Upload] Auto-queued document ${document.id} for AI notes generation`);
+  } catch (err) {
+    // Non-fatal — document is saved, just not auto-queued
+    console.warn(`[Upload] Auto-queue failed for document ${document.id}:`, err.message);
+  }
+}
 
 // Configure multer for memory storage
 const upload = multer({
@@ -120,7 +140,7 @@ router.post('/direct', requireAuth, upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { title, type, tags, notes, analysisProvider } = req.body;
+    const { title, type, tags, notes, analysisProvider, autoGenerate, readerMode } = req.body;
     const userId = req.userId || 'czk';
 
     // Generate S3 key and upload
@@ -142,8 +162,10 @@ router.post('/direct', requireAuth, upload.single('file'), async (req, res) => {
       tags: tags ? JSON.parse(tags) : [],
       notes,
       userId,
-      analysisProvider: analysisProvider || 'gemini-cli',
+      analysisProvider: analysisProvider || 'codex-cli',
     });
+
+    await maybeAutoQueue(document, { autoGenerate, readerMode, analysisProvider });
 
     res.status(201).json(document);
   } catch (error) {
@@ -187,7 +209,7 @@ async function downloadUrl(url) {
 // POST /api/upload/webpage - Convert webpage to PDF and save (requires auth)
 router.post('/webpage', requireAuth, async (req, res) => {
   try {
-    const { url, title, type, tags, notes, analysisProvider } = req.body;
+    const { url, title, type, tags, notes, analysisProvider, autoGenerate, readerMode } = req.body;
 
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
@@ -230,8 +252,10 @@ router.post('/webpage', requireAuth, async (req, res) => {
       tags: tags || [],
       notes,
       userId,
-      analysisProvider: analysisProvider || 'gemini-cli',
+      analysisProvider: analysisProvider || 'codex-cli',
     });
+
+    await maybeAutoQueue(document, { autoGenerate, readerMode, analysisProvider });
 
     res.status(201).json(document);
   } catch (error) {
@@ -250,6 +274,8 @@ router.post('/arxiv', requireAuth, async (req, res) => {
       tags,
       notes,
       analysisProvider,
+      autoGenerate,
+      readerMode,
       abstract,
       summary,
       authors,
@@ -340,6 +366,8 @@ router.post('/arxiv', requireAuth, async (req, res) => {
       document.codeUrl = codeUrl;
       document.hasCode = true;
     }
+
+    await maybeAutoQueue(document, { autoGenerate, readerMode, analysisProvider });
 
     res.status(201).json({
       ...document,

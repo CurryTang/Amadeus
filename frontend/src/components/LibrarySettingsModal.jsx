@@ -106,11 +106,14 @@ export default function LibrarySettingsModal({
   rounds,
   saveRounds,
   // Provider/model/thinking settings
-  provider = 'claude-code',
-  model = 'claude-sonnet-4-6',
+  provider = 'codex-cli',
+  model = 'gpt-5.4-codex',
   thinkingBudget = 0,
   reasoningEffort = 'extra-high',
   saveProviderSettings,
+  // Auto-generate on save
+  autoGenerate = false,
+  saveAutoGenerate,
   // Integrations tab
   vaultName,
   vaultReady,
@@ -145,6 +148,7 @@ export default function LibrarySettingsModal({
   const [localModel, setLocalModel] = useState(model);
   const [localThinkingBudget, setLocalThinkingBudget] = useState(thinkingBudget);
   const [localReasoningEffort, setLocalReasoningEffort] = useState(reasoningEffort);
+  const [localAutoGenerate, setLocalAutoGenerate] = useState(autoGenerate);
   const [vaultError, setVaultError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -232,6 +236,7 @@ export default function LibrarySettingsModal({
       try {
         saveRounds?.(toSave);
         saveProviderSettings?.(localProvider, localModel, localThinkingBudget, localReasoningEffort);
+        saveAutoGenerate?.(localAutoGenerate);
         setSaved(true);
         setTimeout(() => setSaved(false), 1800);
       } catch (err) {
@@ -296,6 +301,20 @@ export default function LibrarySettingsModal({
         <div className="modal-content">
           {activeTab === 'generation' && (
             <div className="settings-section">
+              <div className="settings-auto-generate">
+                <label className="settings-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={localAutoGenerate}
+                    onChange={(e) => setLocalAutoGenerate(e.target.checked)}
+                  />
+                  <span>Auto-generate notes when a paper is saved</span>
+                </label>
+                <p className="settings-hint">
+                  When enabled, AI notes will be automatically queued for generation whenever you save a new paper from the Chrome extension or tracker feed.
+                </p>
+              </div>
+
               <h3 className="settings-subtitle">AI Provider</h3>
               <div className="settings-provider-row">
                 <div className="settings-field">

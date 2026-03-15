@@ -99,6 +99,7 @@ function AppContent() {
   const {
     rounds, saveRounds,
     provider, model, thinkingBudget, reasoningEffort, saveProviderSettings,
+    autoGenerate, saveAutoGenerate,
     vaultHandle, vaultName, vaultReady, connectVault, disconnectVault, exportToVault,
   } = useAiNotesSettings();
 
@@ -721,6 +722,8 @@ function AppContent() {
             isAuthenticated={isAuthenticated}
             getAuthHeaders={getAuthHeaders}
             debug={IS_DEV}
+            autoGenerate={autoGenerate}
+            analysisProvider={provider}
           />
         )}
 
@@ -980,6 +983,8 @@ function AppContent() {
           thinkingBudget={thinkingBudget}
           reasoningEffort={reasoningEffort}
           saveProviderSettings={saveProviderSettings}
+          autoGenerate={autoGenerate}
+          saveAutoGenerate={saveAutoGenerate}
           vaultName={vaultName}
           vaultReady={vaultReady}
           connectVault={connectVault}
