@@ -731,9 +731,9 @@ router.post('/:id/ls', requireAuth, async (req, res) => {
     // Resolve ~ to home dir first if needed
     if (prefix === '~' || prefix.startsWith('~/')) {
       try {
-        const homeResult = await runSshCommand(server, ['echo', '$HOME'], { timeoutMs: 5000 });
+        const homeResult = await runSshCommand(server, ['printenv', 'HOME'], { timeoutMs: 5000 });
         const home = (homeResult?.stdout || '').trim();
-        if (home) prefix = prefix === '~' ? home : home + prefix.slice(1);
+        if (home) prefix = prefix === '~' ? home + '/' : home + prefix.slice(1);
       } catch { /* fall through with ~ */ }
     }
 
