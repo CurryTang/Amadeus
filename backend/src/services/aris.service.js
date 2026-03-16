@@ -37,6 +37,21 @@ const quickActions = [
 
 const DEFAULT_REMOTE_AGENT_BIN = process.env.ARIS_REMOTE_AGENT_BIN || 'claude';
 const DEFAULT_REMOTE_AGENT_ARGS = ['--print', '--dangerously-skip-permissions'];
+// Skill-based workflows run interactively (no --print) so Claude can loop
+const SKILL_AGENT_ARGS = ['--dangerously-skip-permissions'];
+
+// Workflows that should use the /skill-name invocation pattern instead of preamble.
+// These run Claude interactively so it can follow the multi-step skill instructions.
+const SKILL_BASED_WORKFLOWS = {
+  auto_review_loop: '/auto-review-loop',
+  paper_improvement: '/auto-paper-improvement-loop',
+  full_pipeline: '/research-pipeline',
+  literature_review: '/research-lit',
+  idea_discovery: '/idea-discovery',
+  run_experiment: '/run-experiment',
+  paper_writing: '/paper-writing',
+  monitor_experiment: '/monitor-experiment',
+};
 const projectStore = [];
 const targetStore = [];
 const launchStore = [];
@@ -139,6 +154,8 @@ function normalizeLaunch(row = {}) {
     logPath: row.logPath ?? row.log_path ?? '',
     runDirectory: row.runDirectory ?? row.run_directory ?? '',
     retryOfRunId: row.retryOfRunId ?? row.retry_of_run_id ?? null,
+    maxIterations: row.maxIterations ?? row.max_iterations ?? null,
+    reviewerModel: row.reviewerModel ?? row.reviewer_model ?? null,
   };
 }
 
@@ -237,21 +254,41 @@ function describeSyncStrategy(syncStrategy = '') {
   return 'Sync plan: use the existing remote workspace directly.';
 }
 
+// Workflow role preambles used instead of /skill-name prefixes.
+// Claude --print mode doesn't support slash-command skill invocations,
+// so we inline the workflow context as a system-level preamble.
+const WORKFLOW_PREAMBLES = {
+  custom_run: '',
+  literature_review: 'You are an ARIS research assistant performing a literature review. Survey the relevant field, identify key papers, trends, and gaps. Provide a structured summary.',
+  idea_discovery: 'You are an ARIS research assistant performing idea discovery. Analyze the current state of the field and propose novel, actionable research ideas with clear motivation and feasibility assessment.',
+  run_experiment: 'You are an ARIS research assistant running an experiment. Write code, execute it, analyze results, and iterate. Use the project environment and save outputs to the results directory.',
+  auto_review_loop: 'You are an ARIS research assistant performing an iterative self-review loop. Execute the task, review your own output critically, and iterate to improve quality.',
+  paper_writing: 'You are an ARIS research assistant writing a paper draft. Organize findings into sections (intro, related work, method, experiments, conclusion) with proper academic tone.',
+  paper_improvement: 'You are an ARIS research assistant improving an existing paper. Read the current draft, identify weaknesses, and make targeted improvements.',
+  full_pipeline: 'You are an ARIS research assistant running a full research pipeline. Plan the research, implement experiments, analyze results, and document findings.',
+  monitor_experiment: 'You are an ARIS research assistant monitoring a running experiment. Check status, report progress, and flag any issues.',
+};
+
+function isSkillBasedWorkflow(workflowType) {
+  return Boolean(SKILL_BASED_WORKFLOWS[workflowType]);
+}
+
 function buildWorkflowInvocation(launch = {}) {
   const prompt = String(launch.prompt || '').trim();
-  const commands = {
-    custom_run: '',
-    literature_review: '/research-lit',
-    idea_discovery: '/idea-discovery',
-    run_experiment: '/run-experiment',
-    auto_review_loop: '/auto-review-loop',
-    paper_writing: '/paper-writing',
-    paper_improvement: '/auto-paper-improvement-loop',
-    full_pipeline: '/research-pipeline',
-    monitor_experiment: '/monitor-experiment',
-  };
-  const skillCommand = commands[launch.workflowType] || '/research-pipeline';
-  const lines = [skillCommand ? `${skillCommand} ${prompt}`.trim() : prompt];
+  const skillCommand = SKILL_BASED_WORKFLOWS[launch.workflowType];
+
+  let invocation;
+  if (skillCommand) {
+    // Skill-based: use /skill-name as the prompt (Claude will load the SKILL.md)
+    const extraArgs = [];
+    if (launch.maxIterations) extraArgs.push(`--max-rounds ${launch.maxIterations}`);
+    if (launch.reviewerModel) extraArgs.push(`--reviewer-model ${launch.reviewerModel}`);
+    invocation = `${skillCommand} ${prompt}${extraArgs.length ? ' ' + extraArgs.join(' ') : ''}`.trim();
+  } else {
+    const preamble = WORKFLOW_PREAMBLES[launch.workflowType] || WORKFLOW_PREAMBLES.full_pipeline || '';
+    invocation = preamble ? `${preamble}\n\n${prompt}` : prompt;
+  }
+  const lines = [invocation];
 
   if (isNonEmpty(launch.datasetRoot)) {
     lines.push('');
@@ -272,6 +309,16 @@ function buildRemoteLaunchScript({ launch, invocationPrompt, remoteAgentBin = DE
   const promptPath = path.posix.join(runDirectory, 'prompt.txt');
   const logPath = path.posix.join(runDirectory, 'run.log');
   const commandPath = path.posix.join(runDirectory, 'launch.sh');
+  const useSkillMode = isSkillBasedWorkflow(launch.workflowType);
+  const agentArgs = useSkillMode ? SKILL_AGENT_ARGS : DEFAULT_REMOTE_AGENT_ARGS;
+
+  // Environment variables for skill-based workflows
+  const envExports = [];
+  if (useSkillMode) {
+    if (launch.maxIterations) envExports.push(`export ARIS_MAX_ROUNDS=${sshTransport.shellEscape(String(launch.maxIterations))}`);
+    if (launch.reviewerModel) envExports.push(`export REVIEW_MODEL=${sshTransport.shellEscape(launch.reviewerModel)}`);
+  }
+  const envBlock = envExports.length > 0 ? envExports.join('\n') + '\n' : '';
 
   return `
 set -euo pipefail
@@ -296,13 +343,46 @@ set -euo pipefail
 WORKSPACE=${sshTransport.shellEscape(launch.remoteWorkspacePath)}
 PROMPT_FILE=${sshTransport.shellEscape(promptPath)}
 REMOTE_AGENT_BIN=${sshTransport.shellEscape(remoteAgentBin)}
-
+${envBlock}
 cd "$WORKSPACE"
 
+# Auto-install ARIS skills if not present
 if [ ! -f ".claude/skills/research-lit/SKILL.md" ] && [ ! -f ".claude/skills/research-pipeline/SKILL.md" ]; then
-  echo "ARIS skills are not installed in $WORKSPACE/.claude/skills" >&2
-  exit 1
+  echo "[ARIS] Skills not found — auto-installing from upstream repo..." >&2
+  SKILLS_REPO="\${ARIS_SKILLS_REPO:-https://github.com/CurryTang/Auto-claude-code-research-in-sleep.git}"
+  SKILLS_CACHE="\$HOME/.cache/auto-researcher/aris-skills"
+  if [ -d "\$SKILLS_CACHE/.git" ]; then
+    git -C "\$SKILLS_CACHE" pull --depth 1 origin main 2>/dev/null || true
+  else
+    mkdir -p "\$(dirname "\$SKILLS_CACHE")"
+    git clone --depth 1 "\$SKILLS_REPO" "\$SKILLS_CACHE" 2>/dev/null
+  fi
+  if [ -d "\$SKILLS_CACHE/skills" ]; then
+    mkdir -p .claude/skills
+    cp -r "\$SKILLS_CACHE/skills/"* .claude/skills/ 2>/dev/null || true
+    echo "[ARIS] Skills installed successfully" >&2
+  else
+    echo "[ARIS] WARNING: Could not find skills in cache, continuing anyway..." >&2
+  fi
 fi
+
+# Install review adapter for auto-review-loop workflows
+ADAPTER_SRC="\$HOME/.cache/auto-researcher/aris-skills/review-adapter.py"
+if [ ! -f "\$ADAPTER_SRC" ]; then
+  # Try the overlay location from the auto-researcher repo
+  for candidate in \\
+    "\$HOME/.cache/auto-researcher/review-adapter.py" \\
+    "/tmp/aris-review-adapter.py"; do
+    [ -f "\$candidate" ] && ADAPTER_SRC="\$candidate" && break
+  done
+fi
+if [ -f "\$ADAPTER_SRC" ]; then
+  mkdir -p .claude
+  cp "\$ADAPTER_SRC" .claude/review-adapter.py 2>/dev/null || true
+fi
+
+# Ensure openai Python package is available for the review adapter
+python3 -c "import openai" 2>/dev/null || pip3 install --user openai 2>/dev/null || true
 
 if ! command -v "$REMOTE_AGENT_BIN" >/dev/null 2>&1; then
   echo "Required ARIS runner binary '$REMOTE_AGENT_BIN' is not installed on the WSL runner" >&2
@@ -310,7 +390,7 @@ if ! command -v "$REMOTE_AGENT_BIN" >/dev/null 2>&1; then
 fi
 
 PROMPT="$(cat "$PROMPT_FILE")"
-exec "$REMOTE_AGENT_BIN" ${DEFAULT_REMOTE_AGENT_ARGS.map((arg) => sshTransport.shellEscape(arg)).join(' ')} "$PROMPT"
+exec "$REMOTE_AGENT_BIN" ${agentArgs.map((arg) => sshTransport.shellEscape(arg)).join(' ')} "$PROMPT"
 EOF_COMMAND
 
 chmod +x "$COMMAND_FILE"
@@ -940,6 +1020,7 @@ function createArisService(overrides = {}) {
     saveRunAction: overrides.saveRunAction || defaultSaveRunAction,
     dispatchRunAction: overrides.dispatchRunAction || defaultDispatchRunAction,
     buildProjectFiles: overrides.buildProjectFiles || defaultBuildProjectFiles,
+    materializeProjectFiles: overrides.materializeProjectFiles || arisProjectFilesService.materializeProjectFiles,
   };
 
   async function reconcileProjectTargets(projectId, payload = {}) {
@@ -1127,6 +1208,9 @@ function createArisService(overrides = {}) {
         logPath: '',
         runDirectory: '',
         retryOfRunId,
+        // Loop config (for auto_review_loop and similar skill-based workflows)
+        maxIterations: Number(payload.maxIterations) || null,
+        reviewerModel: String(payload.reviewerModel || '').trim() || null,
       },
       runner,
       downstreamServer,
@@ -1213,6 +1297,12 @@ function createArisService(overrides = {}) {
         projectName: project.name,
         localProjectPath: project.localProjectPath,
       });
+      // Auto-install skills to local project path if it exists
+      if (project.localProjectPath && deps.materializeProjectFiles) {
+        deps.materializeProjectFiles(project.localProjectPath, projectFiles).catch((err) => {
+          console.error(`[ARIS] Failed to auto-install skills to local path ${project.localProjectPath}:`, err.message);
+        });
+      }
       const responseProject = targets ? { ...project, targets } : project;
       return {
         ...responseProject,
@@ -1239,6 +1329,12 @@ function createArisService(overrides = {}) {
         projectName: updated.name,
         localProjectPath: updated.localProjectPath,
       });
+      // Auto-install skills to local project path if it exists
+      if (updated.localProjectPath && deps.materializeProjectFiles) {
+        deps.materializeProjectFiles(updated.localProjectPath, projectFiles).catch((err) => {
+          console.error(`[ARIS] Failed to auto-install skills to local path ${updated.localProjectPath}:`, err.message);
+        });
+      }
       const responseProject = targets ? { ...updated, targets } : updated;
       return {
         ...responseProject,
@@ -1370,6 +1466,8 @@ function createArisService(overrides = {}) {
         remoteWorkspacePath: existing.remoteWorkspacePath,
         datasetRoot: existing.datasetRoot,
         downstreamServerId: existing.downstreamServerId,
+        maxIterations: existing.maxIterations,
+        reviewerModel: existing.reviewerModel,
       }, {
         username,
         retryOfRunId: existing.id,

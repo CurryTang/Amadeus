@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const pty = require('node-pty');
 const url = require('url');
 const cookie = require('cookie');
 const jwt = require('jsonwebtoken');
@@ -82,7 +82,7 @@ function attachWebSocketServer(httpServer) {
   });
 
   wss.on('connection', async (ws, req, { sessionId, userId }) => {
-    let sshChild = null;
+    let ptyProcess = null;
 
     try {
       // Look up session — try DB first, then treat sessionId as a tmux session name
@@ -134,51 +134,40 @@ function attachWebSocketServer(httpServer) {
         `tmux attach-session -t ${tmuxName}`,
       ];
 
-      // Spawn SSH with PTY
-      sshChild = spawn('ssh', sshArgs, {
-        stdio: ['pipe', 'pipe', 'pipe'],
+      // Spawn SSH inside a real PTY via node-pty
+      // Use full path — node-pty's posix_spawnp may not inherit shell PATH
+      const sshBin = '/usr/bin/ssh';
+      ptyProcess = pty.spawn(sshBin, sshArgs, {
+        name: 'xterm-256color',
+        cols: 80,
+        rows: 24,
         env: { ...process.env, TERM: 'xterm-256color' },
       });
 
-      // SSH stdout → WebSocket
-      sshChild.stdout.on('data', (data) => {
+      // PTY data → WebSocket
+      ptyProcess.onData((data) => {
         if (ws.readyState === ws.OPEN) {
           ws.send(data);
         }
       });
 
-      sshChild.stderr.on('data', (data) => {
+      ptyProcess.onExit(({ exitCode }) => {
         if (ws.readyState === ws.OPEN) {
-          ws.send(data);
+          ws.close(1000, `SSH exited with code ${exitCode}`);
         }
       });
 
-      sshChild.on('close', (code) => {
-        if (ws.readyState === ws.OPEN) {
-          ws.close(1000, `SSH exited with code ${code}`);
-        }
-      });
-
-      sshChild.on('error', (err) => {
-        console.error('[terminal-proxy] SSH spawn error:', err.message);
-        if (ws.readyState === ws.OPEN) {
-          ws.close(1011, 'SSH connection failed');
-        }
-      });
-
-      // WebSocket messages → SSH stdin
+      // WebSocket messages → PTY stdin
       ws.on('message', (message) => {
-        if (!sshChild || sshChild.killed) return;
+        if (!ptyProcess) return;
 
         // Check if it's a control message (JSON)
-        if (typeof message === 'string' || (Buffer.isBuffer(message) && message[0] === 0x7b)) {
+        const str = message.toString();
+        if (str[0] === '{') {
           try {
-            const str = message.toString();
             const ctrl = JSON.parse(str);
             if (ctrl.type === 'resize' && ctrl.cols && ctrl.rows) {
-              // Resize the tmux window
-              const resizeCmd = `stty cols ${ctrl.cols} rows ${ctrl.rows}\n`;
-              sshChild.stdin.write(resizeCmd);
+              ptyProcess.resize(ctrl.cols, ctrl.rows);
               return;
             }
           } catch {
@@ -186,18 +175,20 @@ function attachWebSocketServer(httpServer) {
           }
         }
 
-        sshChild.stdin.write(message);
+        ptyProcess.write(str);
       });
 
       ws.on('close', () => {
-        if (sshChild && !sshChild.killed) {
-          sshChild.kill('SIGTERM');
+        if (ptyProcess) {
+          ptyProcess.kill();
+          ptyProcess = null;
         }
       });
 
       ws.on('error', () => {
-        if (sshChild && !sshChild.killed) {
-          sshChild.kill('SIGTERM');
+        if (ptyProcess) {
+          ptyProcess.kill();
+          ptyProcess = null;
         }
       });
 
@@ -206,13 +197,14 @@ function attachWebSocketServer(httpServer) {
       if (ws.readyState === ws.OPEN) {
         ws.close(1011, 'Internal error');
       }
-      if (sshChild && !sshChild.killed) {
-        sshChild.kill('SIGTERM');
+      if (ptyProcess) {
+        ptyProcess.kill();
+        ptyProcess = null;
       }
     }
   });
 
-  console.log('[terminal-proxy] WebSocket server attached');
+  console.log('[terminal-proxy] WebSocket server attached (node-pty)');
   return wss;
 }
 

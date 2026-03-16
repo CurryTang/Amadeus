@@ -13,6 +13,7 @@ const DEFAULT_CACHE_DIR = process.env.ARIS_SKILLS_CACHE_DIR
   || path.join(os.homedir(), '.cache', 'auto-researcher', 'aris-skills');
 const DEFAULT_ROOT_DIR = path.resolve(__dirname, '..', '..', '..');
 const DEFAULT_OVERLAY_DIR = path.join(DEFAULT_ROOT_DIR, 'resource', 'integrations', 'aris', 'overlay');
+const DEFAULT_ADAPTER_DIR = path.join(DEFAULT_ROOT_DIR, 'resource', 'integrations', 'aris');
 
 function managedBlockStart(blockId) {
   return `<!-- ${blockId} START -->`;
@@ -129,6 +130,7 @@ function createArisProjectFilesService(overrides = {}) {
   const repoRef = overrides.repoRef || DEFAULT_REPO_REF;
   const cacheDir = overrides.cacheDir || DEFAULT_CACHE_DIR;
   const overlayDir = overrides.overlayDir || DEFAULT_OVERLAY_DIR;
+  const adapterDir = overrides.adapterDir || DEFAULT_ADAPTER_DIR;
   const sourceDirOverride = overrides.sourceDir || process.env.ARIS_PROJECT_FILES_SOURCE_DIR || '';
 
   async function resolveSourceDir() {
@@ -166,6 +168,16 @@ function createArisProjectFilesService(overrides = {}) {
       } else {
         projectFiles.push(nextFile);
       }
+    }
+
+    // Include the review adapter script (used by auto-review-loop skill)
+    const adapterPath = path.join(adapterDir, 'review-adapter.py');
+    if (await pathExists(adapterPath)) {
+      projectFiles.push({
+        path: '.claude/review-adapter.py',
+        content: await fs.readFile(adapterPath, 'utf8'),
+        writeMode: 'replace',
+      });
     }
 
     projectFiles.push({
