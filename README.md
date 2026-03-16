@@ -100,15 +100,25 @@ The fastest way to get running — **SQLite + MinIO**, no cloud accounts needed.
 - (Optional) [Obsidian](https://obsidian.md) + [Obsidian CLI](https://help.obsidian.md/cli) for exporting notes to your vault
 - (Optional) A supported AI CLI for paper analysis: [Codex CLI](https://github.com/openai/codex) (default), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
-### 1. Clone and Install
+### 1. Clone and Setup
 
 ```bash
 git clone https://github.com/CurryTang/Amadeus.git
 cd Amadeus
 
-cd backend && npm install && cd ..
+# Automated backend setup: installs deps, generates secrets, installs Playwright
+cd backend && npm run setup && cd ..
+
+# Frontend
 cd frontend && npm install && cd ..
 ```
+
+The setup script automatically:
+- Installs backend dependencies
+- Installs Playwright Chromium (for Twitter/X paper tracking)
+- Generates secure `JWT_SECRET`, `AUTH_SALT`, and `ADMIN_TOKEN` if missing
+- Creates `.env` from template if none exists
+- Sets `X_PLAYWRIGHT_STORAGE_STATE_PATH` for Twitter session
 
 ### 2. Start MinIO
 
@@ -146,7 +156,8 @@ NODE_ENV=development
 CORS_ORIGIN=*
 AUTH_ENABLED=true
 ADMIN_TOKEN=change-me-to-a-random-string
-JWT_SECRET=change-me-to-a-64-char-random-string
+JWT_SECRET=$(openssl rand -hex 32)
+AUTH_SALT=$(openssl rand -hex 32)
 CZK_PASSWORD=your-login-password
 TURSO_DATABASE_URL=file:./local.db
 OBJECT_STORAGE_PROVIDER=minio

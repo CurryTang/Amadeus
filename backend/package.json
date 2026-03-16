@@ -10,6 +10,7 @@
     "mcp:server": "node --no-deprecation src/mcp/auto-researcher-mcp-server.js",
     "processing": "node --no-deprecation processing-server.js",
     "processing:dev": "nodemon --no-deprecation processing-server.js",
+    "setup": "bash scripts/setup.sh",
     "setup:x-session": "node --no-deprecation scripts/setup-x-session.js",
     "exp:x-papers": "node --no-deprecation scripts/exp-x-paper-posts.js"
   },
