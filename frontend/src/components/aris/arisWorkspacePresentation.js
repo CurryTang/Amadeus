@@ -1,5 +1,11 @@
 export const ARIS_QUICK_ACTIONS = [
   {
+    id: 'init_repo',
+    label: 'Init Repo',
+    workflowType: 'init_repo',
+    prefillPrompt: 'Initialize a new AIRS research repository for:',
+  },
+  {
     id: 'custom_run',
     label: 'Custom Run',
     workflowType: 'custom_run',
@@ -52,6 +58,12 @@ export const ARIS_QUICK_ACTIONS = [
     label: 'Monitor Experiment',
     workflowType: 'monitor_experiment',
     prefillPrompt: 'Monitor the current experiment and summarize progress for:',
+  },
+  {
+    id: 'sync_workspace',
+    label: 'Sync Workspace',
+    workflowType: 'sync_workspace',
+    prefillPrompt: 'Sync local and remote project files (code, resources, papers) for:',
   },
 ];
 

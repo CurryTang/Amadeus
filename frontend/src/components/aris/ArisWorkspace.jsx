@@ -313,6 +313,13 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [retryingRun, setRetryingRun] = useState(false);
   const [runOutputs, setRunOutputs] = useState(null);
   const [loadingOutputs, setLoadingOutputs] = useState(false);
+  const [outputBrowsePath, setOutputBrowsePath] = useState(''); // current browsed dir path
+  const [outputBreadcrumbs, setOutputBreadcrumbs] = useState([]); // [{label, path}]
+
+  // File previewer state
+  const [previewFile, setPreviewFile] = useState(null); // {filePath, content, size, mimeType, isBinary, isTruncated}
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState('');
 
   const quickActions = contextData?.quickActions?.length ? contextData.quickActions : ARIS_QUICK_ACTIONS;
 
@@ -352,30 +359,88 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     }
   };
 
-  const fetchRunOutputs = async (run) => {
+  const fetchRunOutputs = async (run, browsePath = '') => {
     if (!run?.runDirectory || !run?.runnerServerId) {
       setRunOutputs(null);
       return;
     }
     setLoadingOutputs(true);
     try {
+      const basePath = browsePath || run.runDirectory;
       const response = await axios.post(`${apiUrl}/ssh-servers/${run.runnerServerId}/ls`, {
-        path: run.runDirectory + '/outputs/',
+        path: basePath + '/',
       }, { headers: getAuthHeaders() });
       const entries = response.data?.entries || [];
-      if (entries.length === 0) {
-        const rootResponse = await axios.post(`${apiUrl}/ssh-servers/${run.runnerServerId}/ls`, {
-          path: run.runDirectory + '/',
+
+      // If first load (no browsePath set yet) and no entries, try outputs/ subdir
+      if (!browsePath && entries.length === 0) {
+        const outputsResponse = await axios.post(`${apiUrl}/ssh-servers/${run.runnerServerId}/ls`, {
+          path: run.runDirectory + '/outputs/',
         }, { headers: getAuthHeaders() });
-        setRunOutputs(rootResponse.data?.entries || []);
-      } else {
-        setRunOutputs(entries);
+        const outputEntries = outputsResponse.data?.entries || [];
+        if (outputEntries.length > 0) {
+          setRunOutputs(outputEntries);
+          setOutputBrowsePath(run.runDirectory + '/outputs');
+          setOutputBreadcrumbs([
+            { label: 'run', path: run.runDirectory },
+            { label: 'outputs', path: run.runDirectory + '/outputs' },
+          ]);
+          return;
+        }
+      }
+
+      setRunOutputs(entries);
+      setOutputBrowsePath(basePath);
+
+      // Build breadcrumbs from runDirectory to current path
+      if (!browsePath || basePath === run.runDirectory) {
+        setOutputBreadcrumbs([{ label: 'run', path: run.runDirectory }]);
       }
     } catch {
       setRunOutputs(null);
     } finally {
       setLoadingOutputs(false);
     }
+  };
+
+  const handleOutputEntryClick = async (entry) => {
+    if (!selectedRunDetail?.runnerServerId) return;
+
+    const currentPath = outputBrowsePath || selectedRunDetail.runDirectory;
+    const fullPath = `${currentPath}/${entry.name}`;
+
+    if (entry.type === 'dir') {
+      // Navigate into directory
+      setOutputBreadcrumbs((prev) => [...prev, { label: entry.name, path: fullPath }]);
+      await fetchRunOutputs(selectedRunDetail, fullPath);
+    } else {
+      // Open file preview
+      setLoadingPreview(true);
+      setPreviewError('');
+      setPreviewFile(null);
+      try {
+        const response = await axios.post(
+          `${apiUrl}/ssh-servers/${selectedRunDetail.runnerServerId}/read-file`,
+          { path: fullPath, maxBytes: 512 * 1024 },
+          { headers: getAuthHeaders() }
+        );
+        setPreviewFile(response.data);
+      } catch (err) {
+        setPreviewError(err?.response?.data?.error || err.message || 'Failed to read file');
+      } finally {
+        setLoadingPreview(false);
+      }
+    }
+  };
+
+  const handleBreadcrumbClick = async (crumb, index) => {
+    setOutputBreadcrumbs((prev) => prev.slice(0, index + 1));
+    await fetchRunOutputs(selectedRunDetail, crumb.path);
+  };
+
+  const closePreview = () => {
+    setPreviewFile(null);
+    setPreviewError('');
   };
 
   const fetchRuns = async () => {
@@ -1082,7 +1147,33 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 </div>
                 <div>
                   <dt>Log Path</dt>
-                  <dd className="aris-detail-copy">{selectedRunCard.logPath || 'No log path yet'}</dd>
+                  <dd className="aris-detail-copy">
+                    {selectedRunCard.logPath ? (
+                      <button
+                        className="aris-inline-preview-btn"
+                        type="button"
+                        onClick={async () => {
+                          setLoadingPreview(true);
+                          setPreviewError('');
+                          setPreviewFile(null);
+                          try {
+                            const response = await axios.post(
+                              `${apiUrl}/ssh-servers/${selectedRunDetail.runnerServerId}/read-file`,
+                              { path: selectedRunCard.logPath, maxBytes: 512 * 1024 },
+                              { headers: getAuthHeaders() }
+                            );
+                            setPreviewFile(response.data);
+                          } catch (err) {
+                            setPreviewError(err?.response?.data?.error || err.message || 'Failed to read log');
+                          } finally {
+                            setLoadingPreview(false);
+                          }
+                        }}
+                      >
+                        {selectedRunCard.logPath}
+                      </button>
+                    ) : 'No log path yet'}
+                  </dd>
                 </div>
                 <div>
                   <dt>Run Directory</dt>
@@ -1161,24 +1252,55 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   <h3>Run Outputs</h3>
                   <button
                     className="aris-secondary-btn"
-                    onClick={() => fetchRunOutputs(selectedRunDetail)}
+                    onClick={() => {
+                      setOutputBrowsePath('');
+                      setOutputBreadcrumbs([]);
+                      fetchRunOutputs(selectedRunDetail);
+                    }}
                     disabled={loadingOutputs}
                   >
                     {loadingOutputs ? 'Loading…' : runOutputs ? 'Refresh' : 'Browse Files'}
                   </button>
                 </div>
+
+                {outputBreadcrumbs.length > 1 && (
+                  <div className="aris-output-breadcrumbs">
+                    {outputBreadcrumbs.map((crumb, index) => (
+                      <span key={crumb.path}>
+                        {index > 0 && <span className="aris-breadcrumb-sep">/</span>}
+                        <button
+                          className={`aris-breadcrumb-btn${index === outputBreadcrumbs.length - 1 ? ' is-current' : ''}`}
+                          onClick={() => handleBreadcrumbClick(crumb, index)}
+                          disabled={index === outputBreadcrumbs.length - 1}
+                          type="button"
+                        >
+                          {crumb.label}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {runOutputs === null ? (
                   <div className="aris-empty-card">
                     Click &ldquo;Browse Files&rdquo; to list files in the run directory.
                   </div>
                 ) : runOutputs.length === 0 ? (
-                  <div className="aris-empty-card">No output files found in run directory.</div>
+                  <div className="aris-empty-card">No output files found in this directory.</div>
                 ) : (
                   <div className="aris-output-list">
                     {runOutputs.map((entry) => (
-                      <div key={entry.name} className={`aris-output-entry${entry.type === 'dir' ? ' is-dir' : ''}`}>
+                      <div
+                        key={entry.name}
+                        className={`aris-output-entry${entry.type === 'dir' ? ' is-dir' : ''} is-clickable`}
+                        onClick={() => handleOutputEntryClick(entry)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => { if (event.key === 'Enter') handleOutputEntryClick(entry); }}
+                      >
                         <span className="aris-output-icon">{entry.type === 'dir' ? '\uD83D\uDCC1' : '\uD83D\uDCC4'}</span>
                         <span className="aris-output-name">{entry.name}</span>
+                        {entry.type !== 'dir' && <span className="aris-output-preview-hint">Preview</span>}
                       </div>
                     ))}
                   </div>
@@ -1436,6 +1558,75 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           </div>
         </div>
       )}
+
+      {/* File Preview Modal */}
+      {(previewFile || loadingPreview || previewError) && (
+        <div className="aris-modal-backdrop" onClick={closePreview}>
+          <div className="aris-file-preview-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="aris-preview-header">
+              <div className="aris-preview-title-row">
+                <h3>{previewFile?.filePath ? previewFile.filePath.split('/').pop() : 'File Preview'}</h3>
+                <button className="aris-refresh-btn" onClick={closePreview} type="button">Close</button>
+              </div>
+              {previewFile && (
+                <div className="aris-preview-meta">
+                  <span>{formatFileSize(previewFile.size)}</span>
+                  <span>{previewFile.mimeType}</span>
+                  {previewFile.isTruncated && <span className="aris-preview-truncated">Truncated</span>}
+                  <span className="aris-preview-path" title={previewFile.filePath}>{previewFile.filePath}</span>
+                </div>
+              )}
+            </div>
+            <div className="aris-preview-body">
+              {loadingPreview && <div className="aris-empty-card">Loading file contents...</div>}
+              {previewError && <div className="aris-empty-card" style={{ color: '#a3302a' }}>{previewError}</div>}
+              {previewFile && !loadingPreview && !previewError && (
+                previewFile.isBinary ? (
+                  <div className="aris-empty-card">
+                    Binary file ({previewFile.mimeType}, {formatFileSize(previewFile.size)}). Preview not available.
+                  </div>
+                ) : (
+                  <pre className={`aris-preview-content ${getPreviewLang(previewFile.filePath)}`}>
+                    <code>{previewFile.content}</code>
+                  </pre>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let unitIndex = 0;
+  let size = bytes;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function getPreviewLang(filePath) {
+  if (!filePath) return 'lang-text';
+  const ext = filePath.split('.').pop().toLowerCase();
+  const langMap = {
+    py: 'lang-python', js: 'lang-javascript', jsx: 'lang-javascript',
+    ts: 'lang-typescript', tsx: 'lang-typescript',
+    json: 'lang-json', yaml: 'lang-yaml', yml: 'lang-yaml',
+    toml: 'lang-toml', md: 'lang-markdown',
+    sh: 'lang-bash', bash: 'lang-bash', zsh: 'lang-bash',
+    tex: 'lang-latex', bib: 'lang-bibtex',
+    css: 'lang-css', html: 'lang-html', xml: 'lang-xml',
+    csv: 'lang-csv', tsv: 'lang-csv',
+    log: 'lang-log', txt: 'lang-text',
+    r: 'lang-r', R: 'lang-r',
+    c: 'lang-c', cpp: 'lang-cpp', h: 'lang-c',
+    java: 'lang-java', rs: 'lang-rust', go: 'lang-go',
+  };
+  return langMap[ext] || 'lang-text';
 }

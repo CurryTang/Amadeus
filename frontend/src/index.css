@@ -10538,7 +10538,7 @@ button.vibe-skill-chip.is-active {
 .aris-output-list {
   display: grid;
   gap: 4px;
-  max-height: 200px;
+  max-height: 360px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -10566,6 +10566,180 @@ button.vibe-skill-chip.is-active {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.aris-output-entry.is-clickable {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.aris-output-entry.is-clickable:hover {
+  background: rgba(24, 54, 45, 0.08);
+}
+
+.aris-output-preview-hint {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: rgba(24, 54, 45, 0.35);
+  flex-shrink: 0;
+}
+
+.aris-output-entry.is-clickable:hover .aris-output-preview-hint {
+  color: #2c6e5a;
+}
+
+/* Breadcrumb navigation */
+.aris-output-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 0 10px;
+  font-size: 0.82rem;
+}
+
+.aris-breadcrumb-sep {
+  color: rgba(24, 54, 45, 0.3);
+  margin: 0 2px;
+}
+
+.aris-breadcrumb-btn {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #2c6e5a;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.aris-breadcrumb-btn:hover:not(:disabled) {
+  background: rgba(24, 54, 45, 0.06);
+}
+
+.aris-breadcrumb-btn.is-current {
+  color: #2c4b43;
+  font-weight: 600;
+  cursor: default;
+}
+
+/* File Preview Modal */
+.aris-file-preview-modal {
+  position: relative;
+  width: min(90vw, 900px);
+  max-height: 85vh;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(11, 21, 18, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.aris-preview-header {
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid rgba(24, 54, 45, 0.08);
+  flex-shrink: 0;
+}
+
+.aris-preview-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aris-preview-title-row h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #18362d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aris-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: rgba(24, 54, 45, 0.5);
+}
+
+.aris-preview-meta .aris-preview-truncated {
+  background: rgba(204, 120, 50, 0.12);
+  color: #a06020;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+
+.aris-preview-meta .aris-preview-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 400px;
+  direction: rtl;
+  text-align: left;
+}
+
+.aris-preview-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+  min-height: 200px;
+}
+
+.aris-preview-body .aris-empty-card {
+  margin: 20px 22px;
+}
+
+.aris-preview-content {
+  margin: 0;
+  padding: 16px 22px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: #1e3a30;
+  background: #fafcfb;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 4;
+  min-height: 200px;
+}
+
+.aris-preview-content code {
+  font-family: inherit;
+}
+
+/* Log file styling */
+.aris-preview-content.lang-log {
+  color: #3a5a4e;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+/* Inline preview button (for log path, run directory links) */
+.aris-inline-preview-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2c6e5a;
+  text-decoration: underline;
+  text-decoration-color: rgba(44, 110, 90, 0.3);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  word-break: break-all;
+}
+
+.aris-inline-preview-btn:hover {
+  color: #1e4e3e;
+  text-decoration-color: rgba(44, 110, 90, 0.6);
 }
 
 .aris-follow-up,

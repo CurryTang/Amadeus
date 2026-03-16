@@ -867,4 +867,108 @@ router.post('/:id/authorize-key', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/ssh-servers/:id/read-file — read file contents from remote server
+router.post('/:id/read-file', requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const result = await db.execute({ sql: `SELECT * FROM ssh_servers WHERE id = ?`, args: [req.params.id] });
+    if (!result.rows.length) return res.status(404).json({ error: 'Server not found' });
+    const server = result.rows[0];
+
+    const filePath = normalizeRemotePath(req.body?.path || '');
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+
+    const maxBytes = Math.min(Number(req.body?.maxBytes) || 512 * 1024, 2 * 1024 * 1024); // default 512KB, max 2MB
+
+    // Get file info (size + type) and content in one script
+    const readScript = [
+      'set -eu',
+      'FILE_PATH="$1"',
+      'MAX_BYTES="$2"',
+      '',
+      '# Resolve ~ to home',
+      'case "$FILE_PATH" in',
+      "  '~'|'~/'*) FILE_PATH=\"$HOME${FILE_PATH#\\~}\" ;;",
+      'esac',
+      '',
+      'if [ ! -e "$FILE_PATH" ]; then',
+      '  echo "ERROR:not_found"',
+      '  exit 0',
+      'fi',
+      '',
+      'if [ -d "$FILE_PATH" ]; then',
+      '  echo "ERROR:is_directory"',
+      '  exit 0',
+      'fi',
+      '',
+      '# Get file size',
+      'FILE_SIZE=$(stat -c%s "$FILE_PATH" 2>/dev/null || stat -f%z "$FILE_PATH" 2>/dev/null || echo "0")',
+      '',
+      '# Detect if binary',
+      'FILE_TYPE=$(file -b --mime-type "$FILE_PATH" 2>/dev/null || echo "application/octet-stream")',
+      'IS_BINARY=false',
+      'case "$FILE_TYPE" in',
+      '  text/*|application/json|application/xml|application/javascript|application/x-python*|application/toml|application/yaml)',
+      '    IS_BINARY=false ;;',
+      '  *)',
+      '    # Additional check: see if file command says text',
+      '    FILE_DESC=$(file -b "$FILE_PATH" 2>/dev/null || echo "")',
+      '    case "$FILE_DESC" in',
+      '      *text*|*script*|*source*|*ASCII*|*UTF-8*) IS_BINARY=false ;;',
+      '      *) IS_BINARY=true ;;',
+      '    esac',
+      '    ;;',
+      'esac',
+      '',
+      '# Output metadata header',
+      'printf "META:%s|%s|%s\\n" "$FILE_SIZE" "$FILE_TYPE" "$IS_BINARY"',
+      '',
+      'if [ "$IS_BINARY" = "true" ]; then',
+      '  echo "CONTENT:binary"',
+      '  exit 0',
+      'fi',
+      '',
+      '# Read content with byte limit',
+      'echo "CONTENT:text"',
+      'head -c "$MAX_BYTES" "$FILE_PATH"',
+    ].join('\n');
+
+    const output = await runSshBashScript(server, readScript, [filePath, String(maxBytes)], { timeoutMs: 15000 });
+    const stdout = output?.stdout || '';
+
+    // Check for errors
+    if (stdout.startsWith('ERROR:not_found')) {
+      return res.status(404).json({ error: 'File not found', filePath });
+    }
+    if (stdout.startsWith('ERROR:is_directory')) {
+      return res.status(400).json({ error: 'Path is a directory, not a file', filePath });
+    }
+
+    // Parse metadata
+    const metaMatch = stdout.match(/^META:(\d+)\|([^|]+)\|(\w+)/m);
+    const fileSize = metaMatch ? parseInt(metaMatch[1], 10) : 0;
+    const mimeType = metaMatch ? metaMatch[2] : 'application/octet-stream';
+    const isBinary = metaMatch ? metaMatch[3] === 'true' : false;
+
+    // Extract content (everything after "CONTENT:text\n" or "CONTENT:binary\n")
+    const contentMarker = isBinary ? 'CONTENT:binary' : 'CONTENT:text';
+    const contentIndex = stdout.indexOf(contentMarker);
+    let content = '';
+    if (!isBinary && contentIndex >= 0) {
+      content = stdout.slice(contentIndex + contentMarker.length + 1); // +1 for newline
+    }
+
+    res.json({
+      filePath,
+      content: isBinary ? '' : content,
+      size: fileSize,
+      mimeType,
+      isBinary,
+      isTruncated: fileSize > maxBytes,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, filePath: req.body?.path || '' });
+  }
+});
+
 module.exports = router;

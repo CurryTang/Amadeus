@@ -716,7 +716,7 @@ function AppContent() {
       )}
 
       <main className={`main${researchMode ? ' research-mode-active' : ''}`}>
-        {activeArea === 'latest' && (
+        <div style={{ display: activeArea === 'latest' ? 'block' : 'none' }}>
           <LatestPapers
             apiUrl={API_URL}
             isAuthenticated={isAuthenticated}
@@ -725,7 +725,7 @@ function AppContent() {
             autoGenerate={autoGenerate}
             analysisProvider={provider}
           />
-        )}
+        </div>
 
         {activeArea === 'library' && error && (
           <div className="error-banner">

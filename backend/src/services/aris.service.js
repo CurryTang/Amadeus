@@ -4,6 +4,7 @@ const sshTransport = require('./ssh-transport.service');
 const { createArisProjectFilesService } = require('./arisProjectFiles.service');
 
 const ARIS_WORKFLOW_TYPES = [
+  'init_repo',
   'literature_review',
   'idea_discovery',
   'run_experiment',
@@ -12,6 +13,7 @@ const ARIS_WORKFLOW_TYPES = [
   'paper_improvement',
   'full_pipeline',
   'monitor_experiment',
+  'sync_workspace',
 ];
 
 const ARIS_CUSTOM_WORKFLOW_TYPE = 'custom_run';
@@ -24,6 +26,7 @@ const ARIS_ACTION_TYPES = [
 ];
 
 const quickActions = [
+  { id: 'init_repo', label: 'Init Repo', workflowType: 'init_repo', prefillPrompt: 'Initialize a new AIRS research repository for:' },
   { id: 'custom_run', label: 'Custom Run', workflowType: 'custom_run', prefillPrompt: 'Run this custom ARIS workflow on the selected project target:' },
   { id: 'literature_review', label: 'Literature Review', workflowType: 'literature_review', prefillPrompt: 'Survey the literature and related work for:' },
   { id: 'idea_discovery', label: 'Idea Discovery', workflowType: 'idea_discovery', prefillPrompt: 'Discover promising research ideas around:' },
@@ -33,6 +36,7 @@ const quickActions = [
   { id: 'paper_improvement', label: 'Paper Improvement', workflowType: 'paper_improvement', prefillPrompt: 'Improve the current paper draft in the remote ARIS workspace:' },
   { id: 'full_pipeline', label: 'Full Pipeline', workflowType: 'full_pipeline', prefillPrompt: 'Run the full ARIS research pipeline for:' },
   { id: 'monitor_experiment', label: 'Monitor Experiment', workflowType: 'monitor_experiment', prefillPrompt: 'Monitor the current experiment and summarize progress for:' },
+  { id: 'sync_workspace', label: 'Sync Workspace', workflowType: 'sync_workspace', prefillPrompt: 'Sync local and remote project files (code, resources, papers) for:' },
 ];
 
 const DEFAULT_REMOTE_AGENT_BIN = process.env.ARIS_REMOTE_AGENT_BIN || 'claude';
@@ -43,6 +47,7 @@ const SKILL_AGENT_ARGS = ['--dangerously-skip-permissions'];
 // Workflows that should use the /skill-name invocation pattern instead of preamble.
 // These run Claude interactively so it can follow the multi-step skill instructions.
 const SKILL_BASED_WORKFLOWS = {
+  init_repo: '/init-repo',
   auto_review_loop: '/auto-review-loop',
   paper_improvement: '/auto-paper-improvement-loop',
   full_pipeline: '/research-pipeline',
@@ -51,6 +56,7 @@ const SKILL_BASED_WORKFLOWS = {
   run_experiment: '/run-experiment',
   paper_writing: '/paper-writing',
   monitor_experiment: '/monitor-experiment',
+  sync_workspace: '/sync-workspace',
 };
 const projectStore = [];
 const targetStore = [];
