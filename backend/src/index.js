@@ -17,6 +17,18 @@ const aiEditService = require('./services/ai-edit.service');
 const paperTrackerService = require('./services/paper-tracker.service');
 const keypairService = require('./services/keypair.service');
 
+// Fail fast if auth is enabled but required secrets are missing
+if (config.auth.enabled) {
+  if (!config.auth.jwtSecret) {
+    console.error('FATAL: JWT_SECRET env var is required when auth is enabled');
+    process.exit(1);
+  }
+  if (!config.auth.salt) {
+    console.error('FATAL: AUTH_SALT env var is required when auth is enabled');
+    process.exit(1);
+  }
+}
+
 const app = express();
 
 // Trust proxy (nginx) so rate limiter reads X-Forwarded-For correctly

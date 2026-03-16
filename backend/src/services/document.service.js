@@ -318,6 +318,20 @@ async function getDocumentWithDownloadUrl(id) {
   return { ...document, downloadUrl };
 }
 
+/**
+ * Strip internal S3 keys from a document before sending to clients.
+ * Replaces raw keys with boolean flags.
+ */
+function sanitizeForClient(doc) {
+  if (!doc) return doc;
+  const { notesS3Key, codeNotesS3Key, s3Key, ...rest } = doc;
+  return {
+    ...rest,
+    hasNotes: !!notesS3Key,
+    hasCodeNotes: !!codeNotesS3Key,
+  };
+}
+
 module.exports = {
   createDocument,
   getDocuments,
@@ -325,4 +339,5 @@ module.exports = {
   updateDocument,
   deleteDocument,
   getDocumentWithDownloadUrl,
+  sanitizeForClient,
 };

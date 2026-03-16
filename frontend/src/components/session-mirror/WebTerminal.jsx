@@ -54,8 +54,6 @@ export default function WebTerminal({ sessionId, serverId, apiUrl }) {
     }
     const params = new URLSearchParams();
     if (serverId) params.set('serverId', String(serverId));
-    const token = localStorage.getItem('auto_reader_auth_token') || '';
-    if (token) params.set('token', token);
     const qs = params.toString();
     const fullWsUrl = `${wsBase}/ws/terminal/${sessionId}${qs ? `?${qs}` : ''}`;
 

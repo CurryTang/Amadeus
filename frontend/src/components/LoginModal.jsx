@@ -74,7 +74,7 @@ function LoginModal({ onClose }) {
           </div>
 
           <p className="login-hint">
-            Enter the ADMIN_TOKEN from your server&apos;s .env file.
+            Enter your admin token to unlock write access.
             <br />
             Without logging in, the library is read-only.
           </p>

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const documentService = require('../services/document.service');
+const { sanitizeForClient } = documentService;
 const researchPackService = require('../services/research-pack.service');
 const {
   buildSshTransportCommand,
@@ -48,7 +49,10 @@ router.get('/', async (req, res) => {
     const options = { includeTotal: req.query.includeTotal === 'true' };
 
     const result = await documentService.getDocuments(filters, pagination, sortOptions, options);
-    res.json(result);
+    res.json({
+      ...result,
+      documents: result.documents.map(sanitizeForClient),
+    });
   } catch (error) {
     console.error('Error fetching documents:', error);
     if (error.code === 'ETIMEDOUT') {
@@ -67,7 +71,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    res.json(document);
+    res.json(sanitizeForClient(document));
   } catch (error) {
     console.error('Error fetching document:', error);
     res.status(500).json({ error: 'Failed to fetch document' });
@@ -349,10 +353,8 @@ router.get('/:id/notes', async (req, res) => {
       hasCode: doc.has_code === 1,
       codeUrl: doc.code_url,
       notesUrl,
-      notesS3Key: doc.notes_s3_key,
       notesContent,
       codeNotesUrl,
-      codeNotesS3Key: doc.code_notes_s3_key,
       codeNotesContent,
       readingHistory,
     });
@@ -440,7 +442,7 @@ router.post('/', requireAuth, async (req, res) => {
       readerMode: readerMode || 'auto_reader',  // Default to auto_reader mode
     });
 
-    res.status(201).json(document);
+    res.status(201).json(sanitizeForClient(document));
   } catch (error) {
     console.error('Error creating document:', error);
     res.status(500).json({ error: 'Failed to create document' });
@@ -456,7 +458,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    res.json(document);
+    res.json(sanitizeForClient(document));
   } catch (error) {
     console.error('Error updating document:', error);
     res.status(500).json({ error: 'Failed to update document' });

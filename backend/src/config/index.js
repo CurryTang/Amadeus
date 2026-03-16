@@ -43,8 +43,8 @@ module.exports = {
   auth: {
     enabled: process.env.AUTH_ENABLED !== 'false', // Enabled by default
     adminToken: process.env.ADMIN_TOKEN,
-    salt: process.env.AUTH_SALT || 'auto-reader-secure-salt-2024',
-    jwtSecret: process.env.JWT_SECRET || 'auto-reader-jwt-fallback-secret-change-in-production',
+    salt: process.env.AUTH_SALT,
+    jwtSecret: process.env.JWT_SECRET,
   },
 
   turso: {
@@ -83,7 +83,7 @@ module.exports = {
   },
 
   cors: {
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.CORS_ORIGIN || 'https://auto-reader.duckdns.org',
   },
 
   // Rate Limiting Configuration
