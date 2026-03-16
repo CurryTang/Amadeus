@@ -29,7 +29,7 @@ function parseProxyJump(proxyJump = '') {
 function buildProxyCommand(proxyJump = '', proxyKeyPath = '', connectTimeout = 15) {
   const parsed = parseProxyJump(proxyJump);
   if (!parsed) return null;
-  const keyPath = expandHome(proxyKeyPath || '~/.ssh/id_rsa');
+  const keyPath = expandHome(proxyKeyPath || keypairService.MANAGED_KEY_PATH);
   const parts = [
     'ssh', '-F', '/dev/null',
     '-o', 'BatchMode=yes',
@@ -53,7 +53,7 @@ function resolveTargetKeyPaths(server = {}) {
     candidates.push(managedKeyPath);
   }
   if (candidates.length === 0) {
-    candidates.push(expandHome('~/.ssh/id_rsa'));
+    candidates.push(expandHome(keypairService.MANAGED_KEY_PATH));
   }
   return candidates;
 }
@@ -87,7 +87,7 @@ function buildSshArgs(server, {
     if (shouldUseProxyJump(server, keyPath)) {
       args.push('-J', proxyJump);
     } else {
-      const proxyKeyPath = cleanString(server?.ssh_key_path) || '~/.ssh/id_rsa';
+      const proxyKeyPath = cleanString(server?.ssh_key_path) || keypairService.MANAGED_KEY_PATH;
       const proxyCommand = buildProxyCommand(proxyJump, proxyKeyPath, connectTimeout);
       if (proxyCommand) args.push('-o', `ProxyCommand=${proxyCommand}`);
       else args.push('-J', proxyJump);
@@ -118,7 +118,7 @@ function buildScpArgs(server, {
     if (shouldUseProxyJump(server, keyPath)) {
       args.push('-J', proxyJump);
     } else {
-      const proxyKeyPath = cleanString(server?.ssh_key_path) || '~/.ssh/id_rsa';
+      const proxyKeyPath = cleanString(server?.ssh_key_path) || keypairService.MANAGED_KEY_PATH;
       const proxyCommand = buildProxyCommand(proxyJump, proxyKeyPath, connectTimeout);
       if (proxyCommand) args.push('-o', `ProxyCommand=${proxyCommand}`);
       else args.push('-J', proxyJump);

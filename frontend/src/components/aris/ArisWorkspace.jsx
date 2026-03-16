@@ -909,17 +909,23 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         <section className="aris-launch-panel">
           <div className="aris-panel-header">
             <h3>Launch</h3>
-            <span className="aris-status-pill">{selectedTarget ? 'Target Ready' : 'Project Setup Needed'}</span>
-            {(selectedProject?.localFullPath || (selectedProject?.localProjectPath && selectedProject.localProjectPath.startsWith('/'))) && (
-              <button
-                className="aris-vscode-btn"
-                onClick={() => window.open(`vscode://file${selectedProject.localFullPath || selectedProject.localProjectPath}?windowId=_blank`, '_blank')}
-                type="button"
-                title={`Open ${selectedProject.localFullPath || selectedProject.localProjectPath} in VS Code`}
-              >
-                Open in VS Code
-              </button>
-            )}
+            <div className="aris-panel-header-actions">
+              <span className="aris-status-pill">{selectedTarget ? 'Target Ready' : 'Project Setup Needed'}</span>
+              {selectedProject && (selectedProject.clientWorkspaceId || selectedProject.localProjectPath) && (() => {
+                const vscodePath = selectedProject.localFullPath || (selectedProject.localProjectPath?.startsWith('/') ? selectedProject.localProjectPath : '');
+                return (
+                  <button
+                    className={`aris-vscode-btn${vscodePath ? '' : ' is-disabled'}`}
+                    onClick={() => vscodePath && window.open(`vscode://file${vscodePath}`, '_blank')}
+                    type="button"
+                    title={vscodePath ? `Open ${vscodePath} in VS Code` : 'Set the full local path in project settings first'}
+                    disabled={!vscodePath}
+                  >
+                    Open in VS Code
+                  </button>
+                );
+              })()}
+            </div>
           </div>
 
           <div className="aris-launch-fields">
@@ -1346,15 +1352,18 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       >
                         <div className="aris-manager-card-top">
                           <strong>{row.title}</strong>
-                          {row.localFullPath && (
+                          {row.hasWorkspace && (
                             <button
-                              className="aris-vscode-btn"
+                              className={`aris-vscode-btn${row.localFullPath ? '' : ' is-disabled'}`}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                window.open(`vscode://file${row.localFullPath}?windowId=_blank`, '_blank');
+                                if (row.localFullPath) {
+                                  window.open(`vscode://file${row.localFullPath}`, '_blank');
+                                }
                               }}
                               type="button"
-                              title={`Open ${row.localFullPath} in VS Code`}
+                              title={row.localFullPath ? `Open ${row.localFullPath} in VS Code` : 'Set the full local path in project settings first'}
+                              disabled={!row.localFullPath}
                             >
                               Open in VS Code
                             </button>

@@ -12,6 +12,7 @@ const DEFAULT_REPO_REF = process.env.ARIS_SKILLS_REF || 'main';
 const DEFAULT_CACHE_DIR = process.env.ARIS_SKILLS_CACHE_DIR
   || path.join(os.homedir(), '.cache', 'auto-researcher', 'aris-skills');
 const DEFAULT_ROOT_DIR = path.resolve(__dirname, '..', '..', '..');
+const DEFAULT_SUBMODULE_DIR = path.join(DEFAULT_ROOT_DIR, 'aris');
 const DEFAULT_OVERLAY_DIR = path.join(DEFAULT_ROOT_DIR, 'resource', 'integrations', 'aris', 'overlay');
 const DEFAULT_ADAPTER_DIR = path.join(DEFAULT_ROOT_DIR, 'resource', 'integrations', 'aris');
 
@@ -136,6 +137,11 @@ function createArisProjectFilesService(overrides = {}) {
   async function resolveSourceDir() {
     if (sourceDirOverride) {
       return sourceDirOverride;
+    }
+    // Prefer the local submodule (aris/) if it exists — avoids network clone
+    const submoduleSkills = path.join(DEFAULT_SUBMODULE_DIR, 'skills');
+    if (await pathExists(submoduleSkills)) {
+      return DEFAULT_SUBMODULE_DIR;
     }
     return updateCachedSource(cacheDir, repoUrl, repoRef);
   }

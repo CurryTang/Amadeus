@@ -7,6 +7,7 @@ const converterService = require('../services/converter.service');
 const arxivService = require('../services/arxiv.service');
 const queueService = require('../services/queue.service');
 const { requireAuth } = require('../middleware/auth');
+const { sanitizeForClient } = require('../services/document.service');
 
 /**
  * Auto-queue a document for AI notes generation if requested.
@@ -167,7 +168,7 @@ router.post('/direct', requireAuth, upload.single('file'), async (req, res) => {
 
     await maybeAutoQueue(document, { autoGenerate, readerMode, analysisProvider });
 
-    res.status(201).json(document);
+    res.status(201).json(sanitizeForClient(document));
   } catch (error) {
     console.error('Error uploading file:', error);
     res.status(500).json({ error: 'Failed to upload file' });
@@ -257,7 +258,7 @@ router.post('/webpage', requireAuth, async (req, res) => {
 
     await maybeAutoQueue(document, { autoGenerate, readerMode, analysisProvider });
 
-    res.status(201).json(document);
+    res.status(201).json(sanitizeForClient(document));
   } catch (error) {
     console.error('Error converting webpage:', error);
     res.status(500).json({ error: 'Failed to convert webpage to PDF' });
@@ -465,7 +466,7 @@ router.post('/openreview', requireAuth, async (req, res) => {
       analysisProvider: analysisProvider || 'gemini-cli',
     });
 
-    res.status(201).json(document);
+    res.status(201).json(sanitizeForClient(document));
   } catch (error) {
     console.error('Error fetching OpenReview paper:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch OpenReview paper' });

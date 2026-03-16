@@ -1,0 +1,3 @@
+[submodule "aris"]
+	path = aris
+	url = https://github.com/CurryTang/Auto-claude-code-research-in-sleep.git

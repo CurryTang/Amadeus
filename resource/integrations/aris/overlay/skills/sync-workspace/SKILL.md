@@ -59,10 +59,9 @@ If paths are not set, report the error and stop.
 
 ### Step 4: Execute sync
 
-For each category, use rsync over SSH:
+#### Push (local → remote): use rsync
 
 ```bash
-# Push (local → remote)
 rsync -avz --progress \
   --exclude='.pixi/' \
   --exclude='__pycache__/' \
@@ -71,15 +70,40 @@ rsync -avz --progress \
   --exclude='outputs/' \
   --exclude='checkpoints/' \
   <local_path>/ <user>@<host>:<remote_path>/
-
-# Pull (remote → local)
-rsync -avz --progress \
-  --exclude='.pixi/' \
-  --exclude='__pycache__/' \
-  --exclude='*.pyc' \
-  --exclude='.git/' \
-  <user>@<host>:<remote_path>/ <local_path>/
 ```
+
+#### Pull (remote → local): use git push + pull
+
+Instead of rsync, use Git to transfer files from remote to local. This lets
+`.gitignore` filter out large/unnecessary files (datasets, checkpoints, caches,
+virtual environments, etc.) automatically.
+
+1. **On the remote server** (via SSH), commit and push any uncommitted work:
+   ```bash
+   ssh <user>@<host> "cd <remote_path> && \
+     git add -A && \
+     git diff --cached --quiet || git commit -m 'sync: remote changes' && \
+     git push origin HEAD"
+   ```
+   - If there's no git remote configured, fall back to rsync for that category.
+   - Use the current branch (whatever branch is checked out on remote).
+
+2. **On local**, pull from the same branch:
+   ```bash
+   cd <local_path>
+   git fetch origin
+   git pull origin <branch> --no-rebase
+   ```
+   - If there are merge conflicts, report them and stop (don't auto-resolve).
+
+3. **For files that are git-ignored but still needed** (like specific outputs the
+   user explicitly requested), fall back to rsync for just those paths.
+
+#### Both direction: push first, then pull
+
+When syncing both directions:
+1. First push local→remote via rsync (code, resources, config)
+2. Then pull remote→local via git push+pull (outputs, papers)
 
 Respect the project's `syncExcludes` patterns from the ARIS project settings.
 
@@ -90,13 +114,18 @@ For each category, report:
 - Total bytes transferred
 - Any errors or skipped files
 - Conflicts detected (files modified on both sides)
+- Which method was used (rsync vs git)
 
 ## Key Rules
 
-- Never sync `.git/` directories — they diverge between local and remote.
+- Never sync `.git/` directories via rsync — they diverge between local and remote.
 - Always respect project `syncExcludes` from ARIS settings.
 - For `--dry-run`, show what would be transferred without actually transferring.
+  For git pull, use `git fetch` + `git diff --stat` to preview.
 - Large binary files (>100MB) should be flagged with a warning before transfer.
 - Outputs are pull-only by default to avoid overwriting experiment results.
 - If pixi.lock exists remotely but not locally (or vice versa), sync it in the
   direction where it exists to keep environments reproducible.
+- Prefer git for pull direction — `.gitignore` prevents transferring unnecessary
+  files like datasets, checkpoints, `__pycache__/`, `.pixi/`, `.venv/`, etc.
+- If git is not initialized on the remote, fall back to rsync with excludes.

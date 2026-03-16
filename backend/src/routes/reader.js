@@ -4,6 +4,7 @@ const queueService = require('../services/queue.service');
 const schedulerService = require('../services/scheduler.service');
 const readerService = require('../services/reader.service');
 const { requireAuth } = require('../middleware/auth');
+const { sanitizeForClient } = require('../services/document.service');
 
 function asTrimmedText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -351,8 +352,8 @@ router.post('/process/:documentId', requireAuth, async (req, res) => {
       res.json({
         success: true,
         documentId: parseInt(documentId),
-        notesS3Key: result.notesS3Key,
-        codeNotesS3Key: result.codeNotesS3Key,
+        hasNotes: Boolean(result.notesS3Key),
+        hasCodeNotes: Boolean(result.codeNotesS3Key),
         pageCount: result.pageCount,
         readerMode: effectiveReaderMode,
       });

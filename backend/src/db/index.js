@@ -371,7 +371,7 @@ How does this work relate to other important papers in the field? What prior wor
       host TEXT NOT NULL,
       user TEXT NOT NULL,
       port INTEGER DEFAULT 22,
-      ssh_key_path TEXT DEFAULT '~/.ssh/id_rsa',
+      ssh_key_path TEXT DEFAULT '~/.auto-researcher/id_ed25519',
       proxy_jump TEXT DEFAULT '',
       shared_fs_enabled INTEGER DEFAULT 0,
       shared_fs_group TEXT DEFAULT '',

@@ -10256,6 +10256,12 @@ button.vibe-skill-chip.is-active {
   color: #15362d;
 }
 
+.aris-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .aris-status-pill {
   padding: 6px 10px;
   border-radius: 999px;
@@ -10862,21 +10868,22 @@ button.vibe-skill-chip.is-active {
 .aris-manager-card {
   width: 100%;
   text-align: left;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-radius: 14px;
   border: 1px solid rgba(27, 59, 50, 0.08);
   background: linear-gradient(180deg, #ffffff 0%, #f6fbf8 100%);
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .aris-manager-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  margin-bottom: 2px;
 }
 
 .aris-vscode-btn {
@@ -10895,6 +10902,12 @@ button.vibe-skill-chip.is-active {
 
 .aris-vscode-btn:hover {
   background: rgba(0, 120, 212, 0.16);
+}
+
+.aris-vscode-btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: rgba(0, 120, 212, 0.12);
 }
 
 .aris-manager-card.is-selected {

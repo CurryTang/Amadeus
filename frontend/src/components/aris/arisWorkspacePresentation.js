@@ -153,13 +153,16 @@ export function buildArisProjectRow(project = {}) {
   const targetCount = Number(project.targetCount || 0) || 0;
   const noRemote = project.noRemote === true || targetCount === 0;
 
+  const localFullPath = normalizeString(project.localFullPath) || (project.localProjectPath?.startsWith('/') ? project.localProjectPath : '');
+
   return {
     id: normalizeString(project.id, 'pending-project'),
     title: normalizeString(project.name, 'Untitled Project'),
     localPathLabel: project.localProjectPath
       ? `Local workspace: ${project.localProjectPath}`
       : 'Local workspace not linked',
-    localFullPath: normalizeString(project.localFullPath) || (project.localProjectPath?.startsWith('/') ? project.localProjectPath : ''),
+    localFullPath,
+    hasWorkspace: Boolean(project.clientWorkspaceId || project.localProjectPath),
     targetCountLabel: `${pluralize(targetCount, 'saved target')}`,
     remoteModeLabel: noRemote ? 'No remote servers' : 'Remote servers configured',
     excludeSummary: syncExcludes.length > 0
