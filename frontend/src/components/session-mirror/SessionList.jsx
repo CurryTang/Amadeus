@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react';
 import { Button } from '@radix-ui/themes';
 
 const AGENT_LABELS = { claude: 'Claude Code', codex: 'Codex', unknown: 'tmux' };
+const SESSION_FILES_PAGE_SIZE = 5;
 
 const STATUS_STYLES = {
   running: { color: '#1e1e2e', background: '#94e2d5', label: 'running' },
@@ -169,6 +171,14 @@ export function UnifiedSessionList({
   onRefresh,
   showServer,
 }) {
+  const [visibleFileCount, setVisibleFileCount] = useState(SESSION_FILES_PAGE_SIZE);
+
+  // Reset file pagination when live sessions change (server switch / refresh)
+  const liveSessionCount = (liveSessions || []).length;
+  useEffect(() => {
+    setVisibleFileCount(SESSION_FILES_PAGE_SIZE);
+  }, [liveSessionCount]);
+
   // Merge & deduplicate: live sessions take priority (they have real-time status)
   const liveById = new Map();
   for (const s of (liveSessions || [])) {
@@ -176,14 +186,14 @@ export function UnifiedSessionList({
     if (s.tmux_session_name) liveById.set(s.tmux_session_name, s);
   }
 
-  const merged = [];
+  const allMerged = [];
   const seen = new Set();
 
   // Add all live sessions first
   for (const s of (liveSessions || [])) {
     if (!seen.has(s.id)) {
       seen.add(s.id);
-      merged.push(s);
+      allMerged.push(s);
     }
   }
 
@@ -192,13 +202,13 @@ export function UnifiedSessionList({
     if (!seen.has(s.id) && !liveById.has(s.tmux_session_name)) {
       seen.add(s.id);
       // Enrich DB sessions with server info and source tag
-      merged.push({ ...s, source: s.source || 'tracked' });
+      allMerged.push({ ...s, source: s.source || 'tracked' });
     }
   }
 
   // Sort: running first, then stopped, then files. Within each group, newest first.
   const statusOrder = { running: 0, stopped: 1, file: 2 };
-  merged.sort((a, b) => {
+  allMerged.sort((a, b) => {
     const sa = statusOrder[a.status] ?? 1;
     const sb = statusOrder[b.status] ?? 1;
     if (sa !== sb) return sa - sb;
@@ -206,6 +216,14 @@ export function UnifiedSessionList({
     const tb = b.started_at || b.updated_at || '';
     return tb.localeCompare(ta);
   });
+
+  // Separate non-file sessions (always shown) from session files (paginated)
+  const nonFileSessions = allMerged.filter((s) => s.source !== 'session_file');
+  const allFileSessions = allMerged.filter((s) => s.source === 'session_file');
+  const visibleFiles = allFileSessions.slice(0, visibleFileCount);
+  const hasMoreFiles = visibleFileCount < allFileSessions.length;
+
+  const merged = [...nonFileSessions, ...visibleFiles];
 
   if (loading && merged.length === 0) {
     return <div data-testid="sessions-loading" style={{ padding: '16px', color: '#6c7086', fontSize: '13px' }}>Loading sessions...</div>;
@@ -251,11 +269,24 @@ export function UnifiedSessionList({
           Loading more...
         </div>
       )}
-      {hasMore && !loading && (
+      {(hasMoreFiles || (hasMore && !loading)) && (
         <div style={{ padding: '12px', textAlign: 'center' }}>
-          <Button size="1" variant="ghost" data-testid="load-more-btn" onClick={onLoadMore}>
-            Load more
-          </Button>
+          {hasMoreFiles && (
+            <Button
+              size="1"
+              variant="ghost"
+              data-testid="load-more-files-btn"
+              onClick={() => setVisibleFileCount((c) => c + SESSION_FILES_PAGE_SIZE)}
+              style={{ marginRight: hasMore && !loading ? '8px' : 0 }}
+            >
+              Load more sessions ({allFileSessions.length - visibleFileCount} remaining)
+            </Button>
+          )}
+          {hasMore && !loading && (
+            <Button size="1" variant="ghost" data-testid="load-more-btn" onClick={onLoadMore}>
+              Load more
+            </Button>
+          )}
         </div>
       )}
     </div>

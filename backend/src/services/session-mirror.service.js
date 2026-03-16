@@ -82,25 +82,28 @@ echo "===TMUX_PANES==="
 tmux list-panes -a -F '#{session_name}|#{pane_current_path}|#{pane_current_command}' 2>/dev/null || true
 
 # 2. Claude Code sessions (compact: last modified, first human message, cwd)
+#    Find all session.jsonl files, sort by mtime descending, take latest 50
 echo "===CLAUDE==="
 CLAUDE_DIR="$HOME/.claude/projects"
 if [ -d "$CLAUDE_DIR" ]; then
-  for f in "$CLAUDE_DIR"/*/session.jsonl; do
-    [ -f "$f" ] || continue
-    DIR=$(dirname "$f")
+  find "$CLAUDE_DIR" -name 'session.jsonl' -type f 2>/dev/null | while read f; do
     MTIME=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+    echo "$MTIME|$f"
+  done | sort -t'|' -k1 -rn | head -50 | while IFS='|' read MTIME f; do
     FIRST_HUMAN=$(head -50 "$f" 2>/dev/null | grep -m1 '"type":"human"' | head -c 500 || true)
     LAST_LINE=$(tail -1 "$f" 2>/dev/null | head -c 500 || true)
     echo "FILE:$f|MTIME:$MTIME|HUMAN:$FIRST_HUMAN|LAST:$LAST_LINE"
   done
 fi
 
-# 3. Codex sessions
+# 3. Codex sessions (search recursively for .jsonl files in subdirs like 2026/03/15/)
 echo "===CODEX==="
 CODEX_DIR="$HOME/.codex/sessions"
 if [ -d "$CODEX_DIR" ]; then
   find "$CODEX_DIR" -name '*.jsonl' -type f 2>/dev/null | while read f; do
     MTIME=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+    echo "$MTIME|$f"
+  done | sort -t'|' -k1 -rn | head -50 | while IFS='|' read MTIME f; do
     FIRST_HUMAN=$(head -50 "$f" 2>/dev/null | grep -m1 '"type":"human"' | head -c 500 || true)
     LAST_LINE=$(tail -1 "$f" 2>/dev/null | head -c 500 || true)
     echo "FILE:$f|MTIME:$MTIME|HUMAN:$FIRST_HUMAN|LAST:$LAST_LINE"
