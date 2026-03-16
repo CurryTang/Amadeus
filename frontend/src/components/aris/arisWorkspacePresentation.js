@@ -147,7 +147,7 @@ export function buildArisProjectRow(project = {}) {
     localPathLabel: project.localProjectPath
       ? `Local workspace: ${project.localProjectPath}`
       : 'Local workspace not linked',
-    localFullPath: normalizeString(project.localFullPath),
+    localFullPath: normalizeString(project.localFullPath) || (project.localProjectPath?.startsWith('/') ? project.localProjectPath : ''),
     targetCountLabel: `${pluralize(targetCount, 'saved target')}`,
     remoteModeLabel: noRemote ? 'No remote servers' : 'Remote servers configured',
     excludeSummary: syncExcludes.length > 0

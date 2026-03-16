@@ -1,24 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Button, Select } from '@radix-ui/themes';
-import { ActiveSessionList, PastSessionList } from './SessionList';
+import { UnifiedSessionList } from './SessionList';
 import WebTerminal from './WebTerminal';
 import AudioRecorder from './AudioRecorder';
 
 export default function SessionMirror({ apiUrl, getAuthHeaders }) {
   const [servers, setServers] = useState([]);
   const [selectedServerId, setSelectedServerId] = useState(null);
-  const [sessions, setSessions] = useState([]);
+  const [liveSessions, setLiveSessions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState('list'); // 'list' | 'terminal'
   const [activeSession, setActiveSession] = useState(null);
 
-  // Past sessions (paginated, all servers or filtered)
-  const [pastSessions, setPastSessions] = useState([]);
-  const [pastLoading, setPastLoading] = useState(false);
-  const [pastHasMore, setPastHasMore] = useState(false);
-  const [pastCursor, setPastCursor] = useState(null);
-  const [pastServerFilter, setPastServerFilter] = useState('all');
+  // DB sessions (paginated, all servers or filtered by selected server)
+  const [dbSessions, setDbSessions] = useState([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  const [dbHasMore, setDbHasMore] = useState(false);
+  const [dbCursor, setDbCursor] = useState(null);
 
   // New session form
   const [showNewForm, setShowNewForm] = useState(false);
@@ -46,8 +45,8 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
     })();
   }, [apiUrl, getAuthHeaders]);
 
-  // Fetch active sessions for the selected server
-  const fetchSessions = useCallback(async () => {
+  // Fetch live sessions for the selected server
+  const fetchLiveSessions = useCallback(async () => {
     if (!selectedServerId) return;
     setLoading(true);
     try {
@@ -55,82 +54,74 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
         `${apiUrl}/session-mirror/servers/${selectedServerId}/sessions`,
         { headers: getAuthHeaders() },
       );
-      setSessions(response.data?.sessions || []);
+      setLiveSessions(response.data?.sessions || []);
     } catch (err) {
       console.error('Failed to load sessions:', err);
-      setSessions([]);
+      setLiveSessions([]);
     } finally {
       setLoading(false);
     }
   }, [apiUrl, getAuthHeaders, selectedServerId]);
 
   useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
+    fetchLiveSessions();
+  }, [fetchLiveSessions]);
 
-  // Fetch past sessions (paginated)
-  const fetchPastSessions = useCallback(async (reset = false) => {
-    setPastLoading(true);
+  // Fetch DB sessions (paginated, filtered to selected server for dedup)
+  const fetchDbSessionsReset = useCallback(async () => {
+    setDbLoading(true);
     try {
       const params = new URLSearchParams({ limit: '20' });
-      if (pastServerFilter !== 'all') params.set('serverId', pastServerFilter);
-      if (!reset && pastCursor) params.set('cursor', pastCursor);
+      if (selectedServerId) params.set('serverId', selectedServerId);
 
       const response = await axios.get(
         `${apiUrl}/session-mirror/sessions?${params}`,
         { headers: getAuthHeaders() },
       );
       const data = response.data;
-      if (reset) {
-        setPastSessions(data.sessions);
-      } else {
-        setPastSessions((prev) => [...prev, ...data.sessions]);
-      }
-      setPastHasMore(data.hasMore);
-      setPastCursor(data.nextCursor);
+      setDbSessions(data.sessions);
+      setDbHasMore(data.hasMore);
+      setDbCursor(data.nextCursor);
     } catch (err) {
-      console.error('Failed to load past sessions:', err);
+      console.error('Failed to load DB sessions:', err);
     } finally {
-      setPastLoading(false);
+      setDbLoading(false);
     }
-  }, [apiUrl, getAuthHeaders, pastCursor, pastServerFilter]);
+  }, [apiUrl, getAuthHeaders, selectedServerId]);
 
-  // Reset and refetch past sessions when filter changes
+  // Reset DB sessions when server changes
   useEffect(() => {
-    setPastSessions([]);
-    setPastCursor(null);
-    setPastHasMore(false);
-    // Use a small delay to avoid calling with stale cursor
+    setDbSessions([]);
+    setDbCursor(null);
+    setDbHasMore(false);
     const timer = setTimeout(() => {
-      fetchPastSessionsReset();
+      fetchDbSessionsReset();
     }, 50);
     return () => clearTimeout(timer);
-  }, [pastServerFilter]);
+  }, [selectedServerId]);
 
-  const fetchPastSessionsReset = useCallback(async () => {
-    setPastLoading(true);
+  const fetchDbSessionsMore = useCallback(async () => {
+    if (dbLoading || !dbHasMore) return;
+    setDbLoading(true);
     try {
       const params = new URLSearchParams({ limit: '20' });
-      if (pastServerFilter !== 'all') params.set('serverId', pastServerFilter);
+      if (selectedServerId) params.set('serverId', selectedServerId);
+      if (dbCursor) params.set('cursor', dbCursor);
 
       const response = await axios.get(
         `${apiUrl}/session-mirror/sessions?${params}`,
         { headers: getAuthHeaders() },
       );
       const data = response.data;
-      setPastSessions(data.sessions);
-      setPastHasMore(data.hasMore);
-      setPastCursor(data.nextCursor);
+      setDbSessions((prev) => [...prev, ...data.sessions]);
+      setDbHasMore(data.hasMore);
+      setDbCursor(data.nextCursor);
     } catch (err) {
-      console.error('Failed to load past sessions:', err);
+      console.error('Failed to load more sessions:', err);
     } finally {
-      setPastLoading(false);
+      setDbLoading(false);
     }
-  }, [apiUrl, getAuthHeaders, pastServerFilter]);
-
-  const handleLoadMorePast = useCallback(() => {
-    if (!pastLoading && pastHasMore) fetchPastSessions(false);
-  }, [fetchPastSessions, pastLoading, pastHasMore]);
+  }, [apiUrl, getAuthHeaders, dbCursor, dbLoading, dbHasMore, selectedServerId]);
 
   // Create new session
   const handleCreate = async () => {
@@ -145,8 +136,8 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
       setShowNewForm(false);
       setNewPrompt('');
       setNewLabel('');
-      await fetchSessions();
-      fetchPastSessionsReset();
+      await fetchLiveSessions();
+      fetchDbSessionsReset();
     } catch (err) {
       console.error('Failed to create session:', err);
     } finally {
@@ -167,8 +158,8 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
         `${apiUrl}/session-mirror/sessions/${session.id}`,
         { headers: getAuthHeaders() },
       );
-      await fetchSessions();
-      fetchPastSessionsReset();
+      await fetchLiveSessions();
+      fetchDbSessionsReset();
     } catch (err) {
       console.error('Failed to kill session:', err);
     }
@@ -182,11 +173,8 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
         {},
         { headers: getAuthHeaders() },
       );
-      // If the resumed session is on the currently-selected server, refresh active list
-      if (String(session.ssh_server_id) === String(selectedServerId)) {
-        await fetchSessions();
-      }
-      fetchPastSessionsReset();
+      await fetchLiveSessions();
+      fetchDbSessionsReset();
     } catch (err) {
       console.error('Failed to resume session:', err);
     }
@@ -200,8 +188,8 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
         {},
         { headers: getAuthHeaders() },
       );
-      await fetchSessions();
-      fetchPastSessionsReset();
+      await fetchLiveSessions();
+      fetchDbSessionsReset();
     } catch (err) {
       console.error('Failed to refresh session:', err);
     }
@@ -211,8 +199,8 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
   const handleBack = () => {
     setActiveSession(null);
     setView('list');
-    fetchSessions();
-    fetchPastSessionsReset();
+    fetchLiveSessions();
+    fetchDbSessionsReset();
   };
 
   // ─── Terminal view ──────────────────────────────────────────────────────────
@@ -246,13 +234,15 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
 
   // ─── List view ──────────────────────────────────────────────────────────────
 
+  const selectedServerName = servers.find((s) => String(s.id) === selectedServerId)?.name || '';
+
   return (
     <section className="session-mirror" data-testid="session-mirror-list" style={{ padding: '12px 16px' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 600, fontSize: '15px' }}>Sessions</span>
 
-        {/* Server selector for new sessions / active view */}
+        {/* Server selector */}
         <Select.Root value={selectedServerId || ''} onValueChange={setSelectedServerId}>
           <Select.Trigger placeholder="Select server..." data-testid="server-select" style={{ minWidth: '180px' }} />
           <Select.Content>
@@ -266,7 +256,7 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
 
         <div style={{ flex: 1 }} />
 
-        <Button size="1" variant="soft" data-testid="refresh-btn" onClick={fetchSessions} disabled={loading}>
+        <Button size="1" variant="soft" data-testid="refresh-btn" onClick={() => { fetchLiveSessions(); fetchDbSessionsReset(); }} disabled={loading}>
           Refresh
         </Button>
         <Button size="1" variant="solid" data-testid="new-session-btn" onClick={() => setShowNewForm(!showNewForm)}>
@@ -359,49 +349,34 @@ export default function SessionMirror({ apiUrl, getAuthHeaders }) {
         </div>
       )}
 
-      {/* Active Sessions */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ fontSize: '13px', fontWeight: 600, color: '#a6adc8', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          Active Sessions
-        </div>
-        <ActiveSessionList
-          sessions={sessions}
-          loading={loading}
-          onAttach={handleAttach}
-          onKill={handleKill}
-          onRefresh={handleRefresh}
-        />
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '11px', color: '#6c7086', alignItems: 'center' }}>
+        <span style={{ fontWeight: 600, color: '#a6adc8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {selectedServerName || 'All Sessions'}
+        </span>
+        <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#89b4fa', display: 'inline-block' }} />
+          client — created from this UI, tracked in DB
+        </span>
+        <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f9e2af', display: 'inline-block' }} />
+          server — discovered on remote host, may predate this UI
+        </span>
       </div>
 
-      {/* Past Sessions */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: '#a6adc8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Past Sessions
-          </span>
-          <Select.Root value={pastServerFilter} onValueChange={setPastServerFilter}>
-            <Select.Trigger data-testid="past-server-filter" size="1" style={{ minWidth: '140px' }} />
-            <Select.Content>
-              <Select.Item value="all">All servers</Select.Item>
-              {servers.map((s) => (
-                <Select.Item key={s.id} value={String(s.id)}>
-                  {s.name}
-                </Select.Item>
-              ))}
-            </Select.Content>
-          </Select.Root>
-        </div>
-        <PastSessionList
-          sessions={pastSessions}
-          loading={pastLoading}
-          hasMore={pastHasMore}
-          onLoadMore={handleLoadMorePast}
-          onAttach={handleAttach}
-          onResume={handleResume}
-          onKill={handleKill}
-          showServer={pastServerFilter === 'all'}
-        />
-      </div>
+      {/* Unified session list */}
+      <UnifiedSessionList
+        liveSessions={liveSessions}
+        dbSessions={dbSessions}
+        loading={loading || dbLoading}
+        hasMore={dbHasMore}
+        onLoadMore={fetchDbSessionsMore}
+        onAttach={handleAttach}
+        onResume={handleResume}
+        onKill={handleKill}
+        onRefresh={handleRefresh}
+        showServer
+      />
     </section>
   );
 }

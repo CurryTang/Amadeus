@@ -303,6 +303,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [deletingProject, setDeletingProject] = useState(false);
   const [linkingWorkspace, setLinkingWorkspace] = useState(false);
 
+  // Loop config (for auto_review_loop and similar skill-based workflows)
+  const [maxIterations, setMaxIterations] = useState(4);
+  const [reviewerModel, setReviewerModel] = useState('gpt-4o');
+
   const [actionType, setActionType] = useState('continue');
   const [actionPrompt, setActionPrompt] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
@@ -705,14 +709,20 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     setSubmitting(true);
     setError('');
     try {
+      const runPayload = {
+        projectId: selectedProjectId,
+        targetId: selectedTargetId,
+        workflowType: selectedWorkflow,
+        prompt: trimmedPrompt,
+      };
+      // Attach loop config for skill-based workflows
+      if (selectedWorkflow === 'auto_review_loop' || selectedWorkflow === 'full_pipeline') {
+        runPayload.maxIterations = maxIterations;
+        runPayload.reviewerModel = reviewerModel;
+      }
       const response = await axios.post(
         `${apiUrl}/aris/runs`,
-        {
-          projectId: selectedProjectId,
-          targetId: selectedTargetId,
-          workflowType: selectedWorkflow,
-          prompt: trimmedPrompt,
-        },
+        runPayload,
         { headers: getAuthHeaders() }
       );
       const createdRun = response.data?.run;
@@ -835,12 +845,12 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           <div className="aris-panel-header">
             <h3>Launch</h3>
             <span className="aris-status-pill">{selectedTarget ? 'Target Ready' : 'Project Setup Needed'}</span>
-            {selectedProject?.localFullPath && (
+            {(selectedProject?.localFullPath || (selectedProject?.localProjectPath && selectedProject.localProjectPath.startsWith('/'))) && (
               <button
                 className="aris-vscode-btn"
-                onClick={() => window.open(`vscode://file${selectedProject.localFullPath}`, '_blank')}
+                onClick={() => window.open(`vscode://file${selectedProject.localFullPath || selectedProject.localProjectPath}?windowId=_blank`, '_blank')}
                 type="button"
-                title={`Open ${selectedProject.localFullPath} in VS Code`}
+                title={`Open ${selectedProject.localFullPath || selectedProject.localProjectPath} in VS Code`}
               >
                 Open in VS Code
               </button>
@@ -878,6 +888,32 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 ))}
               </select>
             </label>
+
+            {(selectedWorkflow === 'auto_review_loop' || selectedWorkflow === 'full_pipeline') && (
+              <div className="aris-loop-config" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <label className="aris-field" style={{ flex: '0 0 auto' }}>
+                  <span>Max Iterations</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={maxIterations}
+                    onChange={(event) => setMaxIterations(Number(event.target.value) || 4)}
+                    style={{ width: '80px' }}
+                  />
+                </label>
+                <label className="aris-field" style={{ flex: '1 1 180px' }}>
+                  <span>Reviewer Model</span>
+                  <select value={reviewerModel} onChange={(event) => setReviewerModel(event.target.value)}>
+                    <option value="gpt-4o">GPT-4o</option>
+                    <option value="gpt-4.1">GPT-4.1</option>
+                    <option value="o3">o3</option>
+                    <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                    <option value="deepseek-chat">DeepSeek Chat</option>
+                  </select>
+                </label>
+              </div>
+            )}
 
             <div className="aris-field aris-field--prompt">
               <span>Prompt</span>
@@ -1052,6 +1088,12 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   <dt>Run Directory</dt>
                   <dd className="aris-detail-copy">{selectedRunCard.runDirectory || 'No run directory yet'}</dd>
                 </div>
+                {selectedRunDetail?.maxIterations && (
+                  <div>
+                    <dt>Loop Config</dt>
+                    <dd>Max {selectedRunDetail.maxIterations} iterations, reviewer: {selectedRunDetail.reviewerModel || 'gpt-4o'}</dd>
+                  </div>
+                )}
               </dl>
 
               <div className="aris-follow-up">
@@ -1187,7 +1229,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                               className="aris-vscode-btn"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                window.open(`vscode://file${row.localFullPath}`, '_blank');
+                                window.open(`vscode://file${row.localFullPath}?windowId=_blank`, '_blank');
                               }}
                               type="button"
                               title={`Open ${row.localFullPath} in VS Code`}
