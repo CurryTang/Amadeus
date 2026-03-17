@@ -91,9 +91,40 @@ function labelStatus(status, activePhase = '') {
     if (phase === 'dispatch_experiment') return 'Dispatching experiment';
     if (phase === 'wait_results') return 'Waiting for results';
     if (phase === 'review') return 'Reviewing';
-    return 'Running on target';
+    if (phase === 'running_on_wsl') return 'Executing on server';
+    return 'Running';
   }
   return 'Queued';
+}
+
+function statusColor(status) {
+  const s = normalizeString(status, 'queued');
+  if (s === 'completed') return 'completed';
+  if (s === 'failed') return 'failed';
+  if (s === 'running') return 'running';
+  return 'queued';
+}
+
+function isActiveStatus(status) {
+  const s = normalizeString(status, 'queued');
+  return s === 'running' || s === 'queued';
+}
+
+function formatElapsed(startedAt) {
+  if (!startedAt) return '';
+  const start = new Date(startedAt);
+  if (isNaN(start.getTime())) return '';
+  const diff = Date.now() - start.getTime();
+  if (diff < 0) return '';
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return 'Just started';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m elapsed`;
+  const hours = Math.floor(minutes / 60);
+  const remainMinutes = minutes % 60;
+  if (hours < 24) return remainMinutes > 0 ? `${hours}h ${remainMinutes}m elapsed` : `${hours}h elapsed`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h elapsed`;
 }
 
 export function buildArisRunCard(run = {}) {
@@ -101,6 +132,7 @@ export function buildArisRunCard(run = {}) {
   const latestScore = run.latestScore;
   const latestVerdict = normalizeString(run.latestVerdict);
   const destinationName = normalizeString(run.downstreamServerName || run.targetName || run.runnerHost);
+  const status = normalizeString(run.status, 'queued');
 
   return {
     id: normalizeString(run.id, 'pending-run'),
@@ -108,14 +140,14 @@ export function buildArisRunCard(run = {}) {
     workflowType,
     workflowLabel: labelWorkflow(workflowType),
     statusLabel: labelStatus(run.status, run.activePhase),
-    runnerLabel: run.runnerHost ? `Server: ${run.runnerHost}` : 'Target server pending',
-    destinationLabel: destinationName
-      ? `Target: ${destinationName}`
-      : 'No saved target',
+    statusColor: statusColor(run.status),
+    isActive: isActiveStatus(run.status),
+    elapsedLabel: (status === 'running' || status === 'queued') ? formatElapsed(run.startedAt) : '',
+    runnerLabel: run.runnerHost ? `Server: ${run.runnerHost}` : '',
+    destinationLabel: destinationName ? `Target: ${destinationName}` : '',
     scoreLabel: Number.isFinite(latestScore)
       ? `${latestScore.toFixed(1)}/10${latestVerdict ? ` · ${latestVerdict}` : ''}`
-      : 'No review yet',
-    summary: normalizeString(run.summary, ''),
+      : '',
     startedAt: normalizeString(run.startedAt),
   };
 }
@@ -208,6 +240,8 @@ export function buildArisRunActionRow(action = {}) {
     statusLabel: normalizeString(action.status) === 'running' && !normalizeString(action.activePhase)
       ? 'Running'
       : labelStatus(action.status, action.activePhase),
+    statusColor: statusColor(action.status),
+    isActive: isActiveStatus(action.status),
     prompt: normalizeString(action.prompt),
     targetLabel: action.downstreamServerName
       ? `Target: ${action.downstreamServerName}`
@@ -218,12 +252,16 @@ export function buildArisRunActionRow(action = {}) {
 
 export function buildArisRunDetail(run = {}) {
   const destinationName = normalizeString(run.downstreamServerName || run.targetName || run.runnerHost);
+  const status = normalizeString(run.status, 'queued');
   return {
     id: normalizeString(run.id, 'pending-run'),
     title: normalizeString(run.title, 'ARIS Run'),
     workflowType: normalizeString(run.workflowType, 'custom_run'),
     workflowLabel: labelWorkflow(run.workflowType),
     statusLabel: labelStatus(run.status, run.activePhase),
+    statusColor: statusColor(run.status),
+    isActive: isActiveStatus(run.status),
+    elapsedLabel: formatElapsed(run.startedAt),
     prompt: normalizeString(run.prompt),
     runnerLabel: run.runnerHost ? `Server: ${run.runnerHost}` : 'Target server pending',
     destinationLabel: destinationName
@@ -233,6 +271,8 @@ export function buildArisRunDetail(run = {}) {
     datasetLabel: normalizeString(run.datasetRoot, 'Not set'),
     logPath: normalizeString(run.logPath),
     runDirectory: normalizeString(run.runDirectory),
+    startedAt: normalizeString(run.startedAt),
+    finishedLabel: (status === 'completed' || status === 'failed') ? formatElapsed(run.updatedAt) : '',
     actionRows: Array.isArray(run.actions) ? run.actions.map((action) => buildArisRunActionRow(action)) : [],
   };
 }

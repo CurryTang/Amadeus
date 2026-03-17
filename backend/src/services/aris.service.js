@@ -400,7 +400,10 @@ exec "$REMOTE_AGENT_BIN" ${agentArgs.map((arg) => sshTransport.shellEscape(arg))
 EOF_COMMAND
 
 chmod +x "$COMMAND_FILE"
-nohup "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
+
+# Wrapper: run command, then write exit code to status file
+STATUS_FILE="$RUN_DIR/run.status"
+nohup bash -c '"$@"; echo $? > '"$STATUS_FILE" -- "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
 PID=$!
 
 printf '%s|%s|%s\n' "$PID" "$LOG_FILE" "$RUN_DIR"
@@ -990,7 +993,10 @@ exec "$REMOTE_AGENT_BIN" ${DEFAULT_REMOTE_AGENT_ARGS.map((arg) => sshTransport.s
 EOF_COMMAND
 
 chmod +x "$COMMAND_FILE"
-nohup "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
+
+# Wrapper: run command, then write exit code to status file
+STATUS_FILE="$ACTION_DIR/run.status"
+nohup bash -c '"$@"; echo $? > '"$STATUS_FILE" -- "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
 printf '%s\n' "$LOG_FILE"
 `.trim();
 
@@ -1005,6 +1011,87 @@ printf '%s\n' "$LOG_FILE"
 
 async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '' } = {}) {
   return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath });
+}
+
+// ─── Remote process status probing ──────────────────────────────────────────
+// SSH into the runner, check if the PID is still alive, and read the tail of
+// the log to determine if the run completed or failed.
+
+async function probeRemoteRunStatus(runner, launch) {
+  if (!runner?.host || !runner?.user) return null;
+  if (!launch.remotePid && !launch.logPath && !launch.runDirectory) return null;
+
+  // Build a single SSH script that checks:
+  // 1. Status file (written by wrapper on exit — most reliable)
+  // 2. PID alive (fallback for old runs without status file)
+  // 3. Log tail (for summary / error inference)
+  const statusFilePath = launch.runDirectory
+    ? path.posix.join(launch.runDirectory, 'run.status')
+    : '';
+
+  const parts = [];
+
+  // Check status file first (instant, reliable)
+  if (statusFilePath) {
+    parts.push(`if [ -f ${sshTransport.shellEscape(statusFilePath)} ]; then echo "EXIT_CODE=$(cat ${sshTransport.shellEscape(statusFilePath)})"; else echo "NO_STATUS_FILE"; fi`);
+  } else {
+    parts.push('echo "NO_STATUS_FILE"');
+  }
+
+  // Fallback: check PID alive
+  if (launch.remotePid) {
+    parts.push(`if kill -0 ${Number(launch.remotePid)} 2>/dev/null; then echo "PID_ALIVE"; else echo "PID_DEAD"; fi`);
+  } else {
+    parts.push('echo "PID_UNKNOWN"');
+  }
+
+  // Read last 20 lines of log
+  if (launch.logPath) {
+    parts.push(`echo "---LOG_START---"`);
+    parts.push(`tail -20 ${sshTransport.shellEscape(launch.logPath)} 2>/dev/null || echo "NO_LOG"`);
+  }
+
+  try {
+    const result = await sshTransport.script(runner, parts.join('\n'), [], { timeoutMs: 10000 });
+    const output = String(result.stdout || '');
+    const lines = output.split('\n');
+
+    const statusLine = lines[0]?.trim() || '';
+    const pidLine = lines[1]?.trim() || '';
+    const logStartIdx = lines.findIndex((l) => l.trim() === '---LOG_START---');
+    const logTail = logStartIdx >= 0 ? lines.slice(logStartIdx + 1).join('\n').trim() : '';
+
+    // 1. Status file exists → definitive answer
+    const exitCodeMatch = statusLine.match(/^EXIT_CODE=(\d+)$/);
+    if (exitCodeMatch) {
+      const exitCode = Number(exitCodeMatch[1]);
+      return {
+        status: exitCode === 0 ? 'completed' : 'failed',
+        logTail,
+      };
+    }
+
+    // 2. No status file — check PID
+    if (pidLine === 'PID_ALIVE') {
+      return { status: 'running', logTail };
+    }
+
+    // 3. PID dead but no status file (old run) — infer from log
+    if (pidLine === 'PID_DEAD') {
+      const hasError = /error:|fatal:|traceback|panic:|exception:|command failed/i.test(logTail)
+        && !/resolved|fixed|handled/i.test(logTail.slice(-200));
+      return {
+        status: hasError ? 'failed' : 'completed',
+        logTail,
+      };
+    }
+
+    // 4. Can't determine — leave as-is
+    return null;
+  } catch (err) {
+    // SSH failed — can't determine status, don't change anything
+    return null;
+  }
 }
 
 function createArisService(overrides = {}) {
@@ -1422,34 +1509,76 @@ function createArisService(overrides = {}) {
 
     async listRuns() {
       const launches = await deps.listLaunches();
-      return launches.map((launch) => {
-        const normalized = normalizeLaunch(launch);
-        return {
-          id: normalized.id,
-          projectId: normalized.projectId,
-          targetId: normalized.targetId,
-          workflowType: normalized.workflowType,
-          title: normalized.title,
-          prompt: normalized.prompt,
-          status: normalized.status,
-          runnerHost: normalized.runnerHost,
-          activePhase: normalized.activePhase,
-          downstreamServerName: normalized.downstreamServerName,
-          latestScore: normalized.latestScore,
-          latestVerdict: normalized.latestVerdict,
-          summary: normalized.summary,
-          startedAt: normalized.startedAt,
-          updatedAt: normalized.updatedAt,
-          logPath: normalized.logPath,
-          retryOfRunId: normalized.retryOfRunId,
-        };
-      });
+      const allNormalized = launches.map((launch) => normalizeLaunch(launch));
+
+      // Probe active runs in parallel (max 3 concurrent to avoid SSH overload)
+      const activeRuns = allNormalized.filter((n) => n.status === 'running' && (n.remotePid || n.logPath));
+      if (activeRuns.length > 0) {
+        try {
+          const servers = await deps.listServers();
+          const probePromises = activeRuns.slice(0, 3).map(async (normalized) => {
+            try {
+              const runner = servers.find((s) => String(s.id) === String(normalized.runnerServerId))
+                || pickRunnerServer(servers);
+              const probe = await probeRemoteRunStatus(runner, normalized);
+              if (probe && probe.status !== 'running') {
+                normalized.status = probe.status;
+                normalized.activePhase = probe.status;
+                normalized.updatedAt = new Date().toISOString();
+                await deps.saveLaunch(normalized);
+              }
+            } catch (_) { /* non-fatal */ }
+          });
+          await Promise.all(probePromises);
+        } catch (_) { /* non-fatal */ }
+      }
+
+      return allNormalized.map((normalized) => ({
+        id: normalized.id,
+        projectId: normalized.projectId,
+        targetId: normalized.targetId,
+        workflowType: normalized.workflowType,
+        title: normalized.title,
+        prompt: normalized.prompt,
+        status: normalized.status,
+        runnerHost: normalized.runnerHost,
+        activePhase: normalized.activePhase,
+        downstreamServerName: normalized.downstreamServerName,
+        latestScore: normalized.latestScore,
+        latestVerdict: normalized.latestVerdict,
+        summary: normalized.summary,
+        startedAt: normalized.startedAt,
+        updatedAt: normalized.updatedAt,
+        logPath: normalized.logPath,
+        retryOfRunId: normalized.retryOfRunId,
+      }));
     },
 
     async getRun(runId) {
       const launch = await deps.getLaunchById(runId);
       if (!launch) return null;
       const normalized = normalizeLaunch(launch);
+
+      // Auto-probe: if run is still marked running, check if remote process finished
+      if (normalized.status === 'running' && (normalized.remotePid || normalized.logPath)) {
+        try {
+          const servers = await deps.listServers();
+          const runner = servers.find((s) => String(s.id) === String(normalized.runnerServerId))
+            || pickRunnerServer(servers);
+          const probe = await probeRemoteRunStatus(runner, normalized);
+          if (probe && probe.status !== 'running') {
+            normalized.status = probe.status;
+            normalized.activePhase = probe.status;
+            normalized.updatedAt = new Date().toISOString();
+            // Persist the status change so future list queries also show it
+            await deps.saveLaunch(normalized);
+          }
+        } catch (probeErr) {
+          // Non-fatal: just return current status
+          console.warn('[ARIS] probe error for run', runId, probeErr.message);
+        }
+      }
+
       const actions = await deps.listRunActions(runId);
       return {
         ...normalized,

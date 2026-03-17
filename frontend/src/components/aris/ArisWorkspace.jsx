@@ -321,6 +321,15 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState('');
 
+  // Import Papers modal state
+  const [showImportPapers, setShowImportPapers] = useState(false);
+  const [importTag, setImportTag] = useState('');
+  const [importSourceType, setImportSourceType] = useState('pdf');
+  const [importIncludeCode, setImportIncludeCode] = useState(true);
+  const [importingPapers, setImportingPapers] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [availableTags, setAvailableTags] = useState([]);
+
   const quickActions = contextData?.quickActions?.length ? contextData.quickActions : ARIS_QUICK_ACTIONS;
 
   const refreshContext = async () => {
@@ -443,6 +452,37 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     setPreviewError('');
   };
 
+  const handleOpenImportPapers = async () => {
+    setShowImportPapers(true);
+    setImportResult(null);
+    setImportTag('');
+    try {
+      const response = await axios.get(`${apiUrl}/tags`, { headers: getAuthHeaders() });
+      setAvailableTags(response.data?.tags || []);
+    } catch {
+      setAvailableTags([]);
+    }
+  };
+
+  const handleImportPapers = async () => {
+    if (!importTag || !selectedProjectId) return;
+    setImportingPapers(true);
+    setImportResult(null);
+    setError('');
+    try {
+      const response = await axios.post(
+        `${apiUrl}/aris/projects/${selectedProjectId}/import-papers`,
+        { tag: importTag, sourceType: importSourceType, includeCode: importIncludeCode },
+        { headers: getAuthHeaders(), timeout: 600000 }
+      );
+      setImportResult(response.data);
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || 'Failed to import papers');
+    } finally {
+      setImportingPapers(false);
+    }
+  };
+
   const fetchRuns = async () => {
     const response = await axios.get(`${apiUrl}/aris/runs`, {
       headers: getAuthHeaders(),
@@ -491,6 +531,16 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       active = false;
     };
   }, [apiUrl, getAuthHeaders]);
+
+  // Auto-poll runs list when any run is active (running/queued)
+  const hasActiveRuns = useMemo(() => runs.some((r) => r.status === 'running' || r.status === 'queued'), [runs]);
+  useEffect(() => {
+    if (!hasActiveRuns) return undefined;
+    const interval = setInterval(() => {
+      fetchRuns().catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [hasActiveRuns, apiUrl, getAuthHeaders]);
 
   const selectedProject = useMemo(
     () => (contextData?.projects || []).find((project) => project.id === selectedProjectId) || null,
@@ -548,7 +598,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     loadDetail();
     const interval = setInterval(() => {
       loadDetail().catch(() => {});
-    }, 20000);
+    }, 8000);
 
     return () => {
       active = false;
@@ -910,6 +960,15 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           <div className="aris-panel-header">
             <h3>Launch</h3>
             <div className="aris-panel-header-actions">
+              <button
+                className="aris-import-papers-btn"
+                onClick={handleOpenImportPapers}
+                type="button"
+                disabled={!selectedProjectId}
+                title="Import papers from library by tag into project resource/ folder"
+              >
+                Import Papers
+              </button>
               <span className="aris-status-pill">{selectedTarget ? 'Target Ready' : 'Project Setup Needed'}</span>
               {selectedProject && (selectedProject.clientWorkspaceId || selectedProject.localProjectPath) && (() => {
                 const vscodePath = selectedProject.localFullPath || (selectedProject.localProjectPath?.startsWith('/') ? selectedProject.localProjectPath : '');
@@ -1086,18 +1145,22 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   type="button"
                 >
                   <div className="aris-run-card-header">
-                    <div>
+                    <div className="aris-run-card-title-row">
+                      <span className={`aris-status-dot aris-status-dot--${run.statusColor}`} />
                       <h4>{run.workflowLabel || run.title}</h4>
-                      <p>{run.statusLabel}</p>
                     </div>
-                    <span className="aris-run-score">{run.scoreLabel}</span>
+                    <div className="aris-run-card-status">
+                      <span className={`aris-status-badge aris-status-badge--${run.statusColor}`}>
+                        {run.statusLabel}
+                      </span>
+                      {run.scoreLabel && <span className="aris-run-score">{run.scoreLabel}</span>}
+                    </div>
                   </div>
                   <div className="aris-run-meta">
-                    <span>{run.runnerLabel}</span>
-                    <span>{run.destinationLabel}</span>
+                    {run.destinationLabel && <span>{run.destinationLabel}</span>}
                     {run.startedAt && <span>{new Date(run.startedAt).toLocaleString()}</span>}
+                    {run.elapsedLabel && <span className="aris-elapsed">{run.elapsedLabel}</span>}
                   </div>
-                  {run.summary && <p className="aris-run-summary">{run.summary}</p>}
                 </button>
               ))}
             </div>
@@ -1122,8 +1185,23 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
             <div className="aris-run-detail">
               <div className="aris-run-detail-top">
                 <div>
-                  <h4>{selectedRunCard.workflowLabel}</h4>
-                  <p>{selectedRunCard.statusLabel}</p>
+                  <div className="aris-run-card-title-row">
+                    <span className={`aris-status-dot aris-status-dot--${selectedRunCard.statusColor}`} />
+                    <h4>{selectedRunCard.workflowLabel}</h4>
+                  </div>
+                  <div className="aris-detail-status-row">
+                    <span className={`aris-status-badge aris-status-badge--${selectedRunCard.statusColor}`}>
+                      {selectedRunCard.statusLabel}
+                    </span>
+                    {selectedRunCard.isActive && selectedRunCard.elapsedLabel && (
+                      <span className="aris-elapsed">{selectedRunCard.elapsedLabel}</span>
+                    )}
+                    {!selectedRunCard.isActive && selectedRunCard.startedAt && (
+                      <span className="aris-elapsed">
+                        {new Date(selectedRunCard.startedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <button className="aris-secondary-btn" onClick={handleRetryRun} disabled={retryingRun}>
                   {retryingRun ? 'Retrying…' : 'Retry Run'}
@@ -1142,10 +1220,6 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 <div>
                   <dt>Workspace</dt>
                   <dd>{selectedRunCard.workspaceLabel}</dd>
-                </div>
-                <div>
-                  <dt>Dataset</dt>
-                  <dd>{selectedRunCard.datasetLabel}</dd>
                 </div>
                 <div>
                   <dt>Prompt</dt>
@@ -1240,7 +1314,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       <article key={action.id} className="aris-action-row">
                         <div className="aris-action-row-top">
                           <strong>{action.actionLabel}</strong>
-                          <span>{action.statusLabel}</span>
+                          <span className={`aris-status-badge aris-status-badge--${action.statusColor}`}>
+                            {action.isActive && <span className={`aris-status-dot aris-status-dot--${action.statusColor}`} />}
+                            {action.statusLabel}
+                          </span>
                         </div>
                         <p>{action.prompt}</p>
                         <div className="aris-run-meta">
@@ -1563,6 +1640,79 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   </div>
                 </div>
               </section>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Papers Modal */}
+      {showImportPapers && (
+        <div className="aris-modal-backdrop" onClick={() => setShowImportPapers(false)}>
+          <div className="aris-import-papers-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="aris-panel-header">
+              <h3>Import Papers to Resource Folder</h3>
+              <button className="aris-refresh-btn" onClick={() => setShowImportPapers(false)}>Close</button>
+            </div>
+
+            <p className="aris-import-description">
+              Select a tag to import all matching papers from the library. Each paper gets its own subfolder
+              inside <code>resource/</code> with PDF, LaTeX source (if arXiv), and source code (if available).
+            </p>
+
+            <label className="aris-field">
+              <span>Tag</span>
+              <select value={importTag} onChange={(event) => setImportTag(event.target.value)}>
+                <option value="">Select a tag</option>
+                {availableTags.map((tag) => (
+                  <option key={tag.id} value={tag.name}>{tag.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="aris-field">
+              <span>Source Type</span>
+              <select value={importSourceType} onChange={(event) => setImportSourceType(event.target.value)}>
+                <option value="pdf">PDF only</option>
+                <option value="latex">PDF + LaTeX source (arXiv papers)</option>
+              </select>
+            </label>
+
+            <label className="aris-manager-toggle" htmlFor="aris-import-code-toggle">
+              <input
+                id="aris-import-code-toggle"
+                type="checkbox"
+                checked={importIncludeCode}
+                onChange={(event) => setImportIncludeCode(event.target.checked)}
+              />
+              <span>Include source code repositories</span>
+            </label>
+
+            <div className="aris-import-target-info">
+              Target: <code>{selectedProject?.localFullPath || selectedProject?.localProjectPath || '(no local path)'}/resource/</code>
+            </div>
+
+            {importResult && (
+              <div className="aris-import-result">
+                <strong>{importResult.message}</strong>
+                <div className="aris-import-paper-list">
+                  {importResult.papers?.map((paper) => (
+                    <div key={paper.id} className="aris-import-paper-item">
+                      <span className="aris-import-paper-title">{paper.title}</span>
+                      <span className="aris-import-paper-files">{paper.files.length} file{paper.files.length !== 1 ? 's' : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="aris-launch-footer">
+              <button
+                className="aris-run-btn"
+                onClick={handleImportPapers}
+                disabled={importingPapers || !importTag || !selectedProjectId}
+              >
+                {importingPapers ? 'Importing...' : 'Import Papers'}
+              </button>
             </div>
           </div>
         </div>
