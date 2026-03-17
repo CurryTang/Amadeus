@@ -273,6 +273,55 @@ function prefillPromptForAction(action) {
   return `${action.prefillPrompt} `;
 }
 
+const PLAN_STATUS_ICONS = {
+  completed: '\u2705',
+  running: '\u23F3',
+  failed: '\u274C',
+  skipped: '\u23ED\uFE0F',
+  pending: '\u25CB',
+};
+
+function PlanNodeRow({ node, depth }) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = node.children && node.children.length > 0;
+  const isStep = node.nodeKey.startsWith('Step-');
+  const icon = PLAN_STATUS_ICONS[node.status] || PLAN_STATUS_ICONS.pending;
+  const parallel = node.canParallel && !isStep;
+
+  return (
+    <div className="aris-plan-node-group">
+      <div
+        className={`aris-plan-node aris-plan-node--${node.status}${isStep ? ' is-step' : ''}`}
+        style={{ paddingLeft: `${depth * 20 + 8}px` }}
+        onClick={hasChildren ? () => setExpanded((prev) => !prev) : undefined}
+        role={hasChildren ? 'button' : undefined}
+        tabIndex={hasChildren ? 0 : undefined}
+      >
+        {hasChildren && (
+          <span className="aris-plan-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
+        )}
+        <span className="aris-plan-icon">{icon}</span>
+        <span className="aris-plan-key">{node.nodeKey}</span>
+        <span className="aris-plan-title">{node.title}</span>
+        {parallel && <span className="aris-plan-parallel-badge">parallel</span>}
+        {node.dependsOn?.length > 0 && !isStep && (
+          <span className="aris-plan-deps" title={`Depends on: ${node.dependsOn.join(', ')}`}>
+            {'\u2190'} {node.dependsOn.length}
+          </span>
+        )}
+      </div>
+      {node.resultSummary && (
+        <div className="aris-plan-node-result" style={{ paddingLeft: `${depth * 20 + 36}px` }}>
+          {node.resultSummary}
+        </div>
+      )}
+      {expanded && hasChildren && node.children.map((child) => (
+        <PlanNodeRow key={child.nodeKey} node={child} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
 const FOLLOW_UP_ACTIONS = [
   { value: 'continue', label: 'Continue Run' },
   { value: 'run_experiment', label: 'Run Experiment' },
@@ -327,6 +376,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [showGpuPanel, setShowGpuPanel] = useState(false);
 
   // Import Papers modal state
+  // Plan DAG state
+  const [planTree, setPlanTree] = useState(null); // {roots: [...], stats: {...}}
+  const [loadingPlan, setLoadingPlan] = useState(false);
+
   const [showImportPapers, setShowImportPapers] = useState(false);
   const [importTag, setImportTag] = useState('');
   const [importSourceType, setImportSourceType] = useState('pdf');
@@ -355,9 +408,26 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     return payload;
   };
 
+  const fetchPlanTree = async (runId) => {
+    if (!runId) { setPlanTree(null); return; }
+    setLoadingPlan(true);
+    try {
+      const response = await axios.get(`${apiUrl}/aris/runs/${runId}/plan`, {
+        headers: getAuthHeaders(),
+      });
+      const plan = response.data?.plan || null;
+      setPlanTree(plan && plan.roots?.length > 0 ? plan : null);
+    } catch {
+      setPlanTree(null);
+    } finally {
+      setLoadingPlan(false);
+    }
+  };
+
   const fetchRunDetail = async (runId, { silent = false } = {}) => {
     if (!runId) {
       setSelectedRunDetail(null);
+      setPlanTree(null);
       return null;
     }
     if (!silent) setLoadingDetail(true);
@@ -367,6 +437,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       });
       const detail = response.data?.run || null;
       setSelectedRunDetail(detail);
+      // Also fetch plan tree for this run
+      fetchPlanTree(runId);
       return detail;
     } finally {
       if (!silent) setLoadingDetail(false);
@@ -1309,6 +1381,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                     <div className="aris-run-card-title-row">
                       <span className={`aris-status-dot aris-status-dot--${run.statusColor}`} />
                       <h4>{run.workflowLabel || run.title}</h4>
+                      {run.isCliRun && <span className="aris-source-badge aris-source-badge--cli">CLI</span>}
                     </div>
                     <div className="aris-run-card-status">
                       <span className={`aris-status-badge aris-status-badge--${run.statusColor}`}>
@@ -1317,6 +1390,13 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       {run.scoreLabel && <span className="aris-run-score">{run.scoreLabel}</span>}
                     </div>
                   </div>
+                  {run.resultSummary && (
+                    <div className="aris-run-result-preview">
+                      {run.resultSummary.length > 120
+                        ? run.resultSummary.slice(-120).replace(/^[^\n]*\n/, '') + '…'
+                        : run.resultSummary}
+                    </div>
+                  )}
                   <div className="aris-run-meta">
                     {run.destinationLabel && <span>{run.destinationLabel}</span>}
                     {run.startedAt && <span>{new Date(run.startedAt).toLocaleString()}</span>}
@@ -1426,7 +1506,22 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                     <dd>Max {selectedRunDetail.maxIterations} iterations, reviewer: {selectedRunDetail.reviewerModel || 'gpt-4o'}</dd>
                   </div>
                 )}
+                {selectedRunCard.isCliRun && (
+                  <div>
+                    <dt>Source</dt>
+                    <dd><span className="aris-source-badge aris-source-badge--cli">CLI</span> Registered from Claude Code</dd>
+                  </div>
+                )}
               </dl>
+
+              {selectedRunCard.resultSummary && (
+                <div className="aris-result-summary">
+                  <div className="aris-panel-header">
+                    <h3>Result Output</h3>
+                  </div>
+                  <pre className="aris-result-summary-content">{selectedRunCard.resultSummary}</pre>
+                </div>
+              )}
 
               <div className="aris-follow-up">
                 <div className="aris-panel-header">
@@ -1550,6 +1645,33 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   </div>
                 )}
               </div>
+
+              {planTree && (
+                <div className="aris-plan-tree">
+                  <div className="aris-panel-header">
+                    <h3>Execution Plan</h3>
+                    <div className="aris-plan-stats">
+                      <span className="aris-plan-stat aris-plan-stat--done">{planTree.stats.completed} done</span>
+                      <span className="aris-plan-stat aris-plan-stat--running">{planTree.stats.running} running</span>
+                      <span className="aris-plan-stat aris-plan-stat--pending">{planTree.stats.pending} pending</span>
+                      {planTree.stats.failed > 0 && (
+                        <span className="aris-plan-stat aris-plan-stat--failed">{planTree.stats.failed} failed</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="aris-plan-progress-bar">
+                    <div
+                      className="aris-plan-progress-fill"
+                      style={{ width: `${planTree.stats.total > 0 ? (planTree.stats.completed / planTree.stats.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <div className="aris-plan-nodes">
+                    {planTree.roots.map((root) => (
+                      <PlanNodeRow key={root.nodeKey} node={root} depth={0} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>

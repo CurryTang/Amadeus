@@ -8,6 +8,8 @@ const researchPackService = require('../services/research-pack.service');
 const s3Service = require('../services/s3.service');
 const arxivService = require('../services/arxiv.service');
 
+const planService = require('../services/arisPlan.service');
+
 const router = express.Router();
 const arisService = createArisService();
 
@@ -277,6 +279,51 @@ router.post('/runs/:runId/actions', requireAuth, async (req, res) => {
       : (/required|invalid/i.test(String(message)) ? 400 : 500);
     console.error('[ARIS] create run action error:', error);
     res.status(status).json({ error: message });
+  }
+});
+
+// ─── Plan endpoints ──────────────────────────────────────────────────────────
+
+// POST /api/aris/runs/:runId/plan — parse markdown and create plan nodes
+router.post('/runs/:runId/plan', requireAuth, async (req, res) => {
+  try {
+    const { markdown } = req.body || {};
+    if (!markdown) return res.status(400).json({ error: 'markdown is required' });
+
+    const nodes = planService.parsePlanMarkdown(markdown);
+    if (nodes.length === 0) return res.status(400).json({ error: 'No plan nodes found in markdown' });
+
+    await planService.savePlanNodes(req.params.runId, nodes);
+    const saved = await planService.getPlanNodes(req.params.runId);
+    const tree = planService.buildPlanTree(saved);
+    res.status(201).json({ plan: tree });
+  } catch (error) {
+    console.error('[ARIS] create plan error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create plan' });
+  }
+});
+
+// GET /api/aris/runs/:runId/plan — get plan tree
+router.get('/runs/:runId/plan', requireAuth, async (req, res) => {
+  try {
+    const nodes = await planService.getPlanNodes(req.params.runId);
+    const tree = planService.buildPlanTree(nodes);
+    res.json({ plan: tree });
+  } catch (error) {
+    console.error('[ARIS] get plan error:', error);
+    res.status(500).json({ error: error.message || 'Failed to load plan' });
+  }
+});
+
+// PATCH /api/aris/runs/:runId/plan/:nodeKey — update a plan node's status
+router.patch('/runs/:runId/plan/:nodeKey', requireAuth, async (req, res) => {
+  try {
+    const node = await planService.updatePlanNode(req.params.runId, req.params.nodeKey, req.body || {});
+    if (!node) return res.status(404).json({ error: 'Plan node not found' });
+    res.json({ node });
+  } catch (error) {
+    console.error('[ARIS] update plan node error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update plan node' });
   }
 });
 

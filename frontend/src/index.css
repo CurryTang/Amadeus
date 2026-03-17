@@ -10571,6 +10571,198 @@ button.vibe-skill-chip.is-active {
   font-size: 0.85rem;
 }
 
+.aris-source-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.aris-source-badge--cli {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.aris-run-result-preview {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(15, 23, 42, 0.04);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #475569;
+  line-height: 1.4;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-height: 2.8em;
+}
+
+.aris-result-summary {
+  margin-top: 16px;
+  border-top: 1px solid rgba(27, 59, 50, 0.08);
+  padding-top: 12px;
+}
+
+.aris-result-summary-content {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.aris-result-summary-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.aris-result-summary-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+/* ─── Plan DAG Tree ─────────────────────────────────────────────── */
+
+.aris-plan-tree {
+  margin-top: 16px;
+  border-top: 1px solid rgba(27, 59, 50, 0.08);
+  padding-top: 12px;
+}
+
+.aris-plan-stats {
+  display: flex;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.aris-plan-stat {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.aris-plan-stat--done { background: #dcfce7; color: #166534; }
+.aris-plan-stat--running { background: #dbeafe; color: #1e40af; }
+.aris-plan-stat--pending { background: #f1f5f9; color: #475569; }
+.aris-plan-stat--failed { background: #fef2f2; color: #991b1b; }
+
+.aris-plan-progress-bar {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  margin: 8px 0 12px;
+  overflow: hidden;
+}
+
+.aris-plan-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.aris-plan-nodes {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.aris-plan-nodes::-webkit-scrollbar { width: 4px; }
+.aris-plan-nodes::-webkit-scrollbar-thumb { background: rgba(24, 54, 45, 0.15); border-radius: 4px; }
+
+.aris-plan-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  transition: background 0.1s;
+}
+
+.aris-plan-node[role="button"] { cursor: pointer; }
+.aris-plan-node[role="button"]:hover { background: rgba(15, 23, 42, 0.04); }
+
+.aris-plan-node.is-step {
+  font-weight: 700;
+  font-size: 0.88rem;
+  margin-top: 4px;
+  color: #17362c;
+}
+
+.aris-plan-node--completed { color: #166534; }
+.aris-plan-node--running { color: #1e40af; }
+.aris-plan-node--failed { color: #991b1b; }
+.aris-plan-node--pending { color: #64748b; }
+.aris-plan-node--skipped { color: #94a3b8; text-decoration: line-through; }
+
+.aris-plan-chevron {
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
+.aris-plan-icon {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+}
+
+.aris-plan-key {
+  flex-shrink: 0;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 0.75rem;
+  color: #475569;
+  background: rgba(15, 23, 42, 0.05);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.aris-plan-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aris-plan-parallel-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.aris-plan-deps {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.aris-plan-node-result {
+  font-size: 0.75rem;
+  color: #475569;
+  padding: 2px 8px 4px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .aris-run-meta {
   display: flex;
   flex-wrap: wrap;

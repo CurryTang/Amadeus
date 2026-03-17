@@ -475,6 +475,7 @@ How does this work relate to other important papers in the field? What prior wor
       { name: 'sync_strategy', definition: "TEXT DEFAULT ''" },
       { name: 'result_summary', definition: "TEXT DEFAULT ''" },
       { name: 'source', definition: "TEXT DEFAULT 'web'" },
+      { name: 'plan_file', definition: "TEXT DEFAULT ''" },
     ];
     for (const col of runColumns) {
       if (colNames.has(col.name)) continue;
@@ -505,6 +506,31 @@ How does this work relate to other important papers in the field? What prior wor
   await db.execute(`
     CREATE INDEX IF NOT EXISTS idx_aris_run_actions_run_created
     ON aris_run_actions(run_id, created_at ASC)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_plan_nodes (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      node_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      status TEXT DEFAULT 'pending',
+      parent_key TEXT,
+      depends_on TEXT DEFAULT '[]',
+      can_parallel INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      started_at DATETIME,
+      completed_at DATETIME,
+      result_summary TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (run_id) REFERENCES aris_runs(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_plan_nodes_run
+    ON aris_plan_nodes(run_id, sort_order ASC)
   `);
 
   // Migration: add proxy_jump column for SSH ProxyJump support.
