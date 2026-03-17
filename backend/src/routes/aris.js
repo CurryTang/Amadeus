@@ -327,6 +327,23 @@ router.patch('/runs/:runId/plan/:nodeKey', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/aris/runs/:runId/plan/:nodeKey/reject — reject a node, cascade reset dependents
+router.post('/runs/:runId/plan/:nodeKey/reject', requireAuth, async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    const result = await planService.rejectNode(req.params.runId, req.params.nodeKey, reason || '');
+    if (!result) return res.status(404).json({ error: 'Plan node not found' });
+
+    // Return updated tree
+    const nodes = await planService.getPlanNodes(req.params.runId);
+    const tree = planService.buildPlanTree(nodes);
+    res.json({ ...result, plan: tree });
+  } catch (error) {
+    console.error('[ARIS] reject plan node error:', error);
+    res.status(500).json({ error: error.message || 'Failed to reject plan node' });
+  }
+});
+
 // GET /api/aris/projects/:projectId/gpu-status
 // Query all SSH servers linked to this project's targets for GPU availability.
 router.get('/projects/:projectId/gpu-status', requireAuth, async (req, res) => {

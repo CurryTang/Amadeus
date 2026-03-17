@@ -10753,14 +10753,177 @@ button.vibe-skill-chip.is-active {
   color: #94a3b8;
 }
 
-.aris-plan-node-result {
-  font-size: 0.75rem;
+.aris-plan-node.is-selected {
+  background: rgba(26, 92, 73, 0.08);
+  border-radius: 6px;
+}
+
+.aris-plan-node--needs_redo {
+  color: #c2410c;
+  font-style: italic;
+}
+
+.aris-plan-layout {
+  display: flex;
+  gap: 12px;
+}
+
+.aris-plan-layout .aris-plan-nodes {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ─── Plan Node Detail Panel ──────────────────────────────────── */
+
+.aris-plan-detail {
+  flex: 0 0 340px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #f8faf9;
+  border: 1px solid rgba(27, 59, 50, 0.1);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.aris-plan-detail::-webkit-scrollbar { width: 4px; }
+.aris-plan-detail::-webkit-scrollbar-thumb { background: rgba(24, 54, 45, 0.15); border-radius: 4px; }
+
+.aris-plan-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.aris-plan-detail-header > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+}
+
+.aris-plan-detail-title {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+  color: #17362c;
+}
+
+.aris-plan-detail-deps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.aris-plan-dep-chip {
+  display: inline-block;
+  padding: 1px 5px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 0.72rem;
+}
+
+.aris-plan-detail-section {
+  margin-bottom: 10px;
+}
+
+.aris-plan-detail-section h5 {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
   color: #475569;
-  padding: 2px 8px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.aris-plan-detail-description {
+  margin: 0;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid rgba(27, 59, 50, 0.08);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #334155;
+}
+
+.aris-plan-detail-review {
+  margin: 0;
+  padding: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.aris-plan-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.aris-plan-detail-actions {
+  margin-top: 10px;
+  border-top: 1px solid rgba(27, 59, 50, 0.08);
+  padding-top: 10px;
+}
+
+.aris-plan-reject-form textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(27, 59, 50, 0.15);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+
+.aris-plan-detail-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.aris-reject-btn {
+  background: #fef2f2 !important;
+  color: #991b1b !important;
+  border-color: #fecaca !important;
+}
+
+.aris-reject-btn:hover {
+  background: #fee2e2 !important;
+}
+
+.aris-plan-reject-hint {
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  color: #94a3b8;
   line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.aris-plan-detail-redo-badge {
+  padding: 8px 10px;
+  background: #fff7ed;
+  color: #c2410c;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
 .aris-run-meta {

@@ -352,11 +352,71 @@ function buildPlanTree(nodes) {
   };
 }
 
+// ─── Reject a node and cascade reset to all dependents ──────────────────────
+
+async function rejectNode(runId, nodeKey, reason = '') {
+  const allNodes = await getPlanNodes(runId);
+  const targetNode = allNodes.find(n => n.nodeKey === nodeKey);
+  if (!targetNode) return null;
+
+  // BFS to find all transitive dependents of this node
+  const toReset = new Set();
+  toReset.add(nodeKey);
+
+  let frontier = [nodeKey];
+  while (frontier.length > 0) {
+    const nextFrontier = [];
+    for (const key of frontier) {
+      for (const node of allNodes) {
+        if (node.dependsOn.includes(key) && !toReset.has(node.nodeKey)) {
+          toReset.add(node.nodeKey);
+          nextFrontier.push(node.nodeKey);
+        }
+      }
+      // Also reset children (for Step nodes)
+      for (const node of allNodes) {
+        if (node.parentKey === key && !toReset.has(node.nodeKey)) {
+          toReset.add(node.nodeKey);
+          nextFrontier.push(node.nodeKey);
+        }
+      }
+    }
+    frontier = nextFrontier;
+  }
+
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  // Reset the target node to 'needs_redo'
+  await db.execute({
+    sql: `UPDATE aris_plan_nodes SET status = 'needs_redo', completed_at = NULL,
+          result_summary = ? WHERE run_id = ? AND node_key = ?`,
+    args: [reason ? `Rejected: ${reason}` : 'Rejected by reviewer', runId, nodeKey],
+  });
+
+  // Reset all dependents to 'pending'
+  for (const key of toReset) {
+    if (key === nodeKey) continue; // already handled above
+    await db.execute({
+      sql: `UPDATE aris_plan_nodes SET status = 'pending', completed_at = NULL,
+            started_at = NULL WHERE run_id = ? AND node_key = ?`,
+      args: [runId, key],
+    });
+  }
+
+  return {
+    rejectedNode: nodeKey,
+    cascadeReset: [...toReset].filter(k => k !== nodeKey),
+    reason,
+  };
+}
+
 module.exports = {
   parsePlanMarkdown,
   savePlanNodes,
   getPlanNodes,
   updatePlanNode,
+  rejectNode,
   buildPlanTree,
   normalizePlanNode,
 };

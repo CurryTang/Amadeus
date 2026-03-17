@@ -277,25 +277,46 @@ const PLAN_STATUS_ICONS = {
   completed: '\u2705',
   running: '\u23F3',
   failed: '\u274C',
+  needs_redo: '\uD83D\uDD04',
   skipped: '\u23ED\uFE0F',
   pending: '\u25CB',
 };
 
-function PlanNodeRow({ node, depth }) {
+const PLAN_STATUS_LABELS = {
+  completed: 'Completed',
+  running: 'Running',
+  failed: 'Failed',
+  needs_redo: 'Needs Redo',
+  skipped: 'Skipped',
+  pending: 'Pending',
+};
+
+function PlanNodeRow({ node, depth, selectedNodeKey, onSelectNode }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children && node.children.length > 0;
   const isStep = node.nodeKey.startsWith('Step-');
   const icon = PLAN_STATUS_ICONS[node.status] || PLAN_STATUS_ICONS.pending;
   const parallel = node.canParallel && !isStep;
+  const isSelected = selectedNodeKey === node.nodeKey;
+  const isLeaf = !hasChildren;
+
+  const handleClick = () => {
+    if (isLeaf) {
+      onSelectNode(node);
+    } else {
+      setExpanded((prev) => !prev);
+    }
+  };
 
   return (
     <div className="aris-plan-node-group">
       <div
-        className={`aris-plan-node aris-plan-node--${node.status}${isStep ? ' is-step' : ''}`}
+        className={`aris-plan-node aris-plan-node--${node.status}${isStep ? ' is-step' : ''}${isSelected ? ' is-selected' : ''}`}
         style={{ paddingLeft: `${depth * 20 + 8}px` }}
-        onClick={hasChildren ? () => setExpanded((prev) => !prev) : undefined}
-        role={hasChildren ? 'button' : undefined}
-        tabIndex={hasChildren ? 0 : undefined}
+        onClick={handleClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') handleClick(); }}
       >
         {hasChildren && (
           <span className="aris-plan-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
@@ -310,13 +331,14 @@ function PlanNodeRow({ node, depth }) {
           </span>
         )}
       </div>
-      {node.resultSummary && (
-        <div className="aris-plan-node-result" style={{ paddingLeft: `${depth * 20 + 36}px` }}>
-          {node.resultSummary}
-        </div>
-      )}
       {expanded && hasChildren && node.children.map((child) => (
-        <PlanNodeRow key={child.nodeKey} node={child} depth={depth + 1} />
+        <PlanNodeRow
+          key={child.nodeKey}
+          node={child}
+          depth={depth + 1}
+          selectedNodeKey={selectedNodeKey}
+          onSelectNode={onSelectNode}
+        />
       ))}
     </div>
   );
@@ -379,6 +401,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   // Plan DAG state
   const [planTree, setPlanTree] = useState(null); // {roots: [...], stats: {...}}
   const [loadingPlan, setLoadingPlan] = useState(false);
+  const [selectedPlanNode, setSelectedPlanNode] = useState(null);
+  const [rejectingNode, setRejectingNode] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   const [showImportPapers, setShowImportPapers] = useState(false);
   const [importTag, setImportTag] = useState('');
@@ -424,10 +449,46 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     }
   };
 
+  const handleRejectNode = async () => {
+    if (!selectedRunId || !selectedPlanNode) return;
+    setRejectingNode(true);
+    try {
+      const response = await axios.post(
+        `${apiUrl}/aris/runs/${selectedRunId}/plan/${selectedPlanNode.nodeKey}/reject`,
+        { reason: rejectReason },
+        { headers: getAuthHeaders() }
+      );
+      const updatedPlan = response.data?.plan || null;
+      if (updatedPlan) setPlanTree(updatedPlan);
+      setSelectedPlanNode(null);
+      setRejectReason('');
+    } catch (err) {
+      console.error('Failed to reject node:', err);
+    } finally {
+      setRejectingNode(false);
+    }
+  };
+
+  const handleApprovePlanNode = async () => {
+    if (!selectedRunId || !selectedPlanNode) return;
+    try {
+      await axios.patch(
+        `${apiUrl}/aris/runs/${selectedRunId}/plan/${selectedPlanNode.nodeKey}`,
+        { status: 'completed' },
+        { headers: getAuthHeaders() }
+      );
+      await fetchPlanTree(selectedRunId);
+      setSelectedPlanNode(null);
+    } catch (err) {
+      console.error('Failed to approve node:', err);
+    }
+  };
+
   const fetchRunDetail = async (runId, { silent = false } = {}) => {
     if (!runId) {
       setSelectedRunDetail(null);
       setPlanTree(null);
+      setSelectedPlanNode(null);
       return null;
     }
     if (!silent) setLoadingDetail(true);
@@ -1665,10 +1726,109 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       style={{ width: `${planTree.stats.total > 0 ? (planTree.stats.completed / planTree.stats.total) * 100 : 0}%` }}
                     />
                   </div>
-                  <div className="aris-plan-nodes">
-                    {planTree.roots.map((root) => (
-                      <PlanNodeRow key={root.nodeKey} node={root} depth={0} />
-                    ))}
+                  <div className="aris-plan-layout">
+                    <div className="aris-plan-nodes">
+                      {planTree.roots.map((root) => (
+                        <PlanNodeRow
+                          key={root.nodeKey}
+                          node={root}
+                          depth={0}
+                          selectedNodeKey={selectedPlanNode?.nodeKey}
+                          onSelectNode={setSelectedPlanNode}
+                        />
+                      ))}
+                    </div>
+
+                    {selectedPlanNode && (
+                      <div className="aris-plan-detail">
+                        <div className="aris-plan-detail-header">
+                          <div>
+                            <span className="aris-plan-icon">{PLAN_STATUS_ICONS[selectedPlanNode.status] || '\u25CB'}</span>
+                            <strong>{selectedPlanNode.nodeKey}</strong>
+                            <span className={`aris-status-badge aris-status-badge--${selectedPlanNode.status === 'needs_redo' ? 'failed' : selectedPlanNode.status}`}>
+                              {PLAN_STATUS_LABELS[selectedPlanNode.status] || selectedPlanNode.status}
+                            </span>
+                          </div>
+                          <button className="aris-refresh-btn" onClick={() => setSelectedPlanNode(null)} type="button">Close</button>
+                        </div>
+
+                        <h4 className="aris-plan-detail-title">{selectedPlanNode.title}</h4>
+
+                        {selectedPlanNode.dependsOn?.length > 0 && (
+                          <div className="aris-plan-detail-deps">
+                            Depends on: {selectedPlanNode.dependsOn.map((dep) => (
+                              <span key={dep} className="aris-plan-dep-chip">{dep}</span>
+                            ))}
+                          </div>
+                        )}
+
+                        {selectedPlanNode.description && (
+                          <div className="aris-plan-detail-section">
+                            <h5>Plan Description</h5>
+                            <pre className="aris-plan-detail-description">{selectedPlanNode.description}</pre>
+                          </div>
+                        )}
+
+                        {selectedPlanNode.resultSummary && (
+                          <div className="aris-plan-detail-section">
+                            <h5>Codex Review</h5>
+                            <pre className="aris-plan-detail-review">{selectedPlanNode.resultSummary}</pre>
+                          </div>
+                        )}
+
+                        {selectedPlanNode.startedAt && (
+                          <div className="aris-plan-detail-meta">
+                            <span>Started: {new Date(selectedPlanNode.startedAt).toLocaleString()}</span>
+                            {selectedPlanNode.completedAt && (
+                              <span>Finished: {new Date(selectedPlanNode.completedAt).toLocaleString()}</span>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="aris-plan-detail-actions">
+                          {(selectedPlanNode.status === 'completed' || selectedPlanNode.status === 'failed') && (
+                            <>
+                              <div className="aris-plan-reject-form">
+                                <textarea
+                                  rows={2}
+                                  value={rejectReason}
+                                  onChange={(e) => setRejectReason(e.target.value)}
+                                  placeholder="Reason for rejection (optional) — what needs to be redone?"
+                                />
+                              </div>
+                              <div className="aris-plan-detail-buttons">
+                                {selectedPlanNode.status !== 'completed' && (
+                                  <button className="aris-run-btn" onClick={handleApprovePlanNode} type="button">
+                                    Mark Complete
+                                  </button>
+                                )}
+                                <button
+                                  className="aris-secondary-btn aris-reject-btn"
+                                  onClick={handleRejectNode}
+                                  disabled={rejectingNode}
+                                  type="button"
+                                >
+                                  {rejectingNode ? 'Rejecting...' : 'Reject & Redo'}
+                                </button>
+                              </div>
+                              <p className="aris-plan-reject-hint">
+                                Rejecting will reset this node and all its dependents back to pending.
+                              </p>
+                            </>
+                          )}
+                          {selectedPlanNode.status === 'needs_redo' && (
+                            <div className="aris-plan-detail-redo-badge">
+                              This item was rejected and needs to be re-implemented by the agent.
+                            </div>
+                          )}
+                          {selectedPlanNode.status === 'pending' && (
+                            <div className="aris-plan-detail-redo-badge" style={{ background: '#f1f5f9', color: '#475569' }}>
+                              Waiting for prerequisites to complete before this item can start.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
