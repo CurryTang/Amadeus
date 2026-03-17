@@ -11960,3 +11960,166 @@ button.vibe-skill-chip.is-active {
     align-items: flex-start;
   }
 }
+
+/* ─── ARIS GPU Status Panel ─────────────────────────────────────────────── */
+
+.aris-gpu-status-btn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  background: rgba(59, 130, 246, 0.08);
+  color: #2563eb;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.aris-gpu-status-btn:hover {
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.aris-gpu-status-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.aris-gpu-panel {
+  background: #f7faf8;
+  border-radius: 14px;
+  border: 1px solid rgba(26, 92, 73, 0.12);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.aris-gpu-loading {
+  padding: 20px 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.aris-gpu-server-block {
+  margin-bottom: 16px;
+}
+
+.aris-gpu-server-block h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 8px;
+}
+
+.aris-gpu-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 6px;
+}
+
+.aris-gpu-tag--error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.aris-gpu-tag--warn {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.aris-gpu-error {
+  font-size: 0.78rem;
+  color: #dc2626;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  background: rgba(239, 68, 68, 0.06);
+  border-radius: 6px;
+}
+
+.aris-gpu-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.aris-gpu-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: #64748b;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid rgba(26, 92, 73, 0.1);
+}
+
+.aris-gpu-table td {
+  padding: 6px 10px;
+  color: #334155;
+  border-bottom: 1px solid rgba(26, 92, 73, 0.06);
+}
+
+.aris-gpu-row--free td {
+  background: rgba(34, 197, 94, 0.04);
+}
+
+.aris-gpu-row--partial td {
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.aris-gpu-row--busy td {
+  background: rgba(239, 68, 68, 0.04);
+}
+
+.aris-gpu-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 6px;
+}
+
+.aris-gpu-badge--free {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.aris-gpu-badge--partial {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+}
+
+.aris-gpu-badge--busy {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.aris-gpu-summary {
+  padding: 10px 0 0;
+  font-size: 0.82rem;
+  color: #475569;
+  border-top: 1px solid rgba(26, 92, 73, 0.1);
+  margin-top: 4px;
+}
+
+.aris-gpu-refresh-btn,
+.aris-gpu-close-btn {
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(26, 92, 73, 0.15);
+  background: transparent;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.aris-gpu-refresh-btn:hover,
+.aris-gpu-close-btn:hover {
+  background: rgba(26, 92, 73, 0.06);
+}

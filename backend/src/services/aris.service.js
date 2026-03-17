@@ -1671,6 +1671,80 @@ function createArisService(overrides = {}) {
       await deps.saveRunAction(action);
       return normalizeAction(action);
     },
+
+    /**
+     * Query GPU status for all SSH servers linked to a project's targets.
+     * SSHes into each unique server in parallel, runs nvidia-smi, and returns
+     * structured per-server GPU data.
+     */
+    async getProjectGpuStatus(projectId) {
+      const project = await deps.getProjectById(projectId);
+      if (!project) throw new Error('Project not found');
+
+      const targets = (await deps.listTargets(projectId))
+        .filter((t) => String(t.projectId) === String(projectId));
+      if (targets.length === 0) {
+        return { projectId, projectName: project.name, servers: [] };
+      }
+
+      const servers = await deps.listServers();
+
+      // Deduplicate servers across targets
+      const serverMap = new Map();
+      for (const target of targets) {
+        if (!serverMap.has(String(target.sshServerId))) {
+          const server = servers.find((s) => String(s.id) === String(target.sshServerId));
+          if (server) {
+            serverMap.set(String(server.id), {
+              server,
+              serverName: target.sshServerName || server.name || server.host,
+            });
+          }
+        }
+      }
+
+      const NVIDIA_SMI_CMD = 'nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader 2>/dev/null || /usr/bin/nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader 2>/dev/null || echo "__NO_GPU__"';
+
+      const results = await Promise.all(
+        Array.from(serverMap.values()).map(async ({ server, serverName }) => {
+          try {
+            const result = await sshTransport.exec(server, ['bash', '-c', NVIDIA_SMI_CMD], {
+              timeoutMs: 15000,
+              retries: 1,
+              connectTimeout: 10,
+            });
+            const stdout = (result?.stdout || '').trim();
+            if (!stdout || stdout === '__NO_GPU__') {
+              return { serverId: server.id, serverName, status: 'no_gpu', gpus: [], error: null };
+            }
+            const gpus = stdout.split('\n').map((line) => {
+              const parts = line.split(',').map((p) => p.trim());
+              const memUsed = parseInt(parts[2], 10) || 0;
+              const memTotal = parseInt(parts[3], 10) || 1;
+              const utilization = parseInt(parts[4], 10) || 0;
+              let availability = 'busy';
+              if (memUsed < 500) availability = 'free';
+              else if (memUsed < 2000 && utilization < 10) availability = 'free';
+              else if (memUsed / memTotal < 0.5) availability = 'partial';
+              return {
+                index: parseInt(parts[0], 10) || 0,
+                name: parts[1] || 'Unknown',
+                memoryUsed: parts[2] || '0 MiB',
+                memoryTotal: parts[3] || '0 MiB',
+                utilization: parts[4] || '0 %',
+                temperature: parts[5] || 'N/A',
+                availability,
+              };
+            });
+            return { serverId: server.id, serverName, status: 'ok', gpus, error: null };
+          } catch (err) {
+            return { serverId: server.id, serverName, status: 'unreachable', gpus: [], error: err.message };
+          }
+        })
+      );
+
+      return { projectId, projectName: project.name, servers: results };
+    },
   };
 }
 

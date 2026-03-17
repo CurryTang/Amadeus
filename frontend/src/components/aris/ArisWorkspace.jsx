@@ -321,6 +321,11 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState('');
 
+  // GPU Status panel state
+  const [gpuStatus, setGpuStatus] = useState(null); // {projectId, projectName, servers: [...]}
+  const [loadingGpu, setLoadingGpu] = useState(false);
+  const [showGpuPanel, setShowGpuPanel] = useState(false);
+
   // Import Papers modal state
   const [showImportPapers, setShowImportPapers] = useState(false);
   const [importTag, setImportTag] = useState('');
@@ -480,6 +485,25 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       setError(err?.response?.data?.error || err.message || 'Failed to import papers');
     } finally {
       setImportingPapers(false);
+    }
+  };
+
+  const handleFetchGpuStatus = async () => {
+    if (!selectedProjectId) return;
+    setLoadingGpu(true);
+    setShowGpuPanel(true);
+    setGpuStatus(null);
+    setError('');
+    try {
+      const response = await axios.get(
+        `${apiUrl}/aris/projects/${selectedProjectId}/gpu-status`,
+        { headers: getAuthHeaders(), timeout: 60000 }
+      );
+      setGpuStatus(response.data);
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || 'Failed to fetch GPU status');
+    } finally {
+      setLoadingGpu(false);
     }
   };
 
@@ -961,6 +985,15 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
             <h3>Launch</h3>
             <div className="aris-panel-header-actions">
               <button
+                className="aris-gpu-status-btn"
+                onClick={handleFetchGpuStatus}
+                type="button"
+                disabled={!selectedProjectId || loadingGpu}
+                title="Check GPU availability across all project servers"
+              >
+                {loadingGpu ? 'Checking GPUs…' : 'GPU Status'}
+              </button>
+              <button
                 className="aris-import-papers-btn"
                 onClick={handleOpenImportPapers}
                 type="button"
@@ -1171,6 +1204,87 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           </dl>
         </section>
       </div>
+
+      {showGpuPanel && (
+        <section className="aris-gpu-panel">
+          <div className="aris-panel-header">
+            <h3>GPU Availability{gpuStatus?.projectName ? ` — ${gpuStatus.projectName}` : ''}</h3>
+            <div className="aris-panel-header-actions">
+              <button className="aris-gpu-refresh-btn" onClick={handleFetchGpuStatus} disabled={loadingGpu || !selectedProjectId} type="button">
+                {loadingGpu ? 'Refreshing…' : 'Refresh'}
+              </button>
+              <button className="aris-gpu-close-btn" onClick={() => setShowGpuPanel(false)} type="button">Close</button>
+            </div>
+          </div>
+          {loadingGpu && <div className="aris-gpu-loading">Querying servers via SSH…</div>}
+          {!loadingGpu && gpuStatus && gpuStatus.servers.length === 0 && (
+            <div className="aris-empty-card">No remote targets configured for this project.</div>
+          )}
+          {!loadingGpu && gpuStatus && gpuStatus.servers.length > 0 && (
+            <div className="aris-gpu-results">
+              {gpuStatus.servers.map((srv) => (
+                <div key={srv.serverId} className="aris-gpu-server-block">
+                  <h4>
+                    <span className={`aris-status-dot aris-status-dot--${srv.status === 'ok' ? 'green' : srv.status === 'no_gpu' ? 'yellow' : 'red'}`} />
+                    {srv.serverName}
+                    {srv.status === 'unreachable' && <span className="aris-gpu-tag aris-gpu-tag--error">unreachable</span>}
+                    {srv.status === 'no_gpu' && <span className="aris-gpu-tag aris-gpu-tag--warn">no GPU</span>}
+                  </h4>
+                  {srv.error && <div className="aris-gpu-error">{srv.error}</div>}
+                  {srv.gpus.length > 0 && (
+                    <table className="aris-gpu-table">
+                      <thead>
+                        <tr>
+                          <th>GPU</th>
+                          <th>Model</th>
+                          <th>VRAM Used</th>
+                          <th>VRAM Total</th>
+                          <th>Util %</th>
+                          <th>Temp</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {srv.gpus.map((gpu) => (
+                          <tr key={gpu.index} className={`aris-gpu-row--${gpu.availability}`}>
+                            <td>{gpu.index}</td>
+                            <td>{gpu.name}</td>
+                            <td>{gpu.memoryUsed}</td>
+                            <td>{gpu.memoryTotal}</td>
+                            <td>{gpu.utilization}</td>
+                            <td>{gpu.temperature}</td>
+                            <td>
+                              <span className={`aris-gpu-badge aris-gpu-badge--${gpu.availability}`}>
+                                {gpu.availability === 'free' ? 'Free' : gpu.availability === 'partial' ? 'Partial' : 'Busy'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ))}
+              <div className="aris-gpu-summary">
+                {(() => {
+                  const totals = gpuStatus.servers.reduce((acc, srv) => {
+                    acc.free += srv.gpus.filter((g) => g.availability === 'free').length;
+                    acc.partial += srv.gpus.filter((g) => g.availability === 'partial').length;
+                    acc.busy += srv.gpus.filter((g) => g.availability === 'busy').length;
+                    return acc;
+                  }, { free: 0, partial: 0, busy: 0 });
+                  return (
+                    <span>
+                      <strong>{totals.free}</strong> free, <strong>{totals.partial}</strong> partial, <strong>{totals.busy}</strong> busy
+                      — <strong>{totals.free + totals.partial + totals.busy}</strong> GPUs total
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="aris-runs-detail-grid">
         <section className="aris-runs-panel">

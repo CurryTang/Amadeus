@@ -255,6 +255,19 @@ router.post('/runs/:runId/actions', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/aris/projects/:projectId/gpu-status
+// Query all SSH servers linked to this project's targets for GPU availability.
+router.get('/projects/:projectId/gpu-status', requireAuth, async (req, res) => {
+  try {
+    const result = await arisService.getProjectGpuStatus(req.params.projectId);
+    res.json(result);
+  } catch (error) {
+    const status = /not found/i.test(String(error.message || '')) ? 404 : 500;
+    console.error('[ARIS] gpu-status error:', error);
+    res.status(status).json({ error: error.message || 'Failed to query GPU status' });
+  }
+});
+
 // POST /api/aris/projects/:projectId/import-papers
 // Download papers (by tag) into the project's local resource/ folder.
 // Body: { tag: string, sourceType?: 'pdf'|'latex', includeCode?: boolean }
