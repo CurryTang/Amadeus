@@ -1056,8 +1056,8 @@ printf '%s\n' "$LOG_FILE"
   };
 }
 
-async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '' } = {}) {
-  return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath });
+async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '', projectId = '' } = {}) {
+  return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath, projectId });
 }
 
 // ─── Remote process status probing ──────────────────────────────────────────
@@ -1436,6 +1436,7 @@ function createArisService(overrides = {}) {
       const projectFiles = await deps.buildProjectFiles({
         projectName: project.name,
         localProjectPath: project.localProjectPath,
+        projectId: project.id,
       });
       // Auto-install skills to local project path if it exists
       if (project.localProjectPath && deps.materializeProjectFiles) {
@@ -1468,6 +1469,7 @@ function createArisService(overrides = {}) {
       const projectFiles = await deps.buildProjectFiles({
         projectName: updated.name,
         localProjectPath: updated.localProjectPath,
+        projectId: updated.id,
       });
       // Auto-install skills to local project path if it exists
       if (updated.localProjectPath && deps.materializeProjectFiles) {

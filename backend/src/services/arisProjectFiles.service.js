@@ -57,9 +57,10 @@ async function walkFiles(rootDir, currentDir = rootDir) {
   return files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
-function createClaudeMdContent({ projectName = '', localProjectPath = '' } = {}) {
+function createClaudeMdContent({ projectName = '', localProjectPath = '', projectId = '' } = {}) {
   const displayName = String(projectName || localProjectPath || 'AIRS Project').trim();
   const localPath = String(localProjectPath || '.').trim() || '.';
+  const pid = String(projectId || '').trim();
 
   return [
     '## Auto Researcher AIRS',
@@ -85,25 +86,45 @@ function createClaudeMdContent({ projectName = '', localProjectPath = '' } = {})
     '- Add SSH, conda, and remote code-directory details here if AIRS should launch experiments remotely.',
     '',
     '## ARIS Run Registration (Auto-Tracker)',
+    ...(pid ? ['', `**ARIS Project ID: \`${pid}\`**`, ''] : []),
     '',
-    'When running ARIS skills from the CLI (not through the web panel), **you MUST automatically register the run** so it appears on the ARIS web dashboard. Use the `/aris-register` skill or follow this pattern:',
+    '**MANDATORY**: At the start of EVERY non-trivial task (any task that takes more than a few seconds), you MUST register the run so it appears on the ARIS web dashboard. This applies to ALL work in this project, not just ARIS skills.',
     '',
-    '### How it works',
+    '### Auto-register pattern (run this at the start of every task)',
     '',
-    '1. At the **start** of any ARIS skill, check `~/.claude/aris-api.json`. If absent, skip registration entirely.',
-    '2. If config exists, register the run via `POST {api_url}/api/aris/runs/register` with `status: "running"`. Save the returned run ID.',
-    '3. At the **end** of the skill, update the run via `PATCH {api_url}/api/aris/runs/{runId}/status` with the final status and a concise `resultSummary` (last 3-5 sentences of meaningful output).',
-    '4. **Never block a workflow** because registration fails. Always fail open.',
+    '```bash',
+    'ARIS_CFG="$HOME/.claude/aris-api.json"',
+    'if [ -f "$ARIS_CFG" ]; then',
+    `  ARIS_PROJECT_ID="${pid || 'REPLACE_WITH_PROJECT_ID'}"`,
+    '  API_URL=$(python3 -c "import json;print(json.load(open(\'$ARIS_CFG\'))[\'api_url\'])" 2>/dev/null)',
+    '  API_TOKEN=$(python3 -c "import json;print(json.load(open(\'$ARIS_CFG\'))[\'token\'])" 2>/dev/null)',
+    '  ARIS_RUN=$(curl -s -X POST "$API_URL/api/aris/runs/register" \\',
+    '    -H "Authorization: Bearer $API_TOKEN" \\',
+    '    -H "Content-Type: application/json" \\',
+    '    -d "{\\"projectId\\":\\"$ARIS_PROJECT_ID\\",\\"workflowType\\":\\"custom_run\\",\\"prompt\\":\\"TASK_DESCRIPTION\\",\\"title\\":\\"TASK_TITLE\\",\\"status\\":\\"running\\",\\"runnerHost\\":\\"$(hostname)\\"}" 2>/dev/null)',
+    '  ARIS_RUN_ID=$(echo "$ARIS_RUN" | python3 -c "import sys,json;print(json.load(sys.stdin).get(\'run\',{}).get(\'id\',\'\'))" 2>/dev/null)',
+    '  echo "ARIS run registered: $ARIS_RUN_ID"',
+    'fi',
+    '```',
     '',
-    '### Config file: `~/.claude/aris-api.json`',
+    '### Update run at completion',
     '',
-    'Auto-created during project setup. If missing, run registration is silently skipped.',
+    '```bash',
+    'if [ -n "$ARIS_RUN_ID" ] && [ -f "$ARIS_CFG" ]; then',
+    '  SUMMARY="Brief description of what was accomplished"',
+    '  curl -s -X PATCH "$API_URL/api/aris/runs/$ARIS_RUN_ID/status" \\',
+    '    -H "Authorization: Bearer $API_TOKEN" \\',
+    '    -H "Content-Type: application/json" \\',
+    '    -d "{\\"status\\":\\"completed\\",\\"resultSummary\\":\\"$SUMMARY\\"}" >/dev/null 2>&1 || true',
+    'fi',
+    '```',
     '',
-    '### Quick reference',
+    '### Rules',
     '',
-    '- **Register**: `POST /api/aris/runs/register` — body: `{projectId, workflowType, prompt, title, status: "running", runnerHost}`',
-    '- **Update**: `PATCH /api/aris/runs/{runId}/status` — body: `{status: "completed"|"failed", resultSummary: "..."}`',
-    '- **Detail**: See `.claude/skills/aris-register/SKILL.md` for full curl examples.',
+    '- **Never block work** because registration fails — always fail open (use `|| true`)',
+    '- **If `~/.claude/aris-api.json` is absent** — skip silently, continue normally',
+    '- **workflowType** must be one of: `custom_run`, `run_experiment`, `auto_review_loop`, `literature_review`, `idea_discovery`, `paper_writing`, `paper_improvement`, `full_pipeline`, `monitor_experiment`, `sync_workspace`, `init_repo`',
+    '- **resultSummary**: 2-4 sentences describing what was done and the outcome',
   ].join('\n');
 }
 
@@ -167,7 +188,7 @@ function createArisProjectFilesService(overrides = {}) {
     return updateCachedSource(cacheDir, repoUrl, repoRef);
   }
 
-  async function buildProjectFiles({ projectName = '', localProjectPath = '' } = {}) {
+  async function buildProjectFiles({ projectName = '', localProjectPath = '', projectId = '' } = {}) {
     const sourceDir = await resolveSourceDir();
     const skillSourceDir = path.join(sourceDir, 'skills');
     const sourceFiles = await walkFiles(skillSourceDir);
@@ -209,7 +230,7 @@ function createArisProjectFilesService(overrides = {}) {
 
     projectFiles.push({
       path: 'CLAUDE.md',
-      content: createClaudeMdContent({ projectName, localProjectPath }),
+      content: createClaudeMdContent({ projectName, localProjectPath, projectId }),
       writeMode: 'managed_block',
       blockId: MANAGED_BLOCK_ID,
     });

@@ -46,7 +46,7 @@ Parse `$ARGUMENTS` to determine what to do:
 #### Action: `start` (register a new run)
 
 Register a new run at skill start. Required info:
-- `projectId` — the ARIS project ID (check CLAUDE.md or project config)
+- `projectId` — read from CLAUDE.md (`ARIS Project ID:` line), or pass explicitly
 - `workflowType` — the skill/workflow being run (e.g., `run_experiment`, `auto_review_loop`, `custom_run`)
 - `prompt` — the user's original prompt/arguments
 - `title` — short descriptive title
@@ -55,18 +55,13 @@ Register a new run at skill start. Required info:
 ARIS_CFG="$HOME/.claude/aris-api.json"
 API_URL=$(python3 -c "import json;print(json.load(open('$ARIS_CFG'))['api_url'])" 2>/dev/null)
 API_TOKEN=$(python3 -c "import json;print(json.load(open('$ARIS_CFG'))['token'])" 2>/dev/null)
+# Auto-detect project ID from CLAUDE.md
+ARIS_PROJECT_ID=$(grep -o 'aris_project_[0-9]*' CLAUDE.md 2>/dev/null | head -1)
 
 RESULT=$(curl -s -X POST "$API_URL/api/aris/runs/register" \
   -H "Authorization: Bearer $API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "projectId": "PROJECT_ID",
-    "workflowType": "WORKFLOW_TYPE",
-    "prompt": "USER_PROMPT",
-    "title": "SHORT_TITLE",
-    "status": "running",
-    "runnerHost": "'$(hostname)'"
-  }')
+  -d "{\"projectId\":\"$ARIS_PROJECT_ID\",\"workflowType\":\"WORKFLOW_TYPE\",\"prompt\":\"USER_PROMPT\",\"title\":\"SHORT_TITLE\",\"status\":\"running\",\"runnerHost\":\"$(hostname)\"}")
 
 ARIS_RUN_ID=$(echo "$RESULT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('run',{}).get('id',''))" 2>/dev/null)
 echo "Registered ARIS run: $ARIS_RUN_ID"
