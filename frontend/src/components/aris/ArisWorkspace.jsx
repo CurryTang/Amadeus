@@ -661,7 +661,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         ...prev,
         clientWorkspaceId: linked.workspaceId,
         localProjectPath: folderName || prev.localProjectPath,
-        localFullPath: prev.localFullPath || folderName || '',
+        localFullPath: prev.localFullPath.startsWith('/') ? prev.localFullPath : '',
         name: prev.name || folderName || '',
       }));
     } catch (err) {
@@ -971,7 +971,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
               </button>
               <span className="aris-status-pill">{selectedTarget ? 'Target Ready' : 'Project Setup Needed'}</span>
               {selectedProject && (selectedProject.clientWorkspaceId || selectedProject.localProjectPath) && (() => {
-                const vscodePath = selectedProject.localFullPath || (selectedProject.localProjectPath?.startsWith('/') ? selectedProject.localProjectPath : '');
+                const rawPath = selectedProject.localFullPath || selectedProject.localProjectPath || '';
+                const vscodePath = rawPath.startsWith('/') ? rawPath : '';
                 return (
                   <button
                     className={`aris-vscode-btn${vscodePath ? '' : ' is-disabled'}`}
@@ -1496,7 +1497,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                           className="aris-local-path-input"
                           value={projectSettingsDraft.localFullPath}
                           onChange={(event) => setProjectSettingsDraft((prev) => ({ ...prev, localFullPath: event.target.value }))}
-                          placeholder="Full path, e.g. /Users/you/AutoRDL"
+                          placeholder="Absolute path for VS Code, e.g. /Users/czk/my-project"
                         />
                       </div>
                       <button className="aris-secondary-btn" onClick={handleLinkWorkspace} disabled={linkingWorkspace} type="button">

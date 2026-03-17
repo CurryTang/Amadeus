@@ -185,7 +185,8 @@ export function buildArisProjectRow(project = {}) {
   const targetCount = Number(project.targetCount || 0) || 0;
   const noRemote = project.noRemote === true || targetCount === 0;
 
-  const localFullPath = normalizeString(project.localFullPath) || (project.localProjectPath?.startsWith('/') ? project.localProjectPath : '');
+  const rawFullPath = normalizeString(project.localFullPath);
+  const localFullPath = rawFullPath.startsWith('/') ? rawFullPath : (project.localProjectPath?.startsWith('/') ? project.localProjectPath : '');
 
   return {
     id: normalizeString(project.id, 'pending-project'),
