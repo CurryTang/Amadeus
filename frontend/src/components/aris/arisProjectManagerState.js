@@ -76,11 +76,15 @@ export function settingsDraftToPayload(draft = {}) {
       remoteOutputRoot: String(endpoint.remoteOutputRoot || '').trim(),
     }));
 
+  // Only save localFullPath if it's an absolute path — relative names are useless
+  const rawFullPath = String(draft.localFullPath || '').trim();
+  const localFullPath = rawFullPath.startsWith('/') ? rawFullPath : '';
+
   return {
     name: String(draft.name || '').trim(),
     clientWorkspaceId: String(draft.clientWorkspaceId || '').trim(),
     localProjectPath: String(draft.localProjectPath || '').trim(),
-    localFullPath: String(draft.localFullPath || '').trim(),
+    localFullPath,
     syncExcludes: syncExcludesTextToArray(draft.syncExcludesText),
     noRemote,
     remoteEndpoints,
