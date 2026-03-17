@@ -458,6 +458,8 @@ How does this work relate to other important papers in the field? What prior wor
       log_path TEXT DEFAULT '',
       run_directory TEXT DEFAULT '',
       retry_of_run_id TEXT,
+      result_summary TEXT DEFAULT '',
+      source TEXT DEFAULT 'web',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -471,6 +473,8 @@ How does this work relate to other important papers in the field? What prior wor
       { name: 'target_name', definition: "TEXT DEFAULT ''" },
       { name: 'local_project_path', definition: "TEXT DEFAULT ''" },
       { name: 'sync_strategy', definition: "TEXT DEFAULT ''" },
+      { name: 'result_summary', definition: "TEXT DEFAULT ''" },
+      { name: 'source', definition: "TEXT DEFAULT 'web'" },
     ];
     for (const col of runColumns) {
       if (colNames.has(col.name)) continue;

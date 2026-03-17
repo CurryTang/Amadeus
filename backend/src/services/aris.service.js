@@ -162,6 +162,8 @@ function normalizeLaunch(row = {}) {
     retryOfRunId: row.retryOfRunId ?? row.retry_of_run_id ?? null,
     maxIterations: row.maxIterations ?? row.max_iterations ?? null,
     reviewerModel: row.reviewerModel ?? row.reviewer_model ?? null,
+    resultSummary: row.resultSummary ?? row.result_summary ?? '',
+    source: row.source ?? 'web',
   };
 }
 
@@ -326,6 +328,10 @@ function buildRemoteLaunchScript({ launch, invocationPrompt, remoteAgentBin = DE
   }
   const envBlock = envExports.length > 0 ? envExports.join('\n') + '\n' : '';
 
+  // Read API URL and token from config for post-run reporting
+  const apiUrl = process.env.ARIS_API_URL || process.env.PUBLIC_URL || 'https://auto-reader.duckdns.org';
+  const adminToken = process.env.ADMIN_TOKEN || '';
+
   return `
 set -euo pipefail
 
@@ -390,6 +396,17 @@ fi
 # Ensure openai Python package is available for the review adapter
 python3 -c "import openai" 2>/dev/null || pip3 install --user openai 2>/dev/null || true
 
+# Write aris-api.json for CLI run registration (if API config available)
+${apiUrl && adminToken ? `if [ ! -f "\\$HOME/.claude/aris-api.json" ]; then
+  mkdir -p "\\$HOME/.claude"
+  cat > "\\$HOME/.claude/aris-api.json" <<'EOF_API_CONFIG'
+{
+  "api_url": ${JSON.stringify(apiUrl)},
+  "token": ${JSON.stringify(adminToken)}
+}
+EOF_API_CONFIG
+fi` : '# No ARIS API config available — skipping aris-api.json setup'}
+
 if ! command -v "$REMOTE_AGENT_BIN" >/dev/null 2>&1; then
   echo "Required ARIS runner binary '$REMOTE_AGENT_BIN' is not installed on the WSL runner" >&2
   exit 127
@@ -401,9 +418,31 @@ EOF_COMMAND
 
 chmod +x "$COMMAND_FILE"
 
-# Wrapper: run command, then write exit code to status file
+# Wrapper: run command, write exit code, then report result back to API
 STATUS_FILE="$RUN_DIR/run.status"
-nohup bash -c '"$@"; echo $? > '"$STATUS_FILE" -- "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
+ARIS_RUN_ID=${sshTransport.shellEscape(launch.id)}
+nohup bash -c '
+  "$@"
+  EXIT_CODE=$?
+  echo $EXIT_CODE > '"$STATUS_FILE"'
+  # Report result summary back to ARIS API
+  ARIS_CFG="$HOME/.claude/aris-api.json"
+  if [ -f "$ARIS_CFG" ] && command -v curl >/dev/null 2>&1; then
+    API_URL=$(python3 -c "import json;print(json.load(open('"'"'$ARIS_CFG'"'"'))['api_url'])" 2>/dev/null || true)
+    API_TOKEN=$(python3 -c "import json;print(json.load(open('"'"'$ARIS_CFG'"'"'))['token'])" 2>/dev/null || true)
+    if [ -n "$API_URL" ] && [ -n "$API_TOKEN" ]; then
+      TAIL=$(tail -20 '"$LOG_FILE"' 2>/dev/null | head -c 4000 || true)
+      STATUS=$( [ "$EXIT_CODE" -eq 0 ] && echo "completed" || echo "failed" )
+      # Escape JSON special chars in tail
+      TAIL_JSON=$(printf "%s" "$TAIL" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))" 2>/dev/null || echo '""')
+      curl -s -X PATCH "$API_URL/api/aris/runs/'"$ARIS_RUN_ID"'/status" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"status\":\"$STATUS\",\"resultSummary\":$TAIL_JSON}" \
+        >/dev/null 2>&1 || true
+    fi
+  fi
+' -- "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
 PID=$!
 
 printf '%s|%s|%s\n' "$PID" "$LOG_FILE" "$RUN_DIR"
@@ -724,7 +763,9 @@ async function defaultListLaunches() {
           remote_pid,
           log_path,
           run_directory,
-          retry_of_run_id
+          retry_of_run_id,
+          result_summary,
+          source
         FROM aris_runs
         ORDER BY datetime(COALESCE(updated_at, started_at)) DESC
         LIMIT 50
@@ -801,7 +842,9 @@ async function defaultGetLaunchById(runId) {
           remote_pid,
           log_path,
           run_directory,
-          retry_of_run_id
+          retry_of_run_id,
+          result_summary,
+          source
         FROM aris_runs
         WHERE id = ?
         LIMIT 1
@@ -847,8 +890,10 @@ async function defaultSaveLaunch(launch) {
           remote_pid,
           log_path,
           run_directory,
-          retry_of_run_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          retry_of_run_id,
+          result_summary,
+          source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         normalized.id,
@@ -878,6 +923,8 @@ async function defaultSaveLaunch(launch) {
         normalized.logPath,
         normalized.runDirectory,
         normalized.retryOfRunId,
+        normalized.resultSummary,
+        normalized.source,
       ],
     });
   } catch (_) {
@@ -1529,6 +1576,9 @@ function createArisService(overrides = {}) {
                 normalized.status = probe.status;
                 normalized.activePhase = probe.status;
                 normalized.updatedAt = new Date().toISOString();
+                if (probe.logTail && !normalized.resultSummary) {
+                  normalized.resultSummary = probe.logTail;
+                }
                 await deps.saveLaunch(normalized);
               }
             } catch (_) { /* non-fatal */ }
@@ -1555,6 +1605,8 @@ function createArisService(overrides = {}) {
         updatedAt: normalized.updatedAt,
         logPath: normalized.logPath,
         retryOfRunId: normalized.retryOfRunId,
+        resultSummary: normalized.resultSummary,
+        source: normalized.source,
       }));
     },
 
@@ -1574,6 +1626,9 @@ function createArisService(overrides = {}) {
             normalized.status = probe.status;
             normalized.activePhase = probe.status;
             normalized.updatedAt = new Date().toISOString();
+            if (probe.logTail && !normalized.resultSummary) {
+              normalized.resultSummary = probe.logTail;
+            }
             // Persist the status change so future list queries also show it
             await deps.saveLaunch(normalized);
           }
@@ -1670,6 +1725,93 @@ function createArisService(overrides = {}) {
       action.updatedAt = new Date().toISOString();
       await deps.saveRunAction(action);
       return normalizeAction(action);
+    },
+
+    /**
+     * Register a run initiated externally (e.g. from Claude Code CLI).
+     * Unlike createLaunchRequest, this does NOT dispatch via SSH — it just
+     * records the run in the DB so it appears on the web panel.
+     */
+    async registerExternalRun(payload = {}) {
+      const projectId = String(payload.projectId || '').trim();
+      const prompt = String(payload.prompt || '').trim();
+      const status = ['queued', 'running', 'completed', 'failed'].includes(payload.status)
+        ? payload.status
+        : 'completed';
+      const workflowType = String(payload.workflowType || 'custom_run').trim();
+      if (![ARIS_CUSTOM_WORKFLOW_TYPE, ...ARIS_WORKFLOW_TYPES].includes(workflowType)) {
+        throw new Error('Invalid workflowType');
+      }
+      if (!projectId) throw new Error('projectId is required');
+
+      let resolvedProject = null;
+      try { resolvedProject = await deps.getProjectById(projectId); } catch (_) { /* ok */ }
+
+      const now = new Date().toISOString();
+      const launch = normalizeLaunch({
+        id: `aris_run_${Date.now()}`,
+        projectId,
+        projectName: resolvedProject?.name || String(payload.projectName || '').trim(),
+        targetId: null,
+        targetName: '',
+        localProjectPath: resolvedProject?.localProjectPath || '',
+        workflowType,
+        prompt: prompt || 'CLI-initiated run',
+        title: String(payload.title || '').trim() || 'CLI Run',
+        runnerServerId: null,
+        runnerHost: String(payload.runnerHost || 'local-cli').trim(),
+        downstreamServerId: null,
+        downstreamServerName: '',
+        remoteWorkspacePath: String(payload.remoteWorkspacePath || '').trim(),
+        datasetRoot: '',
+        requiresUpload: false,
+        status,
+        activePhase: status === 'running' ? 'running_on_wsl' : status,
+        latestScore: payload.latestScore ?? null,
+        latestVerdict: String(payload.latestVerdict || '').trim(),
+        startedAt: payload.startedAt || now,
+        updatedAt: now,
+        summary: String(payload.summary || '').trim(),
+        syncStrategy: '',
+        remotePid: payload.remotePid ?? null,
+        logPath: String(payload.logPath || '').trim(),
+        runDirectory: String(payload.runDirectory || '').trim(),
+        retryOfRunId: null,
+        resultSummary: String(payload.resultSummary || '').trim(),
+        source: 'cli',
+      });
+
+      await deps.saveLaunch(launch);
+      return launch;
+    },
+
+    /**
+     * Update an existing run's status and result summary.
+     * Useful for CLI-initiated runs to report completion.
+     */
+    async updateRunStatus(runId, payload = {}) {
+      const existing = await deps.getLaunchById(runId);
+      if (!existing) throw new Error('Run not found');
+
+      if (payload.status && ['queued', 'running', 'completed', 'failed'].includes(payload.status)) {
+        existing.status = payload.status;
+        existing.activePhase = payload.status === 'running' ? 'running_on_wsl' : payload.status;
+      }
+      if (payload.resultSummary !== undefined) {
+        existing.resultSummary = String(payload.resultSummary || '').trim();
+      }
+      if (payload.summary !== undefined) {
+        existing.summary = String(payload.summary || '').trim();
+      }
+      if (payload.latestScore !== undefined) {
+        existing.latestScore = payload.latestScore;
+      }
+      if (payload.latestVerdict !== undefined) {
+        existing.latestVerdict = String(payload.latestVerdict || '').trim();
+      }
+      existing.updatedAt = new Date().toISOString();
+      await deps.saveLaunch(existing);
+      return normalizeLaunch(existing);
     },
 
     /**

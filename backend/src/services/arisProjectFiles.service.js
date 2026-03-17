@@ -83,6 +83,27 @@ function createClaudeMdContent({ projectName = '', localProjectPath = '' } = {})
     '## Remote Server',
     '',
     '- Add SSH, conda, and remote code-directory details here if AIRS should launch experiments remotely.',
+    '',
+    '## ARIS Run Registration (Auto-Tracker)',
+    '',
+    'When running ARIS skills from the CLI (not through the web panel), **you MUST automatically register the run** so it appears on the ARIS web dashboard. Use the `/aris-register` skill or follow this pattern:',
+    '',
+    '### How it works',
+    '',
+    '1. At the **start** of any ARIS skill, check `~/.claude/aris-api.json`. If absent, skip registration entirely.',
+    '2. If config exists, register the run via `POST {api_url}/api/aris/runs/register` with `status: "running"`. Save the returned run ID.',
+    '3. At the **end** of the skill, update the run via `PATCH {api_url}/api/aris/runs/{runId}/status` with the final status and a concise `resultSummary` (last 3-5 sentences of meaningful output).',
+    '4. **Never block a workflow** because registration fails. Always fail open.',
+    '',
+    '### Config file: `~/.claude/aris-api.json`',
+    '',
+    'Auto-created during project setup. If missing, run registration is silently skipped.',
+    '',
+    '### Quick reference',
+    '',
+    '- **Register**: `POST /api/aris/runs/register` — body: `{projectId, workflowType, prompt, title, status: "running", runnerHost}`',
+    '- **Update**: `PATCH /api/aris/runs/{runId}/status` — body: `{status: "completed"|"failed", resultSummary: "..."}`',
+    '- **Detail**: See `.claude/skills/aris-register/SKILL.md` for full curl examples.',
   ].join('\n');
 }
 
@@ -209,6 +230,27 @@ function createArisProjectFilesService(overrides = {}) {
       }
 
       await fs.writeFile(destination, file.content, 'utf8');
+    }
+
+    // Auto-create ~/.claude/aris-api.json if API config is available
+    await ensureArisApiConfig();
+  }
+
+  async function ensureArisApiConfig() {
+    const apiUrl = process.env.ARIS_API_URL || process.env.PUBLIC_URL || 'https://auto-reader.duckdns.org';
+    const adminToken = process.env.ADMIN_TOKEN || '';
+    if (!apiUrl || !adminToken) return;
+
+    const configPath = path.join(os.homedir(), '.claude', 'aris-api.json');
+    // Only write if file doesn't exist yet (don't overwrite user edits)
+    if (await pathExists(configPath)) return;
+
+    try {
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      await fs.writeFile(configPath, JSON.stringify({ api_url: apiUrl, token: adminToken }, null, 2) + '\n', 'utf8');
+    } catch (err) {
+      // Non-fatal — registration will just be skipped
+      console.warn('[ARIS] Could not auto-create aris-api.json:', err.message);
     }
   }
 

@@ -226,6 +226,31 @@ router.post('/runs', requireAuth, async (req, res) => {
   }
 });
 
+// Register a run initiated externally (e.g. from Claude Code CLI).
+// Does NOT dispatch via SSH — just records the run in the DB.
+router.post('/runs/register', requireAuth, async (req, res) => {
+  try {
+    const run = await arisService.registerExternalRun(req.body || {});
+    res.status(201).json({ run });
+  } catch (error) {
+    const status = /required|invalid/i.test(String(error.message || '')) ? 400 : 500;
+    console.error('[ARIS] register run error:', error);
+    res.status(status).json({ error: error.message || 'Failed to register ARIS run' });
+  }
+});
+
+// Update an existing run's status/result (e.g. CLI reporting completion).
+router.patch('/runs/:runId/status', requireAuth, async (req, res) => {
+  try {
+    const run = await arisService.updateRunStatus(req.params.runId, req.body || {});
+    res.json({ run });
+  } catch (error) {
+    const status = /not found/i.test(String(error.message || '')) ? 404 : 500;
+    console.error('[ARIS] update run status error:', error);
+    res.status(status).json({ error: error.message || 'Failed to update run status' });
+  }
+});
+
 router.post('/runs/:runId/retry', requireAuth, async (req, res) => {
   try {
     const launch = await arisService.retryRun(req.params.runId, {
