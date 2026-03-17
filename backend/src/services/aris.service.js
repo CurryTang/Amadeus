@@ -1439,6 +1439,10 @@ function createArisService(overrides = {}) {
       return deps.listTargets(projectId);
     },
 
+    async listServers() {
+      return deps.listServers();
+    },
+
     async createTarget(projectId, payload = {}) {
       const existingProject = await deps.getProjectById(projectId);
       if (!existingProject) throw new Error('Project not found');

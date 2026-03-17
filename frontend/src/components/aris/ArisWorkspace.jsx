@@ -974,15 +974,61 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 const rawPath = selectedProject.localFullPath || selectedProject.localProjectPath || '';
                 const vscodePath = rawPath.startsWith('/') ? rawPath : '';
                 return (
-                  <button
-                    className={`aris-vscode-btn${vscodePath ? '' : ' is-disabled'}`}
-                    onClick={() => vscodePath && window.open(`vscode://file${vscodePath}`, '_blank')}
-                    type="button"
-                    title={vscodePath ? `Open ${vscodePath} in VS Code` : 'Set the full local path in project settings first'}
-                    disabled={!vscodePath}
-                  >
-                    Open in VS Code
-                  </button>
+                  <>
+                    <button
+                      className={`aris-vscode-btn${vscodePath ? '' : ' is-disabled'}`}
+                      onClick={async () => {
+                        if (!vscodePath) return;
+                        // Fetch and download CLAUDE.md before opening VSCode
+                        try {
+                          const resp = await axios.get(`${apiUrl}/aris/projects/${selectedProject.id}/claude-md`, { headers: getAuthHeaders() });
+                          if (resp.data?.content) {
+                            const blob = new Blob([resp.data.content], { type: 'text/markdown' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'CLAUDE.md';
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }
+                        } catch (err) {
+                          console.warn('[ARIS] Failed to fetch CLAUDE.md:', err);
+                        }
+                        // Open VSCode after a small delay to let download start
+                        setTimeout(() => window.open(`vscode://file${vscodePath}`, '_blank'), 300);
+                      }}
+                      type="button"
+                      title={vscodePath ? `Download CLAUDE.md & open ${vscodePath} in VS Code` : 'Set the full local path in project settings first'}
+                      disabled={!vscodePath}
+                    >
+                      Open in VS Code
+                    </button>
+                    {vscodePath && (
+                      <button
+                        className="aris-vscode-btn aris-sync-claude-md-btn"
+                        onClick={async () => {
+                          try {
+                            const resp = await axios.get(`${apiUrl}/aris/projects/${selectedProject.id}/claude-md`, { headers: getAuthHeaders() });
+                            if (resp.data?.content) {
+                              const blob = new Blob([resp.data.content], { type: 'text/markdown' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = 'CLAUDE.md';
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            }
+                          } catch (err) {
+                            console.warn('[ARIS] Failed to fetch CLAUDE.md:', err);
+                          }
+                        }}
+                        type="button"
+                        title="Download CLAUDE.md for this project"
+                      >
+                        ↓ CLAUDE.md
+                      </button>
+                    )}
+                  </>
                 );
               })()}
             </div>
@@ -1433,14 +1479,27 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                           {row.hasWorkspace && (
                             <button
                               className={`aris-vscode-btn${row.localFullPath ? '' : ' is-disabled'}`}
-                              onClick={(event) => {
+                              onClick={async (event) => {
                                 event.stopPropagation();
-                                if (row.localFullPath) {
-                                  window.open(`vscode://file${row.localFullPath}`, '_blank');
+                                if (!row.localFullPath) return;
+                                try {
+                                  const resp = await axios.get(`${apiUrl}/aris/projects/${row.id}/claude-md`, { headers: getAuthHeaders() });
+                                  if (resp.data?.content) {
+                                    const blob = new Blob([resp.data.content], { type: 'text/markdown' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = 'CLAUDE.md';
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                  }
+                                } catch (err) {
+                                  console.warn('[ARIS] Failed to fetch CLAUDE.md:', err);
                                 }
+                                setTimeout(() => window.open(`vscode://file${row.localFullPath}`, '_blank'), 300);
                               }}
                               type="button"
-                              title={row.localFullPath ? `Open ${row.localFullPath} in VS Code` : 'Set the full local path in project settings first'}
+                              title={row.localFullPath ? `Download CLAUDE.md & open ${row.localFullPath} in VS Code` : 'Set the full local path in project settings first'}
                               disabled={!row.localFullPath}
                             >
                               Open in VS Code
