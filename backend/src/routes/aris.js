@@ -344,6 +344,20 @@ router.post('/runs/:runId/plan/:nodeKey/reject', requireAuth, async (req, res) =
   }
 });
 
+// GET /api/aris/projects/:projectId/files
+// Returns generated project files (CLAUDE.md managed block, skills).
+// Client applies these locally with `materializeProjectFiles`.
+router.get('/projects/:projectId/files', requireAuth, async (req, res) => {
+  try {
+    const files = await arisService.getProjectFiles(req.params.projectId);
+    res.json({ files });
+  } catch (error) {
+    const status = /not found/i.test(String(error.message || '')) ? 404 : 500;
+    console.error('[ARIS] get project files error:', error);
+    res.status(status).json({ error: error.message || 'Failed to get project files' });
+  }
+});
+
 // ─── Review reports endpoints ─────────────────────────────────────────────────
 
 // POST /api/aris/runs/:runId/review-reports

@@ -2064,6 +2064,23 @@ function createArisService(overrides = {}) {
     },
 
     /**
+     * Return the generated project files (CLAUDE.md managed block, skill files, etc.)
+     * for a project. Clients call this to get the latest content and apply it locally.
+     */
+    async getProjectFiles(projectId) {
+      const project = await deps.getProjectById(projectId);
+      if (!project) throw new Error('Project not found');
+      const remoteTargets = await getRemoteTargetsForFiles(projectId);
+      const projectFiles = await deps.buildProjectFiles({
+        projectName: project.name,
+        localProjectPath: project.localProjectPath,
+        projectId: project.id,
+        remoteTargets,
+      });
+      return projectFiles;
+    },
+
+    /**
      * Save review reports (from remote run) to the project's local folder.
      * Reports is { "TODO-1.1.md": "<content>", ... } (values are plain text).
      */
