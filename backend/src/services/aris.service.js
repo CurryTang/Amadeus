@@ -1109,8 +1109,8 @@ printf '%s\n' "$LOG_FILE"
   };
 }
 
-async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '', projectId = '' } = {}) {
-  return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath, projectId });
+async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '', projectId = '', remoteTargets = [] } = {}) {
+  return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath, projectId, remoteTargets });
 }
 
 // ─── Review report retrieval ─────────────────────────────────────────────────
