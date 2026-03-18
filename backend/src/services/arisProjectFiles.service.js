@@ -57,6 +57,39 @@ async function walkFiles(rootDir, currentDir = rootDir) {
   return files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
+function buildProjectConfig({ projectName = '', localProjectPath = '', projectId = '', remoteTargets = [] } = {}) {
+  const apiUrl = process.env.ARIS_API_URL || process.env.PUBLIC_URL || 'https://auto-reader.duckdns.org';
+  const servers = (remoteTargets || []).map(({ server, target }) => {
+    const userHost = server.user ? `${server.user}@${server.host}` : server.host;
+    const port = server.port && Number(server.port) !== 22 ? ` -p ${server.port}` : '';
+    const proxyJump = server.proxy_jump || server.proxyJump || '';
+    const sshCmd = proxyJump
+      ? `ssh -J ${proxyJump}${port} ${userHost}`
+      : `ssh${port} ${userHost}`;
+    return {
+      name: server.name || server.host || '',
+      host: server.host || '',
+      user: server.user || '',
+      port: Number(server.port) || 22,
+      proxyJump: proxyJump || '',
+      sshKeyPath: server.ssh_key_path || '~/.auto-researcher/id_ed25519',
+      ssh: sshCmd,
+      remotePath: target.remoteProjectPath || '',
+      datasetRoot: target.remoteDatasetRoot || '',
+      checkpointRoot: target.remoteCheckpointRoot || '',
+      outputRoot: target.remoteOutputRoot || '',
+      condaEnv: target.condaEnv || '',
+    };
+  });
+  return {
+    projectId: projectId || '',
+    projectName: String(projectName || '').trim(),
+    localPath: String(localProjectPath || '').trim(),
+    apiUrl,
+    servers,
+  };
+}
+
 function renderRemoteServerSection(remoteTargets = []) {
   if (!remoteTargets || remoteTargets.length === 0) {
     return [
@@ -104,6 +137,7 @@ function createClaudeMdContent({ projectName = '', localProjectPath = '', projec
     `- Local workspace: ${localPath}`,
     '- AIRS skills are installed project-locally under `.claude/skills/`.',
     '- Use local Claude Code in this project root to access the AIRS slash commands.',
+    '- **Project config**: `.aris/project.json` — structured JSON with project ID, API URL, and all remote servers. Skills should read this file instead of parsing CLAUDE.md.',
     '',
     '## Paper Library',
     '',
@@ -260,6 +294,15 @@ function createArisProjectFilesService(overrides = {}) {
       });
     }
 
+    // Generate structured config file — the single source of truth for project config.
+    // Skills and scripts read this instead of parsing CLAUDE.md.
+    const projectConfig = buildProjectConfig({ projectName, localProjectPath, projectId, remoteTargets });
+    projectFiles.push({
+      path: '.aris/project.json',
+      content: JSON.stringify(projectConfig, null, 2) + '\n',
+      writeMode: 'replace',
+    });
+
     projectFiles.push({
       path: 'CLAUDE.md',
       content: createClaudeMdContent({ projectName, localProjectPath, projectId, remoteTargets }),
@@ -315,6 +358,7 @@ function createArisProjectFilesService(overrides = {}) {
 
 module.exports = {
   MANAGED_BLOCK_ID,
+  buildProjectConfig,
   createArisProjectFilesService,
   createClaudeMdContent,
   mergeManagedBlock,

@@ -10,28 +10,36 @@ Check GPU availability: $ARGUMENTS
 
 ## Workflow
 
-### Step 1: Read Servers from Local CLAUDE.md
+### Step 1: Read Servers from `.aris/project.json`
 
-Read the project's `CLAUDE.md` file in the workspace root. Find the `## Remote Server` section inside the `<!-- AUTO_RESEARCHER_ARIS START -->` managed block. Each server appears as:
+Read the project config file:
 
-```
-### server-name
-
-- SSH: `ssh [-J proxy] user@host`
-- SSH key: `path/to/key` (optional)
-- Remote project path: `/path/to/project`
-- ...
+```bash
+cat .aris/project.json
 ```
 
-Parse each `### <name>` subsection under `## Remote Server`:
-- Extract the SSH command from the `- SSH: \`...\`` line
-- Extract the SSH key from `- SSH key: \`...\`` line (if present)
-- Extract remote project path from `- Remote project path: \`...\`` line
+This is a structured JSON file with all server details:
+```json
+{
+  "projectId": "...",
+  "servers": [
+    {
+      "name": "papermachine.egr.msu.edu",
+      "ssh": "ssh -J chenzh85@scully chenzh85@papermachine",
+      "host": "papermachine.egr.msu.edu",
+      "user": "chenzh85",
+      "proxyJump": "chenzh85@scully.egr.msu.edu",
+      "sshKeyPath": "~/.auto-researcher/id_ed25519",
+      "remotePath": "/egr/research-dselab/chenzh85/AutoRDL"
+    }
+  ]
+}
+```
 
-If `$ARGUMENTS` names a specific server, filter to only that server.
+Extract servers from the JSON. If `$ARGUMENTS` names a specific server, filter to that server only.
 
-If no `## Remote Server` section is found or it has no `###` entries, tell the user:
-> No remote servers found in CLAUDE.md. Add SSH server targets to this project in the ARIS workspace.
+If `.aris/project.json` is missing or has no `servers`, tell the user:
+> No remote servers configured. Add SSH server targets to this project in the ARIS workspace.
 
 ### Step 2: Query Each Server
 
@@ -44,10 +52,7 @@ ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
     "nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader" 2>&1
 ```
 
-The SSH command components come directly from the CLAUDE.md `SSH:` line. Parse it:
-- `ssh user@host` → user, host (no proxy)
-- `ssh -J proxy user@host` → user, host, proxyJump
-- `ssh -p PORT user@host` → user, host, port
+The SSH command is in the `ssh` field of each server object. Use it directly — no parsing needed.
 
 If `nvidia-smi` is not found, try `/usr/bin/nvidia-smi`.
 If the server is unreachable or has no GPUs, note it and move on.

@@ -11,46 +11,51 @@ allowed-tools: Bash(*), Read, Grep, Glob, Write, Edit, Agent, Skill, mcp__codex_
 
 ## Step 0: Local vs Remote Detection (MUST run first)
 
-This skill must run on the **remote server**, not on the local client device. Check:
+This skill must run on the **remote server**, not on the local client device. Read the project config and check:
 
-1. **Read CLAUDE.md** in the workspace root. Find the `## Remote Server` section.
-2. **Check if current machine is a listed remote server**:
-   ```bash
-   CURRENT_HOST=$(hostname -f 2>/dev/null || hostname)
-   echo "Current host: $CURRENT_HOST"
-   ```
-3. **Decision**:
-   - If `$CURRENT_HOST` matches one of the servers listed in CLAUDE.md (e.g. `papermachine.egr.msu.edu`, `grandrapids.egr.msu.edu`) → **proceed to Mode Detection below**
-   - If `$CURRENT_HOST` does NOT match (e.g. running on a Mac/local laptop) → **dispatch remotely** via the ARIS API:
+```bash
+# Read project config (structured JSON — no markdown parsing needed)
+ARIS_CONFIG=".aris/project.json"
+if [ -f "$ARIS_CONFIG" ]; then
+  CURRENT_HOST=$(hostname -f 2>/dev/null || hostname)
+  # Check if current host matches any configured server
+  IS_REMOTE=$(python3 -c "
+import json, sys
+cfg = json.load(open('$ARIS_CONFIG'))
+hosts = [s['host'] for s in cfg.get('servers', [])]
+print('yes' if '$CURRENT_HOST' in hosts else 'no')
+" 2>/dev/null || echo "no")
+  echo "Current host: $CURRENT_HOST — is remote server: $IS_REMOTE"
+fi
+```
 
-   ```bash
-   ARIS_CFG="$HOME/.claude/aris-api.json"
-   if [ -f "$ARIS_CFG" ]; then
-     API_URL=$(python3 -c "import json;print(json.load(open('$ARIS_CFG'))['api_url'])")
-     API_TOKEN=$(python3 -c "import json;print(json.load(open('$ARIS_CFG'))['token'])")
-     # Read project ID from CLAUDE.md
-     PROJECT_ID=$(grep -o 'ARIS Project ID: `[^`]*`' CLAUDE.md | grep -o 'aris_project_[^`]*')
-     # Build the prompt — pass through $ARGUMENTS exactly
-     PROMPT=$(printf '%s' "$ARGUMENTS" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")
-     if [ -n "$PROJECT_ID" ]; then
-       RESULT=$(curl -s -X POST "$API_URL/api/aris/runs" \
-         -H "Authorization: Bearer $API_TOKEN" \
-         -H "Content-Type: application/json" \
-         -d "{\"projectId\":\"$PROJECT_ID\",\"workflowType\":\"auto_review_loop\",\"prompt\":$PROMPT,\"title\":\"Auto Review Loop\"}")
-       RUN_ID=$(echo "$RESULT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('run',{}).get('id','') or d.get('error','UNKNOWN ERROR'))" 2>/dev/null)
-       echo "Dispatched to remote server. ARIS run ID: $RUN_ID"
-       echo "Monitor progress at: $API_URL (ARIS dashboard)"
-     fi
-   fi
-   ```
+**Decision**:
+- If `$IS_REMOTE` is `yes` → **proceed to Mode Detection below**
+- If `$IS_REMOTE` is `no` (running on Mac/laptop) → **dispatch remotely**:
 
-   After dispatching, **STOP**. Do not proceed with local execution. Tell the user:
-   > This auto-review-loop has been dispatched to the remote server via ARIS.
-   > You can monitor progress on the ARIS web dashboard. Run ID: $RUN_ID
+```bash
+if [ -f "$ARIS_CONFIG" ]; then
+  PROJECT_ID=$(python3 -c "import json;print(json.load(open('$ARIS_CONFIG'))['projectId'])")
+  API_URL=$(python3 -c "import json;print(json.load(open('$ARIS_CONFIG'))['apiUrl'])")
+  API_TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.claude/aris-api.json'))['token'])" 2>/dev/null)
+  PROMPT=$(printf '%s' "$ARGUMENTS" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")
+  if [ -n "$PROJECT_ID" ] && [ -n "$API_TOKEN" ]; then
+    RESULT=$(curl -s -X POST "$API_URL/api/aris/runs" \
+      -H "Authorization: Bearer $API_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"projectId\":\"$PROJECT_ID\",\"workflowType\":\"auto_review_loop\",\"prompt\":$PROMPT,\"title\":\"Auto Review Loop\"}")
+    RUN_ID=$(echo "$RESULT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('run',{}).get('id','') or d.get('error','UNKNOWN'))" 2>/dev/null)
+    echo "Dispatched to remote server. ARIS run ID: $RUN_ID"
+  fi
+fi
+```
 
-   If `aris-api.json` is missing or `PROJECT_ID` is empty, tell the user:
-   > Cannot dispatch remotely — no ARIS API config or project ID found in CLAUDE.md.
-   > Please run this from the ARIS web dashboard or on the remote server directly.
+After dispatching, **STOP**. Tell the user:
+> Dispatched to remote server via ARIS. Run ID: $RUN_ID
+> Monitor on the ARIS dashboard.
+
+If `.aris/project.json` is missing, tell the user:
+> No project config found. Run `/init-repo` or add this project in the ARIS web dashboard.
 
 ## Mode Detection
 
