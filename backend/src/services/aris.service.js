@@ -315,7 +315,20 @@ function buildWorkflowInvocation(launch = {}) {
     lines.push('Use this as a remote path reference. Do not upload the dataset from the client.');
   }
 
-  if (isNonEmpty(launch.downstreamServerName)) {
+  // Include ALL available experiment servers so the agent can route work intelligently
+  const availableServers = launch.availableServers || [];
+  if (availableServers.length > 0) {
+    lines.push('');
+    lines.push('Available experiment servers (the agent has SSH access to all of these):');
+    for (const srv of availableServers) {
+      const parts = [`  - ${srv.name}`];
+      if (srv.ssh) parts[0] += ` (${srv.ssh})`;
+      if (srv.remotePath) parts.push(`    Project path: ${srv.remotePath}`);
+      if (srv.datasetRoot) parts.push(`    Dataset root: ${srv.datasetRoot}`);
+      lines.push(parts.join('\n'));
+    }
+    lines.push('Choose servers based on GPU availability. Run /gpu-status to check before dispatching experiments.');
+  } else if (isNonEmpty(launch.downstreamServerName)) {
     lines.push(`Preferred experiment server: ${launch.downstreamServerName}`);
   }
 
@@ -1467,6 +1480,25 @@ function createArisService(overrides = {}) {
       : null;
     const syncStrategy = inferSyncStrategy(resolvedProject || {}, resolvedTarget || {}, serverForSync || {});
 
+    // Collect ALL project targets as available servers for multi-server dispatch.
+    // The agent can route experiments to any of these based on GPU availability.
+    const allProjectTargets = (await deps.listTargets(projectId))
+      .filter((t) => String(t.projectId) === String(projectId));
+    const availableServers = allProjectTargets.map((t) => {
+      const srv = servers.find((s) => String(s.id) === String(t.sshServerId));
+      if (!srv) return null;
+      const userHost = srv.user ? `${srv.user}@${srv.host}` : srv.host;
+      const proxyJump = srv.proxy_jump || '';
+      const sshCmd = proxyJump ? `ssh -J ${proxyJump} ${userHost}` : `ssh ${userHost}`;
+      return {
+        name: srv.name || srv.host || '',
+        host: srv.host || '',
+        ssh: sshCmd,
+        remotePath: t.remoteProjectPath || '',
+        datasetRoot: t.remoteDatasetRoot || '',
+      };
+    }).filter(Boolean);
+
     return {
       launch: {
         id: `aris_run_${Date.now()}`,
@@ -1482,6 +1514,7 @@ function createArisService(overrides = {}) {
         runnerHost: runner.name || runner.host || '',
         downstreamServerId: downstreamServer?.id ?? null,
         downstreamServerName: downstreamServer?.name ?? '',
+        availableServers,
         remoteWorkspacePath: String(
           resolvedTarget?.remoteProjectPath
           || payload.remoteWorkspacePath

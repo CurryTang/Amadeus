@@ -138,7 +138,7 @@ Read the TODO item's description from the plan file. It contains:
 - Modifying existing code
 - Running commands (pip install, tests, etc.)
 - Creating data adapters
-- Running experiments
+- Running experiments — **check GPU availability first** (see "Multi-Server Experiment Routing" section) and dispatch to the server with free GPUs
 
 ### Phase 3: Verify via Codex MCP
 
@@ -410,6 +410,7 @@ Send `review_scored` notification if `~/.claude/feishu.json` exists.
 #### Phase C: Implement Fixes
 
 For each action item (highest priority first): code changes, experiments, analysis, documentation.
+When running experiments, use multi-server routing: check `/gpu-status` or `.aris/project.json` servers and dispatch to whichever has free GPUs. Run independent experiments on different servers in parallel.
 
 #### Phase D: Wait for Results
 
@@ -426,6 +427,45 @@ Append to `AUTO_REVIEW.md`. Write `REVIEW_STATE.json`.
 3. Feishu notification if configured
 
 ---
+
+## Multi-Server Experiment Routing (Both Modes)
+
+When running experiments that require GPUs, use ALL available servers — not just one.
+
+### Before launching experiments:
+
+1. **Check GPU availability** across all project servers:
+   ```bash
+   # Read servers from .aris/project.json
+   python3 -c "
+   import json
+   cfg = json.load(open('.aris/project.json'))
+   for s in cfg['servers']:
+       print(f\"{s['name']}: {s['ssh']}\")
+   "
+   ```
+
+2. **Run /gpu-status** (or manually SSH to each server with `nvidia-smi`) to find free GPUs.
+
+3. **Route experiments to servers with free GPUs**:
+   - Pick the server(s) with the most free GPUs
+   - For multi-GPU jobs, prefer servers with contiguous free GPUs
+   - If all GPUs on one server are busy, try the next server
+   - Run independent experiments on different servers in parallel when possible
+
+### Dispatching to a remote server:
+
+```bash
+# SSH to a specific server and run an experiment
+ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no <SSH_COMMAND_FROM_PROJECT_JSON> \
+  "cd <remotePath> && CUDA_VISIBLE_DEVICES=<free_gpu_ids> <command>"
+```
+
+### Key principles:
+- **Never hardcode a single server** — always check availability first
+- **Parallel dispatch**: if two experiments are independent, run them on different servers simultaneously
+- **Retry on a different server** if one server's GPUs fill up during the run
+- The prompt may include "Available experiment servers" — use ALL of them, not just the first
 
 ## Key Rules (Both Modes)
 
