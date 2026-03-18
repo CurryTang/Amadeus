@@ -127,6 +127,24 @@ router.delete('/targets/:targetId', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/aris/projects/:projectId/clone-targets-from/:sourceProjectId
+// Clone all targets from another project. Handy when multiple projects share
+// the same set of servers (e.g. Memory uses the same 6 servers as AutoRDL).
+router.post('/projects/:projectId/clone-targets-from/:sourceProjectId', requireAuth, async (req, res) => {
+  try {
+    const result = await arisService.cloneTargetsFromProject(
+      req.params.sourceProjectId,
+      req.params.projectId,
+      req.body || {},
+    );
+    res.status(201).json(result);
+  } catch (error) {
+    const status = /not found/i.test(String(error.message || '')) ? 404 : 500;
+    console.error('[ARIS] clone targets error:', error);
+    res.status(status).json({ error: error.message || 'Failed to clone targets' });
+  }
+});
+
 router.get('/projects/:projectId/claude-md', requireAuth, async (req, res) => {
   try {
     const projects = await arisService.listProjects();

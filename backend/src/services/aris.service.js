@@ -1303,31 +1303,30 @@ function createArisService(overrides = {}) {
   }
 
   async function reconcileProjectTargets(projectId, payload = {}) {
-    const endpointIntent = Object.prototype.hasOwnProperty.call(payload, 'remoteEndpoints')
-      || Object.prototype.hasOwnProperty.call(payload, 'noRemote');
-    if (!endpointIntent) {
+    // Only reconcile if the payload explicitly includes remoteEndpoints
+    if (!Object.prototype.hasOwnProperty.call(payload, 'remoteEndpoints')) {
       return null;
     }
 
-    const noRemote = payload.noRemote === true;
-    const remoteEndpoints = noRemote
-      ? []
-      : (Array.isArray(payload.remoteEndpoints) ? payload.remoteEndpoints : []).map((endpoint) => ({
-        id: endpoint?.id || '',
-        sshServerId: endpoint?.sshServerId ?? null,
-        remoteProjectPath: String(endpoint?.remoteProjectPath || '').trim(),
-        remoteDatasetRoot: String(endpoint?.remoteDatasetRoot || '').trim(),
-        remoteCheckpointRoot: String(endpoint?.remoteCheckpointRoot || '').trim(),
-        remoteOutputRoot: String(endpoint?.remoteOutputRoot || '').trim(),
-      }));
-
-    if (!noRemote && remoteEndpoints.length === 0) {
-      throw new Error('remoteEndpoints are required when noRemote is false');
-    }
+    const remoteEndpoints = (Array.isArray(payload.remoteEndpoints) ? payload.remoteEndpoints : []).map((endpoint) => ({
+      id: endpoint?.id || '',
+      sshServerId: endpoint?.sshServerId ?? null,
+      remoteProjectPath: String(endpoint?.remoteProjectPath || '').trim(),
+      remoteDatasetRoot: String(endpoint?.remoteDatasetRoot || '').trim(),
+      remoteCheckpointRoot: String(endpoint?.remoteCheckpointRoot || '').trim(),
+      remoteOutputRoot: String(endpoint?.remoteOutputRoot || '').trim(),
+    }));
 
     const servers = await deps.listServers();
     const existingTargets = (await deps.listTargets(projectId))
       .filter((target) => String(target.projectId) === String(projectId));
+
+    if (remoteEndpoints.length === 0) {
+      // Empty remoteEndpoints → keep existing targets unchanged
+      // To delete all targets, use the individual DELETE /targets/:id endpoint
+      return existingTargets;
+    }
+
     const keptTargetIds = new Set();
     const savedTargets = [];
 
@@ -1374,6 +1373,7 @@ function createArisService(overrides = {}) {
       savedTargets.push(target);
     }
 
+    // Only remove targets that were explicitly replaced (payload had entries)
     for (const target of existingTargets) {
       if (!keptTargetIds.has(String(target.id))) {
         await deps.deleteTarget(target.id);
@@ -2061,6 +2061,53 @@ function createArisService(overrides = {}) {
       );
 
       return { projectId, projectName: project.name, servers: results };
+    },
+
+    /**
+     * Clone all targets from one project to another.
+     * Optionally override remoteProjectPath (e.g. different project folder on same servers).
+     */
+    async cloneTargetsFromProject(sourceProjectId, destProjectId, { remoteProjectPath = '' } = {}) {
+      const sourceProject = await deps.getProjectById(sourceProjectId);
+      if (!sourceProject) throw new Error('Source project not found');
+      const destProject = await deps.getProjectById(destProjectId);
+      if (!destProject) throw new Error('Destination project not found');
+
+      const sourceTargets = (await deps.listTargets(sourceProjectId))
+        .filter((t) => String(t.projectId) === String(sourceProjectId));
+      if (sourceTargets.length === 0) throw new Error('Source project has no targets to clone');
+
+      const cloned = [];
+      for (let i = 0; i < sourceTargets.length; i += 1) {
+        const src = sourceTargets[i];
+        const now = new Date().toISOString();
+        const target = normalizeTarget({
+          id: `aris_target_${Date.now()}_${i}`,
+          projectId: destProjectId,
+          sshServerId: src.sshServerId,
+          sshServerName: src.sshServerName,
+          remoteProjectPath: remoteProjectPath || src.remoteProjectPath,
+          remoteDatasetRoot: src.remoteDatasetRoot,
+          remoteCheckpointRoot: src.remoteCheckpointRoot,
+          remoteOutputRoot: src.remoteOutputRoot,
+          sharedFsGroup: src.sharedFsGroup || '',
+          createdAt: now,
+          updatedAt: now,
+        });
+        await deps.saveTarget(target);
+        cloned.push(target);
+      }
+
+      // Regenerate CLAUDE.md for the destination project
+      const remoteTargets = await getRemoteTargetsForFiles(destProjectId);
+      const projectFiles = await deps.buildProjectFiles({
+        projectName: destProject.name,
+        localProjectPath: destProject.localProjectPath,
+        projectId: destProject.id,
+        remoteTargets,
+      });
+
+      return { cloned: cloned.length, targets: cloned, projectFiles };
     },
 
     /**
