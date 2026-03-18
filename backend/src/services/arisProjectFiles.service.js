@@ -57,7 +57,42 @@ async function walkFiles(rootDir, currentDir = rootDir) {
   return files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
-function createClaudeMdContent({ projectName = '', localProjectPath = '', projectId = '' } = {}) {
+function renderRemoteServerSection(remoteTargets = []) {
+  if (!remoteTargets || remoteTargets.length === 0) {
+    return [
+      '## Remote Server',
+      '',
+      '- Add SSH, conda, and remote code-directory details here if AIRS should launch experiments remotely.',
+      '',
+    ];
+  }
+
+  const lines = ['## Remote Server', ''];
+  for (const { server, target } of remoteTargets) {
+    const serverLabel = server.name || server.host || 'server';
+    lines.push(`### ${serverLabel}`);
+    lines.push('');
+    const userHost = server.user ? `${server.user}@${server.host}` : server.host;
+    const port = server.port && Number(server.port) !== 22 ? ` -p ${server.port}` : '';
+    const proxyJump = server.proxy_jump || server.proxyJump || '';
+    const sshCmd = proxyJump
+      ? `ssh -J ${proxyJump}${port} ${userHost}`
+      : `ssh${port} ${userHost}`;
+    lines.push(`- SSH: \`${sshCmd}\``);
+    if (server.ssh_key_path && server.ssh_key_path !== '~/.auto-researcher/id_ed25519') {
+      lines.push(`- SSH key: \`${server.ssh_key_path}\``);
+    }
+    lines.push(`- Remote project path: \`${target.remoteProjectPath}\``);
+    if (target.condaEnv) lines.push(`- Conda env: \`${target.condaEnv}\``);
+    if (target.remoteDatasetRoot) lines.push(`- Remote dataset root: \`${target.remoteDatasetRoot}\``);
+    if (target.remoteCheckpointRoot) lines.push(`- Remote checkpoint root: \`${target.remoteCheckpointRoot}\``);
+    if (target.remoteOutputRoot) lines.push(`- Remote output root: \`${target.remoteOutputRoot}\``);
+    lines.push('');
+  }
+  return lines;
+}
+
+function createClaudeMdContent({ projectName = '', localProjectPath = '', projectId = '', remoteTargets = [] } = {}) {
   const displayName = String(projectName || localProjectPath || 'AIRS Project').trim();
   const localPath = String(localProjectPath || '.').trim() || '.';
   const pid = String(projectId || '').trim();
@@ -81,10 +116,7 @@ function createClaudeMdContent({ projectName = '', localProjectPath = '', projec
     '- Preferred name: `auto-researcher`.',
     '- Compatibility alias: `zotero`.',
     '',
-    '## Remote Server',
-    '',
-    '- Add SSH, conda, and remote code-directory details here if AIRS should launch experiments remotely.',
-    '',
+    ...renderRemoteServerSection(remoteTargets),
     '## ARIS Run Registration (Auto-Tracker)',
     ...(pid ? ['', `**ARIS Project ID: \`${pid}\`**`, ''] : []),
     '',
@@ -188,7 +220,7 @@ function createArisProjectFilesService(overrides = {}) {
     return updateCachedSource(cacheDir, repoUrl, repoRef);
   }
 
-  async function buildProjectFiles({ projectName = '', localProjectPath = '', projectId = '' } = {}) {
+  async function buildProjectFiles({ projectName = '', localProjectPath = '', projectId = '', remoteTargets = [] } = {}) {
     const sourceDir = await resolveSourceDir();
     const skillSourceDir = path.join(sourceDir, 'skills');
     const sourceFiles = await walkFiles(skillSourceDir);
@@ -230,7 +262,7 @@ function createArisProjectFilesService(overrides = {}) {
 
     projectFiles.push({
       path: 'CLAUDE.md',
-      content: createClaudeMdContent({ projectName, localProjectPath, projectId }),
+      content: createClaudeMdContent({ projectName, localProjectPath, projectId, remoteTargets }),
       writeMode: 'managed_block',
       blockId: MANAGED_BLOCK_ID,
     });
