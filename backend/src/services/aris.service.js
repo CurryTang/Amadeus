@@ -1,4 +1,5 @@
 const path = require('path');
+const os = require('os');
 const fs = require('fs').promises;
 const { getDb } = require('../db');
 const sshTransport = require('./ssh-transport.service');
@@ -78,6 +79,14 @@ function toIsoOrNull(value) {
 function buildDefaultWorkspacePath(projectId, username = 'default') {
   const root = process.env.ARIS_REMOTE_WORKSPACE_ROOT || `/home/${username}/auto-researcher/aris`;
   return path.posix.join(root, String(projectId || 'default-project'));
+}
+
+// When targetId is missing, auto-select the first target for the project
+// so remoteWorkspacePath and runner are set correctly.
+async function autoSelectTarget(projectId, deps) {
+  const targets = (await deps.listTargets(projectId))
+    .filter((t) => String(t.projectId) === String(projectId));
+  return targets.length > 0 ? targets[0] : null;
 }
 
 function buildRunDirectory(remoteWorkspacePath, runId) {
@@ -500,12 +509,12 @@ function parseRemoteLaunchOutput(stdout = '') {
   };
 }
 
-function pickRunnerServer(servers = []) {
+function pickRunnerServer(servers = [], username = '') {
   if (!Array.isArray(servers) || servers.length === 0) {
     return {
       id: null,
       host: '127.0.0.1',
-      user: process.env.ARIS_WSL_RUNNER_USER || 'czk',
+      user: process.env.ARIS_WSL_RUNNER_USER || username || os.userInfo().username || 'default',
       name: process.env.ARIS_WSL_RUNNER_NAME || 'wsl-default',
       type: 'wsl',
       status: 'assumed-online',
@@ -1405,18 +1414,26 @@ function createArisService(overrides = {}) {
     let runner = null;
     let downstreamServer = null;
 
+    resolvedProject = await deps.getProjectById(projectId);
+    if (!resolvedProject) {
+      throw new Error('Project not found');
+    }
+
     if (targetId) {
-      resolvedProject = await deps.getProjectById(projectId);
-      if (!resolvedProject) {
-        throw new Error('Project not found');
-      }
       resolvedTarget = await deps.getTargetById(targetId);
       if (!resolvedTarget || String(resolvedTarget.projectId) !== String(projectId)) {
         throw new Error('Target not found');
       }
+    } else {
+      // Auto-select first target for this project so we get the correct
+      // remoteProjectPath and SSH server — never fall back to guessing.
+      resolvedTarget = await autoSelectTarget(projectId, deps);
+    }
+
+    if (resolvedTarget) {
       const server = servers.find((item) => String(item.id) === String(resolvedTarget.sshServerId));
       if (!server) {
-        throw new Error('Target SSH server not found');
+        throw new Error(`SSH server (id=${resolvedTarget.sshServerId}) for target "${resolvedTarget.sshServerName}" not found`);
       }
       runner = {
         id: server.id,
@@ -1428,20 +1445,22 @@ function createArisService(overrides = {}) {
         ssh_key_path: server.ssh_key_path || '',
       };
     } else {
+      // No targets configured — fall back to runner selection
       const runners = listRunnerServers(servers);
       const requestedRunnerId = payload.runnerServerId ?? null;
       runner = requestedRunnerId
         ? (runners.find((server) => String(server.id) === String(requestedRunnerId)) || null)
         : (runners[0] || null);
       if (!runner) {
-        throw new Error('runnerServerId is required');
+        throw new Error('No targets or runner servers configured for this project');
       }
-      const downstreamServers = listDownstreamServers(servers, runner.id);
-      const downstreamServerId = payload.downstreamServerId ?? null;
-      downstreamServer = downstreamServerId
-        ? downstreamServers.find((server) => String(server.id) === String(downstreamServerId))
-        : (downstreamServers[0] || null);
     }
+
+    const downstreamServers = listDownstreamServers(servers, runner.id);
+    const downstreamServerId = payload.downstreamServerId ?? null;
+    downstreamServer = downstreamServerId
+      ? downstreamServers.find((server) => String(server.id) === String(downstreamServerId))
+      : (downstreamServers[0] || null);
 
     const serverForSync = resolvedTarget
       ? servers.find((item) => String(item.id) === String(resolvedTarget.sshServerId))
