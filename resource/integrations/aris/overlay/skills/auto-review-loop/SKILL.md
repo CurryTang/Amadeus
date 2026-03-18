@@ -30,12 +30,14 @@ This skill must run on the **remote server**, not on the local client device. Ch
      API_TOKEN=$(python3 -c "import json;print(json.load(open('$ARIS_CFG'))['token'])")
      # Read project ID from CLAUDE.md
      PROJECT_ID=$(grep -o 'ARIS Project ID: `[^`]*`' CLAUDE.md | grep -o 'aris_project_[^`]*')
+     # Build the prompt — pass through $ARGUMENTS exactly
+     PROMPT=$(printf '%s' "$ARGUMENTS" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")
      if [ -n "$PROJECT_ID" ]; then
-       RESULT=$(curl -s -X POST "$API_URL/api/aris/runs/enqueue-v2" \
+       RESULT=$(curl -s -X POST "$API_URL/api/aris/runs" \
          -H "Authorization: Bearer $API_TOKEN" \
          -H "Content-Type: application/json" \
-         -d "{\"projectId\":\"$PROJECT_ID\",\"workflowType\":\"auto_review_loop\",\"prompt\":\"$ARGUMENTS\",\"title\":\"Auto Review Loop\"}")
-       RUN_ID=$(echo "$RESULT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('run',{}).get('id',''))" 2>/dev/null)
+         -d "{\"projectId\":\"$PROJECT_ID\",\"workflowType\":\"auto_review_loop\",\"prompt\":$PROMPT,\"title\":\"Auto Review Loop\"}")
+       RUN_ID=$(echo "$RESULT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('run',{}).get('id','') or d.get('error','UNKNOWN ERROR'))" 2>/dev/null)
        echo "Dispatched to remote server. ARIS run ID: $RUN_ID"
        echo "Monitor progress at: $API_URL (ARIS dashboard)"
      fi
@@ -44,7 +46,7 @@ This skill must run on the **remote server**, not on the local client device. Ch
 
    After dispatching, **STOP**. Do not proceed with local execution. Tell the user:
    > This auto-review-loop has been dispatched to the remote server via ARIS.
-   > You can monitor progress on the ARIS web dashboard.
+   > You can monitor progress on the ARIS web dashboard. Run ID: $RUN_ID
 
    If `aris-api.json` is missing or `PROJECT_ID` is empty, tell the user:
    > Cannot dispatch remotely — no ARIS API config or project ID found in CLAUDE.md.
