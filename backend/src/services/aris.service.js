@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs').promises;
 const { getDb } = require('../db');
 const sshTransport = require('./ssh-transport.service');
 const { createArisProjectFilesService } = require('./arisProjectFiles.service');
@@ -123,6 +124,7 @@ function normalizeTarget(row = {}) {
     remoteDatasetRoot: row.remoteDatasetRoot ?? row.remote_dataset_root ?? '',
     remoteCheckpointRoot: row.remoteCheckpointRoot ?? row.remote_checkpoint_root ?? '',
     remoteOutputRoot: row.remoteOutputRoot ?? row.remote_output_root ?? '',
+    condaEnv: row.condaEnv ?? row.conda_env ?? '',
     sharedFsGroup: row.sharedFsGroup ?? row.shared_fs_group ?? '',
     createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
     updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? null,
@@ -312,8 +314,11 @@ function buildWorkflowInvocation(launch = {}) {
   return lines.join('\n');
 }
 
-function buildRemoteLaunchScript({ launch, invocationPrompt, remoteAgentBin = DEFAULT_REMOTE_AGENT_BIN }) {
+function buildRemoteLaunchScript({ launch, invocationPrompt, remoteAgentBin = DEFAULT_REMOTE_AGENT_BIN, skillMdContent = '' }) {
   const runDirectory = buildRunDirectory(launch.remoteWorkspacePath, launch.id);
+  const skillDeployBlock = skillMdContent
+    ? `\n# Force-deploy latest auto-review-loop skill from backend\nmkdir -p .claude/skills/auto-review-loop\npython3 -c "import base64,sys;open('.claude/skills/auto-review-loop/SKILL.md','wb').write(base64.b64decode(sys.argv[1]))" "${Buffer.from(skillMdContent, 'utf8').toString('base64')}" 2>/dev/null || true\necho "[ARIS] auto-review-loop skill updated from backend" >&2\n`
+    : '';
   const promptPath = path.posix.join(runDirectory, 'prompt.txt');
   const logPath = path.posix.join(runDirectory, 'run.log');
   const commandPath = path.posix.join(runDirectory, 'launch.sh');
@@ -378,6 +383,7 @@ if [ ! -f ".claude/skills/research-lit/SKILL.md" ] && [ ! -f ".claude/skills/res
   fi
 fi
 
+${skillDeployBlock}
 # Install review adapter for auto-review-loop workflows
 ADAPTER_SRC="\$HOME/.cache/auto-researcher/aris-skills/review-adapter.py"
 if [ ! -f "\$ADAPTER_SRC" ]; then
@@ -418,6 +424,38 @@ EOF_COMMAND
 
 chmod +x "$COMMAND_FILE"
 
+# Write review upload helper (uses only stdlib, no extra deps)
+cat > "$RUN_DIR/upload-reviews.py" <<'EOF_UPLOAD'
+import os, sys, json, base64, urllib.request
+workspace, api_url, token, run_id = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+review_dir = os.path.join(workspace, 'review')
+if not os.path.isdir(review_dir):
+    sys.exit(0)
+files = {}
+for f in sorted(os.listdir(review_dir)):
+    if f.endswith('.md'):
+        try:
+            with open(os.path.join(review_dir, f), 'rb') as fp:
+                files[f] = base64.b64encode(fp.read()).decode()
+        except Exception:
+            pass
+if not files:
+    sys.exit(0)
+payload = json.dumps(files).encode()
+req = urllib.request.Request(
+    api_url + '/api/aris/runs/' + run_id + '/review-reports',
+    data=payload,
+    headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+    method='POST'
+)
+try:
+    urllib.request.urlopen(req, timeout=30)
+    print('[ARIS] Uploaded ' + str(len(files)) + ' review report(s)')
+except Exception as e:
+    print('[ARIS] review upload failed: ' + str(e), file=sys.stderr)
+    sys.exit(1)
+EOF_UPLOAD
+
 # Wrapper: run command, write exit code, then report result back to API
 STATUS_FILE="$RUN_DIR/run.status"
 ARIS_RUN_ID=${sshTransport.shellEscape(launch.id)}
@@ -440,6 +478,10 @@ nohup bash -c '
         -H "Content-Type: application/json" \
         -d "{\"status\":\"$STATUS\",\"resultSummary\":$TAIL_JSON}" \
         >/dev/null 2>&1 || true
+      # Upload review reports so client can retrieve them
+      if [ -d '"$WORKSPACE"'/review ] && [ -f '"$RUN_DIR"'/upload-reviews.py ]; then
+        python3 '"$RUN_DIR"'/upload-reviews.py '"$WORKSPACE"' "$API_URL" "$API_TOKEN" '"$ARIS_RUN_ID"' >/dev/null 2>&1 || true
+      fi
     fi
   fi
 ' -- "$COMMAND_FILE" > "$LOG_FILE" 2>&1 < /dev/null &
@@ -673,10 +715,11 @@ async function defaultSaveTarget(target) {
           remote_dataset_root,
           remote_checkpoint_root,
           remote_output_root,
+          conda_env,
           shared_fs_group,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         normalized.id,
@@ -687,6 +730,7 @@ async function defaultSaveTarget(target) {
         normalized.remoteDatasetRoot,
         normalized.remoteCheckpointRoot,
         normalized.remoteOutputRoot,
+        normalized.condaEnv,
         normalized.sharedFsGroup,
         normalized.createdAt,
         normalized.updatedAt || normalized.createdAt,
@@ -984,7 +1028,16 @@ async function defaultDispatchLaunch({ launch, runner }) {
   }
 
   const invocationPrompt = buildWorkflowInvocation(launch);
-  const scriptBody = buildRemoteLaunchScript({ launch, invocationPrompt });
+
+  let skillMdContent = '';
+  if (launch.workflowType === 'auto_review_loop') {
+    // Prefer overlay (tracked in main repo) over submodule version
+    const overlayPath = path.join(__dirname, '..', '..', '..', 'resource', 'integrations', 'aris', 'overlay', 'skills', 'auto-review-loop', 'SKILL.md');
+    const submodulePath = path.join(__dirname, '..', '..', '..', 'aris', 'skills', 'auto-review-loop', 'SKILL.md');
+    skillMdContent = await fs.readFile(overlayPath, 'utf8').catch(() => fs.readFile(submodulePath, 'utf8').catch(() => ''));
+  }
+
+  const scriptBody = buildRemoteLaunchScript({ launch, invocationPrompt, skillMdContent });
   const result = await sshTransport.script(runner, scriptBody, [], { timeoutMs: 30000 });
   return parseRemoteLaunchOutput(result.stdout);
 }
@@ -1058,6 +1111,80 @@ printf '%s\n' "$LOG_FILE"
 
 async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '', projectId = '' } = {}) {
   return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath, projectId });
+}
+
+// ─── Review report retrieval ─────────────────────────────────────────────────
+// After an auto_review_loop run completes, copy review/ folder from the remote
+// workspace back to the local project folder so it's available on the client.
+
+async function retrieveRemoteReviewReports(runner, launch) {
+  if (!runner?.host || !runner?.user) return null;
+  if (!launch.remoteWorkspacePath) return null;
+
+  // SSH: list and base64-encode all .md files in review/
+  const script = `
+cd ${sshTransport.shellEscape(launch.remoteWorkspacePath)} 2>/dev/null || { echo "{}"; exit 0; }
+if [ ! -d "review" ]; then echo "{}"; exit 0; fi
+python3 -c "
+import os, json, base64
+files = {}
+for f in sorted(os.listdir('review')):
+    if f.endswith('.md'):
+        try:
+            with open(os.path.join('review', f), 'rb') as fp:
+                files[f] = base64.b64encode(fp.read()).decode()
+        except Exception:
+            pass
+print(json.dumps(files))
+" 2>/dev/null || echo "{}"
+`.trim();
+
+  try {
+    const result = await sshTransport.script(runner, script, [], { timeoutMs: 30000 });
+    const stdout = String(result.stdout || '').trim();
+    if (!stdout || stdout === '{}') return null;
+    const encoded = JSON.parse(stdout);
+    const reports = {};
+    for (const [filename, b64] of Object.entries(encoded)) {
+      try { reports[filename] = Buffer.from(b64, 'base64').toString('utf8'); } catch (_) { /* skip */ }
+    }
+    return Object.keys(reports).length > 0 ? reports : null;
+  } catch (err) {
+    console.warn('[ARIS] Failed to retrieve review reports:', err.message);
+    return null;
+  }
+}
+
+async function saveReviewReportsToLocalPath(localProjectPath, reports) {
+  if (!localProjectPath || !reports || Object.keys(reports).length === 0) return;
+  try {
+    const reviewDir = path.join(localProjectPath, 'review');
+    await fs.mkdir(reviewDir, { recursive: true });
+    for (const [filename, content] of Object.entries(reports)) {
+      // Reject unsafe filenames (no path traversal)
+      if (!/^[\w.-]+\.md$/.test(filename)) continue;
+      await fs.writeFile(path.join(reviewDir, filename), content, 'utf8');
+    }
+    console.log(`[ARIS] Saved ${Object.keys(reports).length} review report(s) to ${reviewDir}`);
+  } catch (err) {
+    console.warn('[ARIS] Failed to save review reports locally:', err.message);
+  }
+}
+
+async function getLocalReviewReports(localProjectPath) {
+  if (!localProjectPath) return null;
+  try {
+    const reviewDir = path.join(localProjectPath, 'review');
+    const entries = await fs.readdir(reviewDir).catch(() => []);
+    const reports = {};
+    for (const filename of entries.sort()) {
+      if (!filename.endsWith('.md')) continue;
+      reports[filename] = await fs.readFile(path.join(reviewDir, filename), 'utf8').catch(() => '');
+    }
+    return Object.keys(reports).length > 0 ? reports : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ─── Remote process status probing ──────────────────────────────────────────
@@ -1162,6 +1289,18 @@ function createArisService(overrides = {}) {
     buildProjectFiles: overrides.buildProjectFiles || defaultBuildProjectFiles,
     materializeProjectFiles: overrides.materializeProjectFiles || arisProjectFilesService.materializeProjectFiles,
   };
+
+  async function getRemoteTargetsForFiles(projectId) {
+    const servers = await deps.listServers();
+    const targets = (await deps.listTargets(projectId))
+      .filter((t) => String(t.projectId) === String(projectId));
+    return targets
+      .map((target) => ({
+        server: servers.find((s) => String(s.id) === String(target.sshServerId)) || null,
+        target,
+      }))
+      .filter((item) => item.server);
+  }
 
   async function reconcileProjectTargets(projectId, payload = {}) {
     const endpointIntent = Object.prototype.hasOwnProperty.call(payload, 'remoteEndpoints')
@@ -1433,10 +1572,12 @@ function createArisService(overrides = {}) {
       });
       await deps.saveProject(project);
       const targets = await reconcileProjectTargets(project.id, payload);
+      const remoteTargets = await getRemoteTargetsForFiles(project.id);
       const projectFiles = await deps.buildProjectFiles({
         projectName: project.name,
         localProjectPath: project.localProjectPath,
         projectId: project.id,
+        remoteTargets,
       });
       // Auto-install skills to local project path if it exists
       if (project.localProjectPath && deps.materializeProjectFiles) {
@@ -1466,10 +1607,12 @@ function createArisService(overrides = {}) {
       });
       await deps.saveProject(updated);
       const targets = await reconcileProjectTargets(updated.id, payload);
+      const remoteTargets = await getRemoteTargetsForFiles(updated.id);
       const projectFiles = await deps.buildProjectFiles({
         projectName: updated.name,
         localProjectPath: updated.localProjectPath,
         projectId: updated.id,
+        remoteTargets,
       });
       // Auto-install skills to local project path if it exists
       if (updated.localProjectPath && deps.materializeProjectFiles) {
@@ -1512,11 +1655,25 @@ function createArisService(overrides = {}) {
         remoteDatasetRoot: payload.remoteDatasetRoot || '',
         remoteCheckpointRoot: payload.remoteCheckpointRoot || '',
         remoteOutputRoot: payload.remoteOutputRoot || '',
+        condaEnv: payload.condaEnv || '',
         sharedFsGroup: server.shared_fs_group || payload.sharedFsGroup || '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
       await deps.saveTarget(target);
+      // Re-materialize CLAUDE.md so Remote Server section reflects the new target
+      const remoteTargets = await getRemoteTargetsForFiles(projectId);
+      const projectFiles = await deps.buildProjectFiles({
+        projectName: existingProject.name,
+        localProjectPath: existingProject.localProjectPath,
+        projectId: existingProject.id,
+        remoteTargets,
+      });
+      if (existingProject.localProjectPath && deps.materializeProjectFiles) {
+        deps.materializeProjectFiles(existingProject.localProjectPath, projectFiles).catch((err) => {
+          console.error(`[ARIS] Failed to re-materialize skills after createTarget:`, err.message);
+        });
+      }
       return target;
     },
 
@@ -1538,6 +1695,22 @@ function createArisService(overrides = {}) {
         updatedAt: new Date().toISOString(),
       });
       await deps.saveTarget(updated);
+      // Re-materialize CLAUDE.md so Remote Server section stays in sync
+      const project = await deps.getProjectById(updated.projectId);
+      if (project) {
+        const remoteTargets = await getRemoteTargetsForFiles(project.id);
+        const projectFiles = await deps.buildProjectFiles({
+          projectName: project.name,
+          localProjectPath: project.localProjectPath,
+          projectId: project.id,
+          remoteTargets,
+        });
+        if (project.localProjectPath && deps.materializeProjectFiles) {
+          deps.materializeProjectFiles(project.localProjectPath, projectFiles).catch((err) => {
+            console.error(`[ARIS] Failed to re-materialize skills after updateTarget:`, err.message);
+          });
+        }
+      }
       return updated;
     },
 
@@ -1888,6 +2061,34 @@ function createArisService(overrides = {}) {
       );
 
       return { projectId, projectName: project.name, servers: results };
+    },
+
+    /**
+     * Save review reports (from remote run) to the project's local folder.
+     * Reports is { "TODO-1.1.md": "<content>", ... } (values are plain text).
+     */
+    async saveRunReviewReports(runId, reports) {
+      if (!reports || Object.keys(reports).length === 0) return { saved: 0 };
+      const launch = await deps.getLaunchById(runId);
+      if (!launch) throw new Error('Run not found');
+      const normalized = normalizeLaunch(launch);
+      await saveReviewReportsToLocalPath(normalized.localProjectPath, reports);
+      return { saved: Object.keys(reports).length };
+    },
+
+    /**
+     * Get review reports for a run from the project's local review/ folder.
+     * Returns { reports: [{ filename, content }] } or null if none found.
+     */
+    async getRunReviewReports(runId) {
+      const launch = await deps.getLaunchById(runId);
+      if (!launch) throw new Error('Run not found');
+      const normalized = normalizeLaunch(launch);
+      const map = await getLocalReviewReports(normalized.localProjectPath);
+      if (!map) return { reports: [] };
+      return {
+        reports: Object.entries(map).map(([filename, content]) => ({ filename, content })),
+      };
     },
   };
 }

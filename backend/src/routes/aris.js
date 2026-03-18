@@ -344,6 +344,53 @@ router.post('/runs/:runId/plan/:nodeKey/reject', requireAuth, async (req, res) =
   }
 });
 
+// ─── Review reports endpoints ─────────────────────────────────────────────────
+
+// POST /api/aris/runs/:runId/review-reports
+// Called by the remote auto-review-loop after completion to push review/ files.
+// Body: { "TODO-1.1.md": "<base64_or_plain_content>", ... }
+// If values are base64-encoded, they are decoded before saving.
+router.post('/runs/:runId/review-reports', requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ error: 'Body must be a { filename: content } object' });
+    }
+    // Decode base64 values if they look encoded (no newlines, high entropy)
+    const reports = {};
+    for (const [filename, value] of Object.entries(body)) {
+      if (typeof value !== 'string') continue;
+      try {
+        const decoded = Buffer.from(value, 'base64').toString('utf8');
+        // Heuristic: if decoded text looks like markdown, use it; otherwise keep raw
+        reports[filename] = /^#|^-|\n/.test(decoded) ? decoded : value;
+      } catch (_) {
+        reports[filename] = value;
+      }
+    }
+    const result = await arisService.saveRunReviewReports(req.params.runId, reports);
+    res.json(result);
+  } catch (error) {
+    const status = /not found/i.test(String(error.message || '')) ? 404 : 500;
+    console.error('[ARIS] save review reports error:', error);
+    res.status(status).json({ error: error.message || 'Failed to save review reports' });
+  }
+});
+
+// GET /api/aris/runs/:runId/review-reports
+// Returns all review reports from the project's local review/ folder.
+// Response: { reports: [{ filename, content }] }
+router.get('/runs/:runId/review-reports', requireAuth, async (req, res) => {
+  try {
+    const result = await arisService.getRunReviewReports(req.params.runId);
+    res.json(result);
+  } catch (error) {
+    const status = /not found/i.test(String(error.message || '')) ? 404 : 500;
+    console.error('[ARIS] get review reports error:', error);
+    res.status(status).json({ error: error.message || 'Failed to get review reports' });
+  }
+});
+
 // GET /api/aris/projects/:projectId/gpu-status
 // Query all SSH servers linked to this project's targets for GPU availability.
 router.get('/projects/:projectId/gpu-status', requireAuth, async (req, res) => {
