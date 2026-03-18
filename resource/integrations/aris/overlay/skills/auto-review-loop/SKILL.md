@@ -9,36 +9,23 @@ allowed-tools: Bash(*), Read, Grep, Glob, Write, Edit, Agent, Skill, mcp__codex_
 
 ## Context: $ARGUMENTS
 
-## Step 0: Local vs Remote Detection (MUST run first)
+## Step 0: Environment Check
 
-This skill must run on the **remote server**, not on the local client device. Read the project config and check:
+Parse `$ARGUMENTS` for `--remote` flag:
+- If `--remote` is present → **dispatch to remote server** (see below), then STOP
+- Otherwise → **run locally**, proceed to Mode Detection
+
+### Remote dispatch (only when `--remote` is specified)
 
 ```bash
-# Read project config (structured JSON — no markdown parsing needed)
 ARIS_CONFIG=".aris/project.json"
-if [ -f "$ARIS_CONFIG" ]; then
-  CURRENT_HOST=$(hostname -f 2>/dev/null || hostname)
-  # Check if current host matches any configured server
-  IS_REMOTE=$(python3 -c "
-import json, sys
-cfg = json.load(open('$ARIS_CONFIG'))
-hosts = [s['host'] for s in cfg.get('servers', [])]
-print('yes' if '$CURRENT_HOST' in hosts else 'no')
-" 2>/dev/null || echo "no")
-  echo "Current host: $CURRENT_HOST — is remote server: $IS_REMOTE"
-fi
-```
-
-**Decision**:
-- If `$IS_REMOTE` is `yes` → **proceed to Mode Detection below**
-- If `$IS_REMOTE` is `no` (running on Mac/laptop) → **dispatch remotely**:
-
-```bash
 if [ -f "$ARIS_CONFIG" ]; then
   PROJECT_ID=$(python3 -c "import json;print(json.load(open('$ARIS_CONFIG'))['projectId'])")
   API_URL=$(python3 -c "import json;print(json.load(open('$ARIS_CONFIG'))['apiUrl'])")
   API_TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.claude/aris-api.json'))['token'])" 2>/dev/null)
-  PROMPT=$(printf '%s' "$ARGUMENTS" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")
+  # Strip --remote from arguments before forwarding
+  CLEAN_ARGS=$(echo "$ARGUMENTS" | sed 's/--remote//')
+  PROMPT=$(printf '%s' "$CLEAN_ARGS" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")
   if [ -n "$PROJECT_ID" ] && [ -n "$API_TOKEN" ]; then
     RESULT=$(curl -s -X POST "$API_URL/api/aris/runs" \
       -H "Authorization: Bearer $API_TOKEN" \
@@ -50,12 +37,7 @@ if [ -f "$ARIS_CONFIG" ]; then
 fi
 ```
 
-After dispatching, **STOP**. Tell the user:
-> Dispatched to remote server via ARIS. Run ID: $RUN_ID
-> Monitor on the ARIS dashboard.
-
-If `.aris/project.json` is missing, tell the user:
-> No project config found. Run `/init-repo` or add this project in the ARIS web dashboard.
+After dispatching, **STOP**. Tell the user the run ID and that they can monitor on the ARIS dashboard.
 
 ## Mode Detection
 
