@@ -141,7 +141,7 @@ router.post('/direct', requireAuth, upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { title, type, tags, notes, analysisProvider, autoGenerate, readerMode } = req.body;
+    const { title, type, tags, notes, analysisProvider, autoGenerate, readerMode, originalUrl } = req.body;
     const userId = req.userId || 'czk';
 
     // Generate S3 key and upload
@@ -156,6 +156,7 @@ router.post('/direct', requireAuth, upload.single('file'), async (req, res) => {
     const document = await documentService.createDocument({
       title: title || req.file.originalname,
       type: type || 'other',
+      originalUrl: originalUrl || '',
       s3Key: key,
       s3Url: location,
       fileSize: req.file.size,
@@ -220,6 +221,8 @@ router.post('/webpage', requireAuth, async (req, res) => {
 
     let buffer, pageTitle;
 
+    console.log(`[Upload/webpage] Converting: ${url}`);
+
     if (isDirectPdfUrl(url)) {
       // Direct PDF URL — download it directly, skip Puppeteer
       console.log(`[Upload] Direct PDF URL detected, downloading: ${url}`);
@@ -233,6 +236,8 @@ router.post('/webpage', requireAuth, async (req, res) => {
       buffer = result.buffer;
       pageTitle = result.title;
     }
+
+    console.log(`[Upload/webpage] Converted OK: "${pageTitle}" (${buffer.length} bytes), uploading to S3...`);
 
     // Generate filename from title
     const filename = `${(title || pageTitle).slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
@@ -258,10 +263,11 @@ router.post('/webpage', requireAuth, async (req, res) => {
 
     await maybeAutoQueue(document, { autoGenerate, readerMode, analysisProvider });
 
+    console.log(`[Upload/webpage] Saved document #${document.id}: "${document.title}"`);
     res.status(201).json(sanitizeForClient(document));
   } catch (error) {
-    console.error('Error converting webpage:', error);
-    res.status(500).json({ error: 'Failed to convert webpage to PDF' });
+    console.error(`[Upload/webpage] FAILED for ${req.body?.url}:`, error.message, error.stack);
+    res.status(500).json({ error: `Failed to convert webpage to PDF: ${error.message}` });
   }
 });
 
