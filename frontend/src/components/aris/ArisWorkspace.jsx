@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import MarkdownContent from '../shared/MarkdownRenderer';
 import {
   clearWorkspaceContents,
   getWorkspaceLink,
@@ -416,6 +417,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [selectedWorkItemDetail, setSelectedWorkItemDetail] = useState(null);
   const [workItemDraft, setWorkItemDraft] = useState(createEmptyWorkItemDraft());
   const [savingWorkItem, setSavingWorkItem] = useState(false);
+  const [wiEditMode, setWiEditMode] = useState(false);
   const [launchingWorkItemRun, setLaunchingWorkItemRun] = useState(false);
   const [workItemRunDraft, setWorkItemRunDraft] = useState(createEmptyRunLaunchDraft());
   const [milestones, setMilestones] = useState([]);
@@ -1089,6 +1091,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
 
     const nextDraft = workItemToDraft(selectedWorkItem);
     setWorkItemDraft(nextDraft);
+    setWiEditMode(false); // existing items open in view mode
     setWorkItemRunDraft((prev) => ({
       ...createEmptyRunLaunchDraft(),
       ...prev,
@@ -1414,6 +1417,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     setSelectedWorkItemId('');
     setSelectedWorkItemDetail(null);
     setWorkItemDraft(nextDraft);
+    setWiEditMode(true); // new items start in edit mode
     setWorkItemRunDraft({
       ...createEmptyRunLaunchDraft(),
       projectId: selectedProjectId,
@@ -1861,68 +1865,113 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   )}
                 </div>
 
-                {/* Work item detail/editor — simplified: title + content */}
+                {/* Work item detail — view / edit mode */}
                 <div className="ct-wi-detail">
-                  <div className="ct-section-header">
-                    <h4>{workItemDraft.id ? 'Edit' : 'New'}</h4>
-                    <button className="ct-btn ct-btn--primary ct-btn--sm" type="button" onClick={handleSaveWorkItem} disabled={savingWorkItem}>
-                      {savingWorkItem ? 'Saving...' : 'Save'}
-                    </button>
-                  </div>
+                  {!workItemDraft.id && !wiEditMode ? (
+                    <div className="ct-empty">Select an item or click + New</div>
+                  ) : wiEditMode ? (
+                    /* ── EDIT MODE ── */
+                    <>
+                      <div className="ct-section-header">
+                        <h4>{workItemDraft.id ? 'Edit' : 'New'}</h4>
+                        <div className="ct-header-actions">
+                          <button className="ct-btn ct-btn--sm" type="button" onClick={() => { if (workItemDraft.id) setWiEditMode(false); }}>Cancel</button>
+                          <button className="ct-btn ct-btn--primary ct-btn--sm" type="button" onClick={async () => { await handleSaveWorkItem(); setWiEditMode(false); }} disabled={savingWorkItem}>
+                            {savingWorkItem ? 'Saving...' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
 
-                  {workItemDraft.parentWorkItemId && (
-                    <div className="ct-parent-link">
-                      Follow-up of: <strong>{workItems.find((w) => w.id === workItemDraft.parentWorkItemId)?.title || workItemDraft.parentWorkItemId}</strong>
-                    </div>
+                      {workItemDraft.parentWorkItemId && (
+                        <div className="ct-parent-link">
+                          Follow-up of: <strong>{workItems.find((w) => w.id === workItemDraft.parentWorkItemId)?.title || workItemDraft.parentWorkItemId}</strong>
+                        </div>
+                      )}
+
+                      <div className="ct-form">
+                        <input
+                          className="ct-title-input"
+                          autoFocus
+                          placeholder="Item title..."
+                          value={workItemDraft.title}
+                          onChange={(e) => handleWorkItemFieldChange('title', e.target.value)}
+                        />
+
+                        <div className="ct-field-row ct-field-row--compact">
+                          <select className="ct-inline-select" value={workItemDraft.type} onChange={(e) => handleWorkItemFieldChange('type', e.target.value)}>
+                            <option value="task">Task</option>
+                            <option value="experiment">Experiment</option>
+                            <option value="hypothesis">Hypothesis</option>
+                            <option value="analysis">Analysis</option>
+                            <option value="paper">Paper</option>
+                            <option value="research">Research</option>
+                            <option value="bug">Bug</option>
+                            <option value="note">Note</option>
+                            <option value="question">Question</option>
+                            <option value="decision">Decision</option>
+                            <option value="ops">Ops</option>
+                          </select>
+                          <select className="ct-inline-select" value={workItemDraft.status} onChange={(e) => handleWorkItemFieldChange('status', e.target.value)}>
+                            <option value="backlog">Backlog</option>
+                            <option value="ready">Ready</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="waiting">Waiting</option>
+                            <option value="review">Review</option>
+                            <option value="blocked">Blocked</option>
+                            <option value="parked">Parked</option>
+                            <option value="done">Done</option>
+                            <option value="canceled">Canceled</option>
+                          </select>
+                          <select className="ct-inline-select" value={workItemDraft.milestoneId} onChange={(e) => handleWorkItemFieldChange('milestoneId', e.target.value)}>
+                            <option value="">No phase</option>
+                            {milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                          </select>
+                        </div>
+
+                        <textarea
+                          className="ct-content-editor"
+                          rows={14}
+                          placeholder="Content (markdown supported)..."
+                          value={workItemDraft.contextMd}
+                          onChange={(e) => handleWorkItemFieldChange('contextMd', e.target.value)}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    /* ── VIEW MODE ── */
+                    <>
+                      <div className="ct-section-header">
+                        <h4 className="ct-view-title">{workItemDraft.title}</h4>
+                        <button className="ct-btn ct-btn--sm" type="button" onClick={() => setWiEditMode(true)}>Edit</button>
+                      </div>
+
+                      <div className="ct-view-meta">
+                        <span className={`ct-type-badge ct-type-badge--${workItemDraft.type || 'task'}`}>
+                          {workItemDraft.type ? workItemDraft.type.charAt(0).toUpperCase() + workItemDraft.type.slice(1) : 'Task'}
+                        </span>
+                        <span className={`ct-status-label ct-status-label--${workItemDraft.status === 'done' ? 'completed' : workItemDraft.status === 'in_progress' ? 'running' : 'queued'}`}>
+                          {workItemDraft.status?.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) || 'Backlog'}
+                        </span>
+                        {workItemDraft.milestoneId && (
+                          <span className="ct-view-phase">{milestones.find((m) => m.id === workItemDraft.milestoneId)?.name || ''}</span>
+                        )}
+                      </div>
+
+                      {workItemDraft.parentWorkItemId && (
+                        <div className="ct-parent-link">
+                          Follow-up of: <strong>{workItems.find((w) => w.id === workItemDraft.parentWorkItemId)?.title || ''}</strong>
+                        </div>
+                      )}
+
+                      <div className="ct-view-content">
+                        {workItemDraft.contextMd ? (
+                          <MarkdownContent content={workItemDraft.contextMd} />
+                        ) : (
+                          <div className="ct-empty ct-empty--sm">No content yet. Click Edit to add details.</div>
+                        )}
+                      </div>
+                    </>
                   )}
-
-                  <div className="ct-form">
-                    <input
-                      className="ct-title-input"
-                      placeholder="Item title..."
-                      value={workItemDraft.title}
-                      onChange={(e) => handleWorkItemFieldChange('title', e.target.value)}
-                    />
-
-                    <div className="ct-field-row ct-field-row--compact">
-                      <select className="ct-inline-select" value={workItemDraft.type} onChange={(e) => handleWorkItemFieldChange('type', e.target.value)}>
-                        <option value="task">Task</option>
-                        <option value="experiment">Experiment</option>
-                        <option value="hypothesis">Hypothesis</option>
-                        <option value="analysis">Analysis</option>
-                        <option value="paper">Paper</option>
-                        <option value="research">Research</option>
-                        <option value="bug">Bug</option>
-                        <option value="note">Note</option>
-                        <option value="question">Question</option>
-                        <option value="decision">Decision</option>
-                        <option value="ops">Ops</option>
-                      </select>
-                      <select className="ct-inline-select" value={workItemDraft.status} onChange={(e) => handleWorkItemFieldChange('status', e.target.value)}>
-                        <option value="backlog">Backlog</option>
-                        <option value="ready">Ready</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="waiting">Waiting</option>
-                        <option value="review">Review</option>
-                        <option value="blocked">Blocked</option>
-                        <option value="parked">Parked</option>
-                        <option value="done">Done</option>
-                        <option value="canceled">Canceled</option>
-                      </select>
-                      <select className="ct-inline-select" value={workItemDraft.milestoneId} onChange={(e) => handleWorkItemFieldChange('milestoneId', e.target.value)}>
-                        <option value="">No phase</option>
-                        {milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                      </select>
-                    </div>
-
-                    <textarea
-                      className="ct-content-editor"
-                      rows={12}
-                      placeholder="Content (markdown supported)..."
-                      value={workItemDraft.contextMd}
-                      onChange={(e) => handleWorkItemFieldChange('contextMd', e.target.value)}
-                    />
-                  </div>
                 </div>
               </div>
             </div>
