@@ -917,9 +917,10 @@ router.post('/local-sessions', requireAuth, async (req, res) => {
     // Match sessions to ARIS projects by cwd -> localFullPath
     const projects = await arisService.listProjects();
     const enriched = sessions.map((s) => {
+      const cwdLower = (s.cwd || '').toLowerCase();
       const project = projects.find((p) => {
-        const fp = p.localFullPath || p.localProjectPath || '';
-        return fp && s.cwd && (s.cwd === fp || s.cwd.startsWith(fp + '/'));
+        const fp = (p.localFullPath || p.localProjectPath || '').toLowerCase();
+        return fp && cwdLower && (cwdLower === fp || cwdLower.startsWith(fp + '/'));
       });
       return {
         ...s,
