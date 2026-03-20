@@ -904,4 +904,40 @@ router.post('/projects/:projectId/import-papers', requireAuth, async (req, res) 
   }
 });
 
+// ─── Local Claude Code session monitoring ─────────────────────────────────────
+
+// In-memory store for session snapshots (ephemeral — resets on restart)
+let localSessionSnapshot = { sessions: [], updatedAt: null };
+
+// POST /api/aris/local-sessions — push a snapshot of running Claude Code sessions
+// Called periodically by a local monitor script on the user's Mac
+router.post('/local-sessions', requireAuth, async (req, res) => {
+  try {
+    const { sessions = [] } = req.body || {};
+    // Match sessions to ARIS projects by cwd -> localFullPath
+    const projects = await arisService.listProjects();
+    const enriched = sessions.map((s) => {
+      const project = projects.find((p) => {
+        const fp = p.localFullPath || p.localProjectPath || '';
+        return fp && s.cwd && (s.cwd === fp || s.cwd.startsWith(fp + '/'));
+      });
+      return {
+        ...s,
+        projectId: project?.id || null,
+        projectName: project?.name || null,
+      };
+    });
+    localSessionSnapshot = { sessions: enriched, updatedAt: new Date().toISOString() };
+    res.json({ ok: true, count: enriched.length });
+  } catch (error) {
+    console.error('[ARIS] local-sessions push error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/aris/local-sessions — retrieve the latest snapshot
+router.get('/local-sessions', requireAuth, async (req, res) => {
+  res.json(localSessionSnapshot);
+});
+
 module.exports = router;

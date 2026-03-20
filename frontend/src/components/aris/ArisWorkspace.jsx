@@ -421,6 +421,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [launchingWorkItemRun, setLaunchingWorkItemRun] = useState(false);
   const [workItemRunDraft, setWorkItemRunDraft] = useState(createEmptyRunLaunchDraft());
   const [milestones, setMilestones] = useState([]);
+  const [localSessions, setLocalSessions] = useState([]);
+  const [localSessionsUpdatedAt, setLocalSessionsUpdatedAt] = useState(null);
   const [loadingMilestones, setLoadingMilestones] = useState(false);
   const [seedingPhases, setSeedingPhases] = useState(false);
   const [expandedPhaseId, setExpandedPhaseId] = useState(null);
@@ -566,6 +568,14 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     } finally {
       setLoadingWorkItems(false);
     }
+  }, [apiUrl, getAuthHeaders]);
+
+  const fetchLocalSessions = useCallback(async () => {
+    try {
+      const response = await axios.get(`${apiUrl}/aris/local-sessions`, { headers: getAuthHeaders() });
+      setLocalSessions(response.data?.sessions || []);
+      setLocalSessionsUpdatedAt(response.data?.updatedAt || null);
+    } catch (_) { /* non-critical */ }
   }, [apiUrl, getAuthHeaders]);
 
   const expandedPhaseIdRef = useRef(expandedPhaseId);
@@ -874,6 +884,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           fetchControlTower(),
           fetchReviewInbox(),
         ]);
+        fetchLocalSessions().catch(() => {});
         if (!active) return;
         const payload = contextResponse.data || {};
         const nextRuns = runsResponse.data?.runs || [];
@@ -1348,6 +1359,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         fetchProjectNow(selectedProjectId),
         fetchProjectWorkItems(selectedProjectId),
         fetchMilestones(selectedProjectId),
+        fetchLocalSessions(),
       ]);
       if (selectedRunId) {
         await fetchRunDetail(selectedRunId, { silent: true });
@@ -1770,6 +1782,48 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   </div>
                 );
               })()}
+
+              {/* Active Claude Code Sessions */}
+              {localSessions.length > 0 && (
+                <div className="ct-sessions">
+                  <div className="ct-section-header">
+                    <h4>Active Sessions</h4>
+                    <span className="ct-section-meta">
+                      {localSessionsUpdatedAt ? `Updated ${new Date(localSessionsUpdatedAt).toLocaleTimeString()}` : ''}
+                    </span>
+                  </div>
+                  <div className="ct-session-list">
+                    {(() => {
+                      // Group sessions by project
+                      const byProject = {};
+                      localSessions.forEach((s) => {
+                        const key = s.projectName || s.cwd || 'Unknown';
+                        if (!byProject[key]) byProject[key] = { name: key, projectId: s.projectId, sessions: [] };
+                        byProject[key].sessions.push(s);
+                      });
+                      return Object.values(byProject).map((group) => (
+                        <div key={group.name} className={`ct-session-group${group.projectId === selectedProjectId ? ' is-current' : ''}`}>
+                          <div className="ct-session-project">
+                            <span className={`ct-status-dot ct-status-dot--running`} />
+                            <span className="ct-session-project-name">{group.name}</span>
+                            <span className="ct-session-count">{group.sessions.length}</span>
+                          </div>
+                          <div className="ct-session-details">
+                            {group.sessions.map((s) => (
+                              <div key={s.pid} className="ct-session-row">
+                                <span className="ct-session-model">{s.model}</span>
+                                <span className="ct-session-elapsed">{s.elapsed}</span>
+                                <span className="ct-session-mem">{s.memMb}MB</span>
+                                {s.cpu > 1 && <span className="ct-session-cpu">{s.cpu}%</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
 
               {/* Research Phases */}
               {selectedProjectId && (

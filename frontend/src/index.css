@@ -13340,6 +13340,79 @@ button.vibe-skill-chip.is-active {
   color: #94a3b8;
 }
 
+/* ─── Active Sessions ─── */
+.ct-sessions { margin-bottom: 20px; }
+
+.ct-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ct-session-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 14px;
+}
+
+.ct-session-group.is-current {
+  border-color: #93c5fd;
+  background: #f0f9ff;
+}
+
+.ct-session-project {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ct-session-project-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+}
+
+.ct-session-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: #3b82f6;
+  color: #fff;
+  padding: 0 5px;
+}
+
+.ct-session-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 16px;
+}
+
+.ct-session-row {
+  display: flex;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.ct-session-model {
+  font-weight: 600;
+  color: #475569;
+  min-width: 50px;
+}
+
+.ct-session-elapsed { color: #94a3b8; }
+.ct-session-mem { color: #94a3b8; }
+.ct-session-cpu { color: #f59e0b; font-weight: 600; }
+
 /* ─── Back button & header row ─── */
 .ct-header-left {
   display: flex;
