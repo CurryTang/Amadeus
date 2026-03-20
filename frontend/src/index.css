@@ -12577,7 +12577,7 @@ button.vibe-skill-chip.is-active {
    ARIS Control Tower — Linear-inspired unified layout
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.ct-workspace { gap: 0 !important; }
+.ct-workspace { gap: 0 !important; position: relative; z-index: 0; }
 
 .ct-layout {
   display: grid;
@@ -12587,6 +12587,8 @@ button.vibe-skill-chip.is-active {
   border-radius: 12px;
   overflow: hidden;
   background: #fff;
+  position: relative;
+  z-index: 0;
 }
 
 /* ─── Sidebar ─── */
@@ -13247,6 +13249,81 @@ button.vibe-skill-chip.is-active {
 .ct-type-badge--analysis { background: #e0e7ff; color: #3730a3; }
 .ct-type-badge--note { background: #f3f4f6; color: #6b7280; }
 .ct-type-badge--question { background: #fff7ed; color: #c2410c; }
+
+/* ─── Back button & header row ─── */
+.ct-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ct-back-btn {
+  border: none;
+  background: #f1f5f9;
+  color: #475569;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+  flex-shrink: 0;
+}
+
+.ct-back-btn:hover { background: #e2e8f0; color: #1e293b; }
+
+/* ─── Status toggle (clickable checkbox-style) ─── */
+.ct-status-toggle {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.12s;
+  position: relative;
+}
+
+.ct-status-toggle:hover { border-color: #94a3b8; background: #f8fafc; }
+
+.ct-status-toggle--active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.ct-status-toggle--active::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+
+.ct-status-toggle--done {
+  border-color: #10b981;
+  background: #10b981;
+}
+
+.ct-status-toggle--done::after {
+  content: '\2713';
+  position: absolute;
+  top: -1px;
+  left: 2px;
+  font-size: 12px;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Remove old status dot from tree rows since toggle replaces it */
+.ct-wi-tree-row .ct-work-item-row .ct-status-dot { display: none; }
 
 /* ─── Responsive ─── */
 @media (max-width: 768px) {

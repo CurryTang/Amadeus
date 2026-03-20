@@ -382,7 +382,19 @@ function fromDateTimeLocalValue(value) {
 }
 
 export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
-  const [ctPanel, setCtPanel] = useState(CT_PANELS.OVERVIEW);
+  const [ctPanel, _setCtPanel] = useState(CT_PANELS.OVERVIEW);
+  const ctPanelHistory = useRef([]);
+  const setCtPanel = useCallback((next) => {
+    _setCtPanel((prev) => {
+      if (prev !== next) ctPanelHistory.current.push(prev);
+      if (ctPanelHistory.current.length > 20) ctPanelHistory.current.splice(0, ctPanelHistory.current.length - 20);
+      return next;
+    });
+  }, []);
+  const handleBack = useCallback(() => {
+    const prev = ctPanelHistory.current.pop();
+    if (prev) _setCtPanel(prev);
+  }, []);
   const [contextData, setContextData] = useState(null);
   const [runs, setRuns] = useState([]);
   const [selectedRunId, setSelectedRunId] = useState('');
@@ -1411,6 +1423,22 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     setCtPanel(CT_PANELS.WORK_ITEMS);
   };
 
+  const STATUS_CYCLE = ['backlog', 'in_progress', 'done'];
+
+  const handleToggleItemStatus = async (itemId, currentStatus) => {
+    const currentIdx = STATUS_CYCLE.indexOf(currentStatus);
+    const nextStatus = STATUS_CYCLE[(currentIdx + 1) % STATUS_CYCLE.length];
+    try {
+      await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: nextStatus }, { headers: getAuthHeaders() });
+      // Optimistic update
+      setWorkItems((prev) => prev.map((w) => w.id === itemId ? { ...w, status: nextStatus } : w));
+      // Refresh in background
+      fetchProjectWorkItems(selectedProjectId).catch(() => {});
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to update status');
+    }
+  };
+
   const handleWorkItemFieldChange = (field, value) => {
     setWorkItemDraft((prev) => ({ ...prev, [field]: value }));
   };
@@ -1543,24 +1571,33 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   }
 
   function renderItemTree(items, depth) {
-    return items.map((item) => (
-      <div key={item.id}>
-        <div className="ct-wi-tree-row" style={{ paddingLeft: `${depth * 20 + 10}px` }}>
-          <button
-            type="button"
-            className={`ct-work-item-row${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
-            onClick={() => { setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}
-          >
-            <span className={`ct-status-dot ct-status-dot--${item.statusColor}`} />
-            <span className="ct-wi-title">{item.title}</span>
-            <span className={`ct-type-badge ct-type-badge--${item.typeLabel?.toLowerCase() || 'task'}`}>{item.typeLabel}</span>
-            <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
-          </button>
-          <button className="ct-btn-ghost ct-btn-ghost--sm" title="Add follow-up" onClick={() => handleCreateFollowUp(item)}>+</button>
+    return items.map((item) => {
+      const wi = workItems.find((w) => w.id === item.id);
+      const rawStatus = wi?.status || 'backlog';
+      return (
+        <div key={item.id}>
+          <div className="ct-wi-tree-row" style={{ paddingLeft: `${depth * 20 + 10}px` }}>
+            <button
+              type="button"
+              className={`ct-status-toggle ct-status-toggle--${rawStatus === 'done' ? 'done' : rawStatus === 'in_progress' ? 'active' : 'idle'}`}
+              title={`Status: ${item.statusLabel} — click to cycle`}
+              onClick={(e) => { e.stopPropagation(); handleToggleItemStatus(item.id, rawStatus); }}
+            />
+            <button
+              type="button"
+              className={`ct-work-item-row${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
+              onClick={() => { setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}
+            >
+              <span className="ct-wi-title">{item.title}</span>
+              <span className={`ct-type-badge ct-type-badge--${item.typeLabel?.toLowerCase() || 'task'}`}>{item.typeLabel}</span>
+              <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
+            </button>
+            <button className="ct-btn-ghost ct-btn-ghost--sm" title="Add follow-up" onClick={() => handleCreateFollowUp(item)}>+</button>
+          </div>
+          {item.children?.length > 0 && renderItemTree(item.children, depth + 1)}
         </div>
-        {item.children?.length > 0 && renderItemTree(item.children, depth + 1)}
-      </div>
-    ));
+      );
+    });
   }
 
   if (loading) {
@@ -1781,7 +1818,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           {ctPanel === CT_PANELS.WORK_ITEMS && (
             <div className="ct-work-items-panel">
               <div className="ct-section-header">
-                <h3>Work Items</h3>
+                <div className="ct-header-left">
+                  <button className="ct-back-btn" type="button" onClick={handleBack} title="Back">&larr;</button>
+                  <h3>Work Items</h3>
+                </div>
                 <button className="ct-btn ct-btn--sm" type="button" onClick={handleCreateWorkItem}>+ New</button>
               </div>
 
@@ -2180,7 +2220,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       <div className="aris-runs-detail-grid">
         <section className="aris-runs-panel">
           <div className="aris-panel-header">
-            <h3>Recent Runs</h3>
+            <div className="ct-header-left">
+              <button className="ct-back-btn" type="button" onClick={handleBack} title="Back">&larr;</button>
+              <h3>Recent Runs</h3>
+            </div>
           </div>
 
           {runCards.length === 0 ? (
