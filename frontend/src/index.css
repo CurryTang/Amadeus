@@ -13102,6 +13102,152 @@ button.vibe-skill-chip.is-active {
 
 .ct-empty--sm { padding: 10px; font-size: 0.78rem; }
 
+/* ─── Phase header row with actions ─── */
+.ct-phase-header-row {
+  display: flex;
+  align-items: center;
+}
+
+.ct-phase-header-row .ct-phase-header { flex: 1; }
+
+.ct-phase-actions {
+  display: flex;
+  gap: 2px;
+  padding-right: 8px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.ct-phase:hover .ct-phase-actions,
+.ct-phase.is-expanded .ct-phase-actions { opacity: 1; }
+
+.ct-btn-ghost {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.ct-btn-ghost:hover { background: #f1f5f9; color: #475569; }
+.ct-btn-ghost--danger:hover { background: #fef2f2; color: #dc2626; }
+.ct-btn-ghost--sm { font-size: 0.75rem; padding: 1px 5px; }
+
+.ct-phase-rename-input {
+  flex: 1;
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  outline: none;
+  background: #fff;
+}
+
+.ct-phases-header-actions { display: flex; gap: 6px; }
+
+.ct-inline-edit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 0;
+  margin-bottom: 6px;
+}
+
+.ct-inline-edit input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #3b82f6;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+/* ─── Tree rows ─── */
+.ct-wi-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ct-wi-tree-row .ct-work-item-row { flex: 1; }
+
+/* ─── Simplified work item editor ─── */
+.ct-title-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #1e293b;
+  background: transparent;
+  outline: none;
+}
+
+.ct-title-input:focus { border-color: #3b82f6; }
+
+.ct-title-input::placeholder { color: #cbd5e1; font-weight: 400; }
+
+.ct-field-row--compact {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.ct-inline-select {
+  padding: 4px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #475569;
+  background: #fafbfc;
+  cursor: pointer;
+  outline: none;
+}
+
+.ct-inline-select:focus { border-color: #3b82f6; }
+
+.ct-content-editor {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: #334155;
+  font-family: 'SFMono-Regular', 'Menlo', monospace;
+  line-height: 1.6;
+  background: #fafbfc;
+  resize: vertical;
+  outline: none;
+  min-height: 200px;
+}
+
+.ct-content-editor:focus { border-color: #3b82f6; background: #fff; }
+
+.ct-content-editor::placeholder { color: #cbd5e1; font-family: inherit; }
+
+.ct-parent-link {
+  padding: 6px 10px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #0369a1;
+  margin-bottom: 8px;
+}
+
+/* Type badge additions */
+.ct-type-badge--task { background: #f1f5f9; color: #475569; }
+.ct-type-badge--hypothesis { background: #fef3c7; color: #92400e; }
+.ct-type-badge--analysis { background: #e0e7ff; color: #3730a3; }
+.ct-type-badge--note { background: #f3f4f6; color: #6b7280; }
+.ct-type-badge--question { background: #fff7ed; color: #c2410c; }
+
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
   .ct-layout { grid-template-columns: 1fr; }

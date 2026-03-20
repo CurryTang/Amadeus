@@ -410,6 +410,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [loadingMilestones, setLoadingMilestones] = useState(false);
   const [seedingPhases, setSeedingPhases] = useState(false);
   const [expandedPhaseId, setExpandedPhaseId] = useState(null);
+  const [editingPhaseId, setEditingPhaseId] = useState(null);
+  const [editingPhaseName, setEditingPhaseName] = useState('');
+  const [addingPhase, setAddingPhase] = useState(false);
+  const [newPhaseName, setNewPhaseName] = useState('');
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedTargetId, setSelectedTargetId] = useState('');
@@ -550,6 +554,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     }
   }, [apiUrl, getAuthHeaders]);
 
+  const expandedPhaseIdRef = useRef(expandedPhaseId);
+  expandedPhaseIdRef.current = expandedPhaseId;
+
   const fetchMilestones = useCallback(async (projectId) => {
     if (!projectId) { setMilestones([]); return []; }
     setLoadingMilestones(true);
@@ -557,10 +564,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       const response = await axios.get(`${apiUrl}/aris/projects/${projectId}/milestones`, { headers: getAuthHeaders() });
       const items = response.data?.milestones || [];
       setMilestones(items);
-      if (items.length > 0 && !expandedPhaseId) setExpandedPhaseId(items[0].id);
+      if (items.length > 0 && !expandedPhaseIdRef.current) setExpandedPhaseId(items[0].id);
       return items;
     } finally { setLoadingMilestones(false); }
-  }, [apiUrl, getAuthHeaders, expandedPhaseId]);
+  }, [apiUrl, getAuthHeaders]);
 
   const handleSeedPhases = useCallback(async () => {
     if (!selectedProjectId || seedingPhases) return;
@@ -571,6 +578,45 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     } catch (err) { setError(err.response?.data?.error || 'Failed to seed phases'); }
     finally { setSeedingPhases(false); }
   }, [apiUrl, getAuthHeaders, selectedProjectId, seedingPhases, fetchMilestones]);
+
+  const handleRenamePhase = async (milestoneId, name) => {
+    if (!name.trim()) return;
+    try {
+      await axios.patch(`${apiUrl}/aris/milestones/${milestoneId}`, { name: name.trim() }, { headers: getAuthHeaders() });
+      await fetchMilestones(selectedProjectId);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to rename phase'); }
+    setEditingPhaseId(null);
+  };
+
+  const handleAddPhase = async () => {
+    if (!newPhaseName.trim() || !selectedProjectId) return;
+    try {
+      await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/milestones`, { name: newPhaseName.trim() }, { headers: getAuthHeaders() });
+      setNewPhaseName('');
+      setAddingPhase(false);
+      await fetchMilestones(selectedProjectId);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to add phase'); }
+  };
+
+  const handleDeletePhase = async (milestoneId) => {
+    try {
+      await axios.delete(`${apiUrl}/aris/milestones/${milestoneId}`, { headers: getAuthHeaders() });
+      if (expandedPhaseId === milestoneId) setExpandedPhaseId(null);
+      await fetchMilestones(selectedProjectId);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to delete phase'); }
+  };
+
+  const handleCreateFollowUp = (parentItem) => {
+    const draft = createEmptyWorkItemDraft();
+    draft.projectId = selectedProjectId;
+    draft.parentWorkItemId = parentItem.id;
+    draft.milestoneId = workItems.find((w) => w.id === parentItem.id)?.milestoneId || '';
+    draft.title = '';
+    setWorkItemDraft(draft);
+    setSelectedWorkItemId('');
+    setSelectedWorkItemDetail(null);
+    setCtPanel(CT_PANELS.WORK_ITEMS);
+  };
 
   const fetchWorkItemDetail = useCallback(async (workItemId) => {
     if (!workItemId) {
@@ -1474,6 +1520,51 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     }
   };
 
+  // Build tree from flat work items using parentWorkItemId
+  function buildItemTree(phaseItems, allWorkItems) {
+    const phaseItemIds = new Set(phaseItems.map((i) => i.id));
+    const roots = [];
+    const childrenMap = {};
+    for (const item of phaseItems) {
+      const wi = allWorkItems.find((w) => w.id === item.id);
+      const parentId = wi?.parentWorkItemId;
+      if (parentId && phaseItemIds.has(parentId)) {
+        if (!childrenMap[parentId]) childrenMap[parentId] = [];
+        childrenMap[parentId].push(item);
+      } else {
+        roots.push(item);
+      }
+    }
+    function attachChildren(items) {
+      return items.map((item) => ({
+        ...item,
+        children: attachChildren(childrenMap[item.id] || []),
+      }));
+    }
+    return attachChildren(roots);
+  }
+
+  function renderItemTree(items, depth) {
+    return items.map((item) => (
+      <div key={item.id}>
+        <div className="ct-wi-tree-row" style={{ paddingLeft: `${depth * 20 + 10}px` }}>
+          <button
+            type="button"
+            className={`ct-work-item-row${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
+            onClick={() => { setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}
+          >
+            <span className={`ct-status-dot ct-status-dot--${item.statusColor}`} />
+            <span className="ct-wi-title">{item.title}</span>
+            <span className={`ct-type-badge ct-type-badge--${item.typeLabel?.toLowerCase() || 'task'}`}>{item.typeLabel}</span>
+            <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
+          </button>
+          <button className="ct-btn-ghost ct-btn-ghost--sm" title="Add follow-up" onClick={() => handleCreateFollowUp(item)}>+</button>
+        </div>
+        {item.children?.length > 0 && renderItemTree(item.children, depth + 1)}
+      </div>
+    ));
+  }
+
   if (loading) {
     return (
       <section className="aris-workspace aris-workspace--loading">
@@ -1558,12 +1649,31 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 <div className="ct-phases">
                   <div className="ct-phases-header">
                     <h4>Research Phases</h4>
-                    {milestones.length === 0 && (
-                      <button className="ct-btn ct-btn--sm" onClick={handleSeedPhases} disabled={seedingPhases}>
-                        {seedingPhases ? 'Creating...' : 'Add Default Phases'}
-                      </button>
-                    )}
+                    <div className="ct-phases-header-actions">
+                      {milestones.length === 0 && (
+                        <button className="ct-btn ct-btn--sm" onClick={handleSeedPhases} disabled={seedingPhases}>
+                          {seedingPhases ? 'Creating...' : 'Add Default Phases'}
+                        </button>
+                      )}
+                      <button className="ct-btn ct-btn--sm" onClick={() => { setAddingPhase(true); setNewPhaseName(''); }}>+ Phase</button>
+                    </div>
                   </div>
+
+                  {/* Inline add phase */}
+                  {addingPhase && (
+                    <div className="ct-inline-edit">
+                      <input
+                        autoFocus
+                        placeholder="Phase name..."
+                        value={newPhaseName}
+                        onChange={(e) => setNewPhaseName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddPhase(); if (e.key === 'Escape') setAddingPhase(false); }}
+                      />
+                      <button className="ct-btn ct-btn--primary ct-btn--sm" onClick={handleAddPhase}>Add</button>
+                      <button className="ct-btn ct-btn--sm" onClick={() => setAddingPhase(false)}>Cancel</button>
+                    </div>
+                  )}
+
                   {loadingMilestones ? (
                     <div className="ct-empty">Loading phases...</div>
                   ) : phaseGroupedItems.length === 0 ? (
@@ -1572,44 +1682,54 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                     <div className="ct-phase-list">
                       {phaseGroupedItems.map((phase) => {
                         const isExpanded = expandedPhaseId === phase.id;
+                        const isEditing = editingPhaseId === phase.id;
                         const doneCount = phase.items.filter((i) => i.statusColor === 'completed' || i.statusColor === 'green').length;
                         const totalCount = phase.items.length;
                         const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+                        const phaseWorkItems = buildItemTree(phase.items, workItems);
                         return (
                           <div key={phase.id} className={`ct-phase${isExpanded ? ' is-expanded' : ''}`}>
-                            <button className="ct-phase-header" type="button" onClick={() => setExpandedPhaseId(isExpanded ? null : phase.id)}>
-                              <span className="ct-phase-arrow">{isExpanded ? '\u25BC' : '\u25B6'}</span>
-                              <span className="ct-phase-name">{phase.name}</span>
-                              {totalCount > 0 && (
-                                <span className="ct-phase-progress">
-                                  <span className="ct-progress-bar"><span className="ct-progress-fill" style={{ width: `${progressPct}%` }} /></span>
-                                  <span className="ct-progress-text">{doneCount}/{totalCount}</span>
-                                </span>
+                            <div className="ct-phase-header-row">
+                              <button className="ct-phase-header" type="button" onClick={() => setExpandedPhaseId(isExpanded ? null : phase.id)}>
+                                <span className="ct-phase-arrow">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+                                {isEditing ? (
+                                  <input
+                                    className="ct-phase-rename-input"
+                                    autoFocus
+                                    value={editingPhaseName}
+                                    onChange={(e) => setEditingPhaseName(e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleRenamePhase(phase.id, editingPhaseName); } if (e.key === 'Escape') setEditingPhaseId(null); }}
+                                    onBlur={() => handleRenamePhase(phase.id, editingPhaseName)}
+                                  />
+                                ) : (
+                                  <span className="ct-phase-name">{phase.name}</span>
+                                )}
+                                {totalCount > 0 && (
+                                  <span className="ct-phase-progress">
+                                    <span className="ct-progress-bar"><span className="ct-progress-fill" style={{ width: `${progressPct}%` }} /></span>
+                                    <span className="ct-progress-text">{doneCount}/{totalCount}</span>
+                                  </span>
+                                )}
+                                {totalCount === 0 && <span className="ct-phase-empty-label">No items</span>}
+                              </button>
+                              {phase.id !== '__unassigned__' && isExpanded && (
+                                <div className="ct-phase-actions">
+                                  <button className="ct-btn-ghost" title="Rename" onClick={(e) => { e.stopPropagation(); setEditingPhaseId(phase.id); setEditingPhaseName(phase.name); }}>&#9998;</button>
+                                  <button className="ct-btn-ghost ct-btn-ghost--danger" title="Delete phase" onClick={(e) => { e.stopPropagation(); handleDeletePhase(phase.id); }}>&times;</button>
+                                </div>
                               )}
-                              {totalCount === 0 && <span className="ct-phase-empty-label">No items</span>}
-                            </button>
+                            </div>
                             {phase.description && isExpanded && <div className="ct-phase-desc">{phase.description}</div>}
                             {isExpanded && (
                               <div className="ct-phase-items">
-                                {phase.items.length === 0 ? (
+                                {phaseWorkItems.length === 0 ? (
                                   <div className="ct-empty ct-empty--sm">No work items in this phase.</div>
                                 ) : (
-                                  phase.items.map((item) => (
-                                    <button
-                                      key={item.id}
-                                      type="button"
-                                      className={`ct-work-item-row${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
-                                      onClick={() => { setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}
-                                    >
-                                      <span className={`ct-status-dot ct-status-dot--${item.statusColor}`} />
-                                      <span className="ct-wi-title">{item.title}</span>
-                                      <span className={`ct-type-badge ct-type-badge--${item.typeLabel?.toLowerCase() || 'task'}`}>{item.typeLabel}</span>
-                                      <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
-                                    </button>
-                                  ))
+                                  renderItemTree(phaseWorkItems, 0)
                                 )}
                                 <button className="ct-add-item-btn" type="button" onClick={() => { handleCreateWorkItem(); if (phase.id !== '__unassigned__') handleWorkItemFieldChange('milestoneId', phase.id); }}>
-                                  + Add work item
+                                  + Add item
                                 </button>
                               </div>
                             )}
@@ -1675,97 +1795,74 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   ) : workItemRows.length === 0 ? (
                     <div className="ct-empty">No work items yet.</div>
                   ) : (
-                    workItemRows.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={`ct-work-item-row${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
-                        onClick={() => setSelectedWorkItemId(item.id)}
-                      >
-                        <span className={`ct-status-dot ct-status-dot--${item.statusColor}`} />
-                        <span className="ct-wi-title">{item.title}</span>
-                        <span className={`ct-type-badge ct-type-badge--${item.typeLabel?.toLowerCase() || 'task'}`}>{item.typeLabel}</span>
-                        <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
-                      </button>
-                    ))
+                    (() => {
+                      const tree = buildItemTree(workItemRows, workItems);
+                      return renderItemTree(tree, 0);
+                    })()
                   )}
                 </div>
 
-                {/* Work item detail/editor */}
+                {/* Work item detail/editor — simplified: title + content */}
                 <div className="ct-wi-detail">
                   <div className="ct-section-header">
-                    <h4>{workItemDraft.id ? 'Edit' : 'Create'} Work Item</h4>
+                    <h4>{workItemDraft.id ? 'Edit' : 'New'}</h4>
                     <button className="ct-btn ct-btn--primary ct-btn--sm" type="button" onClick={handleSaveWorkItem} disabled={savingWorkItem}>
                       {savingWorkItem ? 'Saving...' : 'Save'}
                     </button>
                   </div>
 
-                  <div className="ct-form">
-                    <label className="ct-field">
-                      <span>Title</span>
-                      <input value={workItemDraft.title} onChange={(e) => handleWorkItemFieldChange('title', e.target.value)} />
-                    </label>
-                    <label className="ct-field">
-                      <span>Summary</span>
-                      <textarea rows={2} value={workItemDraft.summary} onChange={(e) => handleWorkItemFieldChange('summary', e.target.value)} />
-                    </label>
-                    <div className="ct-field-row">
-                      <label className="ct-field">
-                        <span>Type</span>
-                        <select value={workItemDraft.type} onChange={(e) => handleWorkItemFieldChange('type', e.target.value)}>
-                          <option value="feature">Feature</option>
-                          <option value="experiment">Experiment</option>
-                          <option value="paper">Paper</option>
-                          <option value="research">Research</option>
-                          <option value="bug">Bug</option>
-                          <option value="ops">Ops</option>
-                          <option value="decision">Decision</option>
-                        </select>
-                      </label>
-                      <label className="ct-field">
-                        <span>Status</span>
-                        <select value={workItemDraft.status} onChange={(e) => handleWorkItemFieldChange('status', e.target.value)}>
-                          <option value="backlog">Backlog</option>
-                          <option value="ready">Ready</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="waiting">Waiting</option>
-                          <option value="review">Review</option>
-                          <option value="blocked">Blocked</option>
-                          <option value="parked">Parked</option>
-                          <option value="done">Done</option>
-                          <option value="canceled">Canceled</option>
-                        </select>
-                      </label>
-                      <label className="ct-field">
-                        <span>Phase</span>
-                        <select value={workItemDraft.milestoneId} onChange={(e) => handleWorkItemFieldChange('milestoneId', e.target.value)}>
-                          <option value="">Unassigned</option>
-                          {milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        </select>
-                      </label>
+                  {workItemDraft.parentWorkItemId && (
+                    <div className="ct-parent-link">
+                      Follow-up of: <strong>{workItems.find((w) => w.id === workItemDraft.parentWorkItemId)?.title || workItemDraft.parentWorkItemId}</strong>
                     </div>
-                    <label className="ct-field">
-                      <span>Goal</span>
-                      <textarea rows={2} value={workItemDraft.goal} onChange={(e) => handleWorkItemFieldChange('goal', e.target.value)} />
-                    </label>
-                    <label className="ct-field">
-                      <span>Context</span>
-                      <textarea rows={3} value={workItemDraft.contextMd} onChange={(e) => handleWorkItemFieldChange('contextMd', e.target.value)} />
-                    </label>
+                  )}
 
-                    {/* Wake-ups */}
-                    <div className="ct-wakeups">
-                      <div className="ct-section-header">
-                        <span>Wake-ups</span>
-                        <button className="ct-btn ct-btn--sm" type="button" onClick={handleAddWorkItemWakeup}>+ Add</button>
-                      </div>
-                      {(workItemDraft.wakeups || []).map((wakeup, index) => (
-                        <div key={`wakeup-${index}`} className="ct-wakeup-row">
-                          <input placeholder="Reason" value={wakeup.reason} onChange={(e) => handleWorkItemWakeupChange(index, 'reason', e.target.value)} />
-                          <input type="datetime-local" value={toDateTimeLocalValue(wakeup.scheduledFor)} onChange={(e) => handleWorkItemWakeupChange(index, 'scheduledFor', fromDateTimeLocalValue(e.target.value))} />
-                        </div>
-                      ))}
+                  <div className="ct-form">
+                    <input
+                      className="ct-title-input"
+                      placeholder="Item title..."
+                      value={workItemDraft.title}
+                      onChange={(e) => handleWorkItemFieldChange('title', e.target.value)}
+                    />
+
+                    <div className="ct-field-row ct-field-row--compact">
+                      <select className="ct-inline-select" value={workItemDraft.type} onChange={(e) => handleWorkItemFieldChange('type', e.target.value)}>
+                        <option value="task">Task</option>
+                        <option value="experiment">Experiment</option>
+                        <option value="hypothesis">Hypothesis</option>
+                        <option value="analysis">Analysis</option>
+                        <option value="paper">Paper</option>
+                        <option value="research">Research</option>
+                        <option value="bug">Bug</option>
+                        <option value="note">Note</option>
+                        <option value="question">Question</option>
+                        <option value="decision">Decision</option>
+                        <option value="ops">Ops</option>
+                      </select>
+                      <select className="ct-inline-select" value={workItemDraft.status} onChange={(e) => handleWorkItemFieldChange('status', e.target.value)}>
+                        <option value="backlog">Backlog</option>
+                        <option value="ready">Ready</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="waiting">Waiting</option>
+                        <option value="review">Review</option>
+                        <option value="blocked">Blocked</option>
+                        <option value="parked">Parked</option>
+                        <option value="done">Done</option>
+                        <option value="canceled">Canceled</option>
+                      </select>
+                      <select className="ct-inline-select" value={workItemDraft.milestoneId} onChange={(e) => handleWorkItemFieldChange('milestoneId', e.target.value)}>
+                        <option value="">No phase</option>
+                        {milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
                     </div>
+
+                    <textarea
+                      className="ct-content-editor"
+                      rows={12}
+                      placeholder="Content (markdown supported)..."
+                      value={workItemDraft.contextMd}
+                      onChange={(e) => handleWorkItemFieldChange('contextMd', e.target.value)}
+                    />
                   </div>
                 </div>
               </div>

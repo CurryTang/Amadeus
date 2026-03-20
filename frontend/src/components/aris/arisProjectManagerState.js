@@ -257,15 +257,6 @@ export function validateWorkItemDraft(draft = {}) {
   if (!trimString(readAny(draft, ['title']))) {
     return 'Work item title is required.';
   }
-  if (!trimString(readAny(draft, ['goal']))) {
-    return 'Work item goal is required.';
-  }
-
-  const wakeups = filterWakeups(readAny(draft, ['wakeups', 'wakeUps'], []));
-  if (wakeups.length === 0) {
-    return 'Add at least one wake-up before saving the work item.';
-  }
-
   return '';
 }
 

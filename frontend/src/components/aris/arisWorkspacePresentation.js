@@ -204,17 +204,22 @@ function labelWorkItemStatus(status) {
 }
 
 function labelWorkItemType(type) {
-  const key = normalizeString(type, 'feature');
+  const key = normalizeString(type, 'task');
   const labels = {
+    task: 'Task',
     feature: 'Feature',
     bug: 'Bug',
     experiment: 'Experiment',
+    hypothesis: 'Hypothesis',
+    analysis: 'Analysis',
     paper: 'Paper',
     ops: 'Ops',
     decision: 'Decision',
     research: 'Research',
+    note: 'Note',
+    question: 'Question',
   };
-  return labels[key] || titleCase(key, 'Feature');
+  return labels[key] || titleCase(key, 'Task');
 }
 
 function labelActorType(actorType) {
