@@ -13250,6 +13250,71 @@ button.vibe-skill-chip.is-active {
 .ct-type-badge--note { background: #f3f4f6; color: #6b7280; }
 .ct-type-badge--question { background: #fff7ed; color: #c2410c; }
 
+/* ─── Project summary ─── */
+.ct-project-summary {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+
+.ct-summary-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ct-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 48px;
+}
+
+.ct-stat-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.ct-stat--green .ct-stat-value { color: #059669; }
+.ct-stat--blue .ct-stat-value { color: #2563eb; }
+.ct-stat--yellow .ct-stat-value { color: #d97706; }
+.ct-stat--red .ct-stat-value { color: #dc2626; }
+.ct-stat--amber .ct-stat-value { color: #b45309; }
+
+.ct-stat-label {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ct-summary-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #f1f5f9;
+  margin-bottom: 8px;
+}
+
+.ct-bar-seg { min-width: 3px; transition: flex 0.3s; }
+.ct-bar-seg--done { background: #10b981; }
+.ct-bar-seg--active { background: #3b82f6; }
+.ct-bar-seg--review { background: #f59e0b; }
+.ct-bar-seg--pending { background: #cbd5e1; }
+.ct-bar-seg--blocked { background: #ef4444; }
+
+.ct-summary-detail {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
 /* ─── Back button & header row ─── */
 .ct-header-left {
   display: flex;

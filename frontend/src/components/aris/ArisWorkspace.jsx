@@ -1084,6 +1084,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
 
   useEffect(() => {
     if (!selectedWorkItem) {
+      // Don't overwrite draft if user just opened the "new item" form
+      if (wiEditMode) return;
       const draft = createEmptyWorkItemDraft();
       draft.projectId = selectedProjectId;
       setWorkItemDraft(draft);
@@ -1703,8 +1705,71 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
             <div className="ct-overview">
               <div className="ct-section-header">
                 <h3>{selectedProject?.name || 'Select a Project'}</h3>
-                {selectedProject && <span className="ct-section-meta">{workItems.length} work items &middot; {runs.filter((r) => r.projectId === selectedProjectId).length} runs</span>}
               </div>
+
+              {/* Project progress summary */}
+              {selectedProjectId && (() => {
+                const visible = workItems.filter((w) => w.status !== 'canceled' && !w.archivedAt);
+                const done = visible.filter((w) => w.status === 'done').length;
+                const inProgress = visible.filter((w) => w.status === 'in_progress').length;
+                const blocked = visible.filter((w) => w.status === 'blocked').length;
+                const pending = visible.filter((w) => ['backlog', 'ready'].includes(w.status)).length;
+                const review = visible.filter((w) => w.status === 'review').length;
+                const projectRuns = runs.filter((r) => r.projectId === selectedProjectId);
+                const activeRuns = projectRuns.filter((r) => r.status === 'running' || r.status === 'queued').length;
+                const phasesWithItems = phaseGroupedItems.filter((p) => p.items.length > 0).length;
+                const totalPhases = phaseGroupedItems.length;
+                return (
+                  <div className="ct-project-summary">
+                    <div className="ct-summary-stats">
+                      <div className="ct-stat">
+                        <span className="ct-stat-value">{visible.length}</span>
+                        <span className="ct-stat-label">Total</span>
+                      </div>
+                      <div className="ct-stat ct-stat--green">
+                        <span className="ct-stat-value">{done}</span>
+                        <span className="ct-stat-label">Done</span>
+                      </div>
+                      <div className="ct-stat ct-stat--blue">
+                        <span className="ct-stat-value">{inProgress}</span>
+                        <span className="ct-stat-label">Active</span>
+                      </div>
+                      <div className="ct-stat ct-stat--yellow">
+                        <span className="ct-stat-value">{pending}</span>
+                        <span className="ct-stat-label">Pending</span>
+                      </div>
+                      {blocked > 0 && (
+                        <div className="ct-stat ct-stat--red">
+                          <span className="ct-stat-value">{blocked}</span>
+                          <span className="ct-stat-label">Blocked</span>
+                        </div>
+                      )}
+                      {review > 0 && (
+                        <div className="ct-stat ct-stat--amber">
+                          <span className="ct-stat-value">{review}</span>
+                          <span className="ct-stat-label">Review</span>
+                        </div>
+                      )}
+                      <div className="ct-stat">
+                        <span className="ct-stat-value">{activeRuns}</span>
+                        <span className="ct-stat-label">Runs</span>
+                      </div>
+                    </div>
+                    {visible.length > 0 && (
+                      <div className="ct-summary-bar">
+                        {done > 0 && <div className="ct-bar-seg ct-bar-seg--done" style={{ flex: done }} title={`${done} done`} />}
+                        {inProgress > 0 && <div className="ct-bar-seg ct-bar-seg--active" style={{ flex: inProgress }} title={`${inProgress} in progress`} />}
+                        {review > 0 && <div className="ct-bar-seg ct-bar-seg--review" style={{ flex: review }} title={`${review} review`} />}
+                        {pending > 0 && <div className="ct-bar-seg ct-bar-seg--pending" style={{ flex: pending }} title={`${pending} pending`} />}
+                        {blocked > 0 && <div className="ct-bar-seg ct-bar-seg--blocked" style={{ flex: blocked }} title={`${blocked} blocked`} />}
+                      </div>
+                    )}
+                    <div className="ct-summary-detail">
+                      {phasesWithItems}/{totalPhases} phases active &middot; {projectRuns.length} total runs
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Research Phases */}
               {selectedProjectId && (
