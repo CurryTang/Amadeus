@@ -61,7 +61,7 @@ export function createEmptyWorkItemDraft() {
     parentWorkItemId: '',
     title: '',
     summary: '',
-    type: 'feature',
+    type: 'task',
     status: 'backlog',
     priority: 0,
     ownerUserId: '',
