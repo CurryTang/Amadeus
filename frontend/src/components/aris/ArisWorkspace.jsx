@@ -607,15 +607,11 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   };
 
   const handleCreateFollowUp = (parentItem) => {
-    const draft = createEmptyWorkItemDraft();
-    draft.projectId = selectedProjectId;
-    draft.parentWorkItemId = parentItem.id;
-    draft.milestoneId = workItems.find((w) => w.id === parentItem.id)?.milestoneId || '';
-    draft.title = '';
-    setWorkItemDraft(draft);
-    setSelectedWorkItemId('');
-    setSelectedWorkItemDetail(null);
-    setCtPanel(CT_PANELS.WORK_ITEMS);
+    const parentWi = workItems.find((w) => w.id === parentItem.id);
+    handleCreateWorkItem({
+      parentWorkItemId: parentItem.id,
+      milestoneId: parentWi?.milestoneId || '',
+    });
   };
 
   const fetchWorkItemDetail = useCallback(async (workItemId) => {
@@ -1398,9 +1394,11 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     }
   };
 
-  const handleCreateWorkItem = () => {
+  const handleCreateWorkItem = (opts = {}) => {
     const nextDraft = createEmptyWorkItemDraft();
     nextDraft.projectId = selectedProjectId;
+    if (opts.milestoneId) nextDraft.milestoneId = opts.milestoneId;
+    if (opts.parentWorkItemId) nextDraft.parentWorkItemId = opts.parentWorkItemId;
     setSelectedWorkItemId('');
     setSelectedWorkItemDetail(null);
     setWorkItemDraft(nextDraft);
@@ -1410,7 +1408,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       workItemId: '',
       title: '',
     });
-    setArisSubview('work_items');
+    setCtPanel(CT_PANELS.WORK_ITEMS);
   };
 
   const handleWorkItemFieldChange = (field, value) => {
@@ -1512,7 +1510,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         fetchProjectWorkItems(selectedProjectId),
         fetchProjectNow(selectedProjectId),
       ]);
-      setArisSubview('runs');
+      setCtPanel(CT_PANELS.RUNS);
     } catch (err) {
       setError(err?.response?.data?.error || err.message || 'Failed to launch run from work item');
     } finally {
@@ -1728,7 +1726,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                                 ) : (
                                   renderItemTree(phaseWorkItems, 0)
                                 )}
-                                <button className="ct-add-item-btn" type="button" onClick={() => { handleCreateWorkItem(); if (phase.id !== '__unassigned__') handleWorkItemFieldChange('milestoneId', phase.id); }}>
+                                <button className="ct-add-item-btn" type="button" onClick={() => handleCreateWorkItem({ milestoneId: phase.id !== '__unassigned__' ? phase.id : '' })}>
                                   + Add item
                                 </button>
                               </div>
