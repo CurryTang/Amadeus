@@ -1025,7 +1025,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     [reviewInbox]
   );
   const workItemRows = useMemo(
-    () => workItems.map((item) => buildArisWorkItemRow(item)),
+    () => workItems
+      .filter((item) => item.status !== 'canceled' && !item.archivedAt)
+      .map((item) => buildArisWorkItemRow(item)),
     [workItems]
   );
   const selectedWorkItem = useMemo(
