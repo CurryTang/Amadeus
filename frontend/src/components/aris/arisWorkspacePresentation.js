@@ -433,6 +433,9 @@ export function buildArisRunCard(run = {}) {
       ? `${latestScore.toFixed(1)}/10${latestVerdict ? ` · ${latestVerdict}` : ''}`
       : '',
     startedAt: normalizeString(run.startedAt),
+    resultSummary: normalizeString(run.resultSummary),
+    source: normalizeString(run.source, 'web'),
+    isCliRun: normalizeString(run.source) === 'cli',
   };
 }
 
@@ -558,6 +561,9 @@ export function buildArisRunDetail(run = {}) {
     runDirectory: normalizeString(run.runDirectory),
     startedAt: normalizeString(run.startedAt),
     finishedLabel: (status === 'completed' || status === 'failed') ? formatElapsed(run.updatedAt) : '',
+    resultSummary: normalizeString(run.resultSummary),
+    source: normalizeString(run.source, 'web'),
+    isCliRun: normalizeString(run.source) === 'cli',
     actionRows: Array.isArray(run.actions) ? run.actions.map((action) => buildArisRunActionRow(action)) : [],
   };
 }

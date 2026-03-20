@@ -429,6 +429,11 @@ How does this work relate to other important papers in the field? What prior wor
     ON aris_project_targets(project_id, created_at DESC)
   `);
 
+  // Migration: add conda_env column to aris_project_targets
+  try {
+    await db.execute(`ALTER TABLE aris_project_targets ADD COLUMN conda_env TEXT DEFAULT ''`);
+  } catch (_) { /* column already exists */ }
+
   await db.execute(`
     CREATE TABLE IF NOT EXISTS aris_runs (
       id TEXT PRIMARY KEY,
