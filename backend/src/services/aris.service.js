@@ -2658,6 +2658,18 @@ function createArisService(overrides = {}) {
       return milestone;
     },
 
+    async getMilestoneById(milestoneId) {
+      return deps.getMilestoneById(milestoneId);
+    },
+
+    async saveMilestone(milestone) {
+      return deps.saveMilestone(milestone);
+    },
+
+    async deleteMilestone(milestoneId) {
+      return deps.deleteMilestone(milestoneId);
+    },
+
     async listProjectWorkItems(projectId = '') {
       const workItems = await deps.listWorkItems(projectId);
       const launches = await deps.listLaunches();
@@ -2946,11 +2958,13 @@ function createArisService(overrides = {}) {
     },
 
     async getControlTower({ projectId = '' } = {}) {
+      try {
       const projects = await deps.listProjects();
       const workItems = await deps.listWorkItems(projectId);
       const launches = await deps.listLaunches();
       const wakeups = await deps.listWakeups(projectId ? { projectId } : {});
       const reviews = await deps.listReviews(projectId ? { projectId } : {});
+      const milestones = await deps.listMilestones(projectId);
 
       const reviewedRunIds = new Set(reviews.map((review) => String(review.runId)));
       const now = Date.now();
@@ -2995,11 +3009,16 @@ function createArisService(overrides = {}) {
 
       return {
         projects: activeProjects,
+        milestones,
         overdueWakeups,
         reviewReadyRuns,
         blockedWorkItems,
         staleRuns,
       };
+      } catch (error) {
+        console.error('[ARIS] getControlTower internal error:', error);
+        return { projects: [], milestones: [], overdueWakeups: [], reviewReadyRuns: [], blockedWorkItems: [], staleRuns: [] };
+      }
     },
 
     async getReviewInbox({ projectId = '' } = {}) {

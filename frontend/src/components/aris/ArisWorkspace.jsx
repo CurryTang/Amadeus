@@ -364,14 +364,8 @@ const FOLLOW_UP_ACTIONS = [
   { value: 'retry', label: 'Retry Run' },
 ];
 
-const ARIS_SUBVIEWS = [
-  { id: 'control_tower', label: 'Control Tower' },
-  { id: 'projects', label: 'Projects' },
-  { id: 'work_items', label: 'Work Items' },
-  { id: 'review_inbox', label: 'Review Inbox' },
-  { id: 'runs', label: 'Runs' },
-  { id: 'launcher', label: 'Launcher' },
-];
+// Unified control tower — no more separate tabs
+const CT_PANELS = { OVERVIEW: 'overview', WORK_ITEMS: 'work_items', RUNS: 'runs', LAUNCHER: 'launcher' };
 
 function toDateTimeLocalValue(value) {
   if (!value) return '';
@@ -388,7 +382,7 @@ function fromDateTimeLocalValue(value) {
 }
 
 export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
-  const [arisSubview, setArisSubview] = useState('control_tower');
+  const [ctPanel, setCtPanel] = useState(CT_PANELS.OVERVIEW);
   const [contextData, setContextData] = useState(null);
   const [runs, setRuns] = useState([]);
   const [selectedRunId, setSelectedRunId] = useState('');
@@ -412,6 +406,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [savingWorkItem, setSavingWorkItem] = useState(false);
   const [launchingWorkItemRun, setLaunchingWorkItemRun] = useState(false);
   const [workItemRunDraft, setWorkItemRunDraft] = useState(createEmptyRunLaunchDraft());
+  const [milestones, setMilestones] = useState([]);
+  const [loadingMilestones, setLoadingMilestones] = useState(false);
+  const [seedingPhases, setSeedingPhases] = useState(false);
+  const [expandedPhaseId, setExpandedPhaseId] = useState(null);
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedTargetId, setSelectedTargetId] = useState('');
@@ -551,6 +549,28 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       setLoadingWorkItems(false);
     }
   }, [apiUrl, getAuthHeaders]);
+
+  const fetchMilestones = useCallback(async (projectId) => {
+    if (!projectId) { setMilestones([]); return []; }
+    setLoadingMilestones(true);
+    try {
+      const response = await axios.get(`${apiUrl}/aris/projects/${projectId}/milestones`, { headers: getAuthHeaders() });
+      const items = response.data?.milestones || [];
+      setMilestones(items);
+      if (items.length > 0 && !expandedPhaseId) setExpandedPhaseId(items[0].id);
+      return items;
+    } finally { setLoadingMilestones(false); }
+  }, [apiUrl, getAuthHeaders, expandedPhaseId]);
+
+  const handleSeedPhases = useCallback(async () => {
+    if (!selectedProjectId || seedingPhases) return;
+    setSeedingPhases(true);
+    try {
+      await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/seed-phases`, {}, { headers: getAuthHeaders() });
+      await fetchMilestones(selectedProjectId);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to seed phases'); }
+    finally { setSeedingPhases(false); }
+  }, [apiUrl, getAuthHeaders, selectedProjectId, seedingPhases, fetchMilestones]);
 
   const fetchWorkItemDetail = useCallback(async (workItemId) => {
     if (!workItemId) {
@@ -843,7 +863,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   useEffect(() => {
     fetchProjectNow(selectedProjectId).catch(() => {});
     fetchProjectWorkItems(selectedProjectId).catch(() => {});
-  }, [fetchProjectNow, fetchProjectWorkItems, selectedProjectId]);
+    fetchMilestones(selectedProjectId).catch(() => {});
+  }, [fetchProjectNow, fetchProjectWorkItems, fetchMilestones, selectedProjectId]);
 
   const projectTargets = useMemo(
     () => (contextData?.targets || []).filter((target) => String(target.projectId) === String(selectedProjectId)),
@@ -962,6 +983,37 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     },
     [selectedWorkItem, workItemDraft]
   );
+  // Group work items by milestone/phase for the unified view
+  const phaseGroupedItems = useMemo(() => {
+    const groups = milestones.map((m) => ({
+      ...m,
+      items: workItemRows.filter((item) => {
+        const wi = workItems.find((w) => w.id === item.id);
+        return wi && wi.milestoneId === m.id;
+      }),
+    }));
+    const unassigned = workItemRows.filter((item) => {
+      const wi = workItems.find((w) => w.id === item.id);
+      return !wi?.milestoneId || !milestones.some((m) => m.id === wi.milestoneId);
+    });
+    if (unassigned.length > 0) {
+      groups.push({ id: '__unassigned__', name: 'Unassigned', description: '', items: unassigned });
+    }
+    return groups;
+  }, [milestones, workItemRows, workItems]);
+
+  // Attention items count for the project sidebar
+  const projectAttentionCounts = useMemo(() => {
+    const counts = {};
+    (controlTower?.projects || contextData?.projects || []).forEach((p) => {
+      const active = p.inFlightRunCount ?? p.activeRunCount ?? 0;
+      const review = p.reviewReadyRunCount ?? p.reviewReadyCount ?? 0;
+      const overdue = p.overdueWakeupCount ?? 0;
+      counts[p.id] = { active, review, overdue, total: active + review + overdue };
+    });
+    return counts;
+  }, [controlTower, contextData]);
+
   const runCards = useMemo(() => runs.map((run) => buildArisRunCard(run)), [runs]);
   const selectedRunCard = useMemo(
     () => buildArisRunDetail(selectedRunDetail || runs.find((run) => run.id === selectedRunId) || {}),
@@ -1234,6 +1286,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         fetchReviewInbox(),
         fetchProjectNow(selectedProjectId),
         fetchProjectWorkItems(selectedProjectId),
+        fetchMilestones(selectedProjectId),
       ]);
       if (selectedRunId) {
         await fetchRunDetail(selectedRunId, { silent: true });
@@ -1430,476 +1483,296 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   }
 
   return (
-    <section className="aris-workspace">
-      <div className="aris-hero">
-        <div className="aris-hero-copy">
-          <span className="aris-kicker">Dispatch-Controlled ARIS</span>
-          <h2>ARIS Researcher</h2>
-          <p>
-            Operate ARIS as a control plane for slow-feedback work: projects, work items, wake-ups, reviews,
-            and runs all live together so you can dispatch in waves instead of losing threads.
-          </p>
-        </div>
-        <div className="aris-hero-actions">
-          <button className="aris-refresh-btn" onClick={handleRefresh} disabled={loadingRuns}>
-            {loadingRuns ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button className="aris-secondary-btn" onClick={handleOpenProjectManager}>
-            Manage Projects
-          </button>
-        </div>
-      </div>
-
+    <section className="aris-workspace ct-workspace">
       {error && <div className="error-banner"><span>{error}</span></div>}
 
-      <div className="aris-subview-nav" role="tablist" aria-label="ARIS views">
-        {ARIS_SUBVIEWS.map((view) => (
-          <button
-            key={view.id}
-            className={`aris-subview-chip${arisSubview === view.id ? ' is-active' : ''}`}
-            type="button"
-            onClick={() => setArisSubview(view.id)}
-          >
-            {view.label}
-          </button>
-        ))}
-      </div>
-
-      {arisSubview === 'control_tower' && (
-        <>
-          <div className="aris-dispatch-overview-grid">
-            <section className="aris-context-panel">
-              <div className="aris-panel-header">
-                <h3>Needs Attention</h3>
-                {loadingControlTower && <span className="aris-elapsed">Refreshing…</span>}
-              </div>
-              {controlTowerCards.length === 0 ? (
-                <div className="aris-empty-card">No urgent dispatch items right now.</div>
-              ) : (
-                <div className="aris-dispatch-card-list">
-                  {controlTowerCards.map((card) => (
-                    <article key={card.id} className={`aris-dispatch-card${card.isUrgent ? ' is-urgent' : ''}`}>
-                      <div className="aris-dispatch-card-top">
-                        <strong>{card.title}</strong>
-                        <span className={`aris-status-badge aris-status-badge--${card.isUrgent ? 'failed' : 'queued'}`}>
-                          {card.statusLabel}
-                        </span>
-                      </div>
-                      <p>{card.projectLabel}</p>
-                      {card.summaryLabel && <p>{card.summaryLabel}</p>}
-                      <div className="aris-run-meta">
-                        {card.countLabel && <span>{card.countLabel}</span>}
-                        {card.dueLabel && <span>{card.dueLabel}</span>}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="aris-context-panel">
-              <div className="aris-panel-header">
-                <h3>Active Projects</h3>
-              </div>
-              {projectSummaryRows.length === 0 ? (
-                <div className="aris-empty-card">No projects available yet.</div>
-              ) : (
-                <div className="aris-dispatch-card-list">
-                  {projectSummaryRows.map((project) => (
-                    <article key={project.id} className={`aris-dispatch-card${project.isUrgent ? ' is-urgent' : ''}`}>
-                      <div className="aris-dispatch-card-top">
-                        <strong>{project.title}</strong>
-                        <span className={`aris-status-badge aris-status-badge--${project.isUrgent ? 'review' : 'completed'}`}>
-                          {project.statusLabel}
-                        </span>
-                      </div>
-                      <div className="aris-run-meta">
-                        <span>{project.workItemLabel}</span>
-                        <span>{project.runLabel}</span>
-                      </div>
-                      <div className="aris-run-meta">
-                        <span>{project.reviewLabel}</span>
-                        <span>{project.attentionLabel}</span>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
+      <div className="ct-layout">
+        {/* ─── Left Sidebar: Projects ─── */}
+        <aside className="ct-sidebar">
+          <div className="ct-sidebar-header">
+            <h2>ARIS</h2>
+            <div className="ct-sidebar-actions">
+              <button className="ct-btn ct-btn--icon" onClick={handleRefresh} disabled={loadingRuns} title="Refresh">
+                {loadingRuns ? '...' : '\u21BB'}
+              </button>
+              <button className="ct-btn ct-btn--icon" onClick={handleOpenProjectManager} title="Manage Projects">+</button>
+            </div>
           </div>
 
-          <div className="aris-dispatch-overview-grid">
-            <section className="aris-context-panel">
-              <div className="aris-panel-header">
-                <h3>Review Queue</h3>
-                {loadingReviewInbox && <span className="aris-elapsed">Refreshing…</span>}
-              </div>
-              {reviewRows.length === 0 ? (
-                <div className="aris-empty-card">No review-ready runs.</div>
-              ) : (
-                <div className="aris-dispatch-card-list">
-                  {reviewRows.slice(0, 6).map((review) => (
-                    <article key={review.id} className="aris-dispatch-card">
-                      <div className="aris-dispatch-card-top">
-                        <strong>{review.title}</strong>
-                        <span className={`aris-status-badge aris-status-badge--${review.statusColor}`}>{review.decisionLabel}</span>
-                      </div>
-                      <p>{review.reviewerLabel}</p>
-                      {review.notes && <p>{review.notes}</p>}
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
+          <nav className="ct-project-list">
+            {(contextData?.projects || []).map((project) => {
+              const counts = projectAttentionCounts[project.id] || {};
+              return (
+                <button
+                  key={project.id}
+                  type="button"
+                  className={`ct-project-item${selectedProjectId === project.id ? ' is-active' : ''}`}
+                  onClick={() => setSelectedProjectId(project.id)}
+                >
+                  <span className="ct-project-name">{project.name}</span>
+                  <span className="ct-project-counts">
+                    {counts.review > 0 && <span className="ct-count ct-count--review" title="Review ready">{counts.review}</span>}
+                    {counts.active > 0 && <span className="ct-count ct-count--active" title="Active runs">{counts.active}</span>}
+                    {counts.overdue > 0 && <span className="ct-count ct-count--overdue" title="Overdue">{counts.overdue}</span>}
+                  </span>
+                </button>
+              );
+            })}
+            {(contextData?.projects || []).length === 0 && (
+              <div className="ct-empty-hint">No projects yet</div>
+            )}
+          </nav>
 
-            <section className="aris-context-panel">
-              <div className="aris-panel-header">
-                <h3>Selected Project Now</h3>
-                {loadingProjectNow && <span className="aris-elapsed">Refreshing…</span>}
+          {/* Quick navigation */}
+          <div className="ct-sidebar-nav">
+            <button className={`ct-nav-item${ctPanel === CT_PANELS.OVERVIEW ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.OVERVIEW)}>Overview</button>
+            <button className={`ct-nav-item${ctPanel === CT_PANELS.WORK_ITEMS ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.WORK_ITEMS)}>Work Items</button>
+            <button className={`ct-nav-item${ctPanel === CT_PANELS.RUNS ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.RUNS)}>Runs</button>
+            <button className={`ct-nav-item${ctPanel === CT_PANELS.LAUNCHER ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.LAUNCHER)}>Launcher</button>
+          </div>
+        </aside>
+
+        {/* ─── Main Content ─── */}
+        <main className="ct-main">
+          {/* Attention bar */}
+          {controlTowerCards.length > 0 && (
+            <div className="ct-attention-bar">
+              {controlTowerCards.slice(0, 5).map((card) => (
+                <span key={card.id} className={`ct-attention-pill ct-attention-pill--${card.isUrgent ? 'urgent' : 'info'}`}>
+                  {card.title}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* OVERVIEW PANEL */}
+          {ctPanel === CT_PANELS.OVERVIEW && (
+            <div className="ct-overview">
+              <div className="ct-section-header">
+                <h3>{selectedProject?.name || 'Select a Project'}</h3>
+                {selectedProject && <span className="ct-section-meta">{workItems.length} work items &middot; {runs.filter((r) => r.projectId === selectedProjectId).length} runs</span>}
               </div>
-              {!selectedProjectId ? (
-                <div className="aris-empty-card">Select a project to load its current operating view.</div>
-              ) : !projectNow ? (
-                <div className="aris-empty-card">No project now summary yet.</div>
-              ) : (
-                <div className="aris-dispatch-now-stack">
-                  <dl className="aris-context-list">
-                    <div>
-                      <dt>Project</dt>
-                      <dd>{projectNow.project?.name || selectedProject?.name || 'Selected project'}</dd>
-                    </div>
-                    <div>
-                      <dt>Active Work</dt>
-                      <dd>{projectNow.activeWorkItems?.length || 0} work items in motion</dd>
-                    </div>
-                    <div>
-                      <dt>Upcoming Checks</dt>
-                      <dd>{projectNow.upcomingWakeups?.length || 0} wake-ups scheduled</dd>
-                    </div>
-                    <div>
-                      <dt>Milestones</dt>
-                      <dd>{projectNow.milestones?.length || 0} milestone records</dd>
-                    </div>
-                  </dl>
-                  {projectNow.activeWorkItems?.length > 0 && (
-                    <div className="aris-dispatch-card-list">
-                      {projectNow.activeWorkItems.slice(0, 4).map((item) => {
-                        const row = buildArisWorkItemRow(item);
+
+              {/* Research Phases */}
+              {selectedProjectId && (
+                <div className="ct-phases">
+                  <div className="ct-phases-header">
+                    <h4>Research Phases</h4>
+                    {milestones.length === 0 && (
+                      <button className="ct-btn ct-btn--sm" onClick={handleSeedPhases} disabled={seedingPhases}>
+                        {seedingPhases ? 'Creating...' : 'Add Default Phases'}
+                      </button>
+                    )}
+                  </div>
+                  {loadingMilestones ? (
+                    <div className="ct-empty">Loading phases...</div>
+                  ) : phaseGroupedItems.length === 0 ? (
+                    <div className="ct-empty">No phases configured. Click &ldquo;Add Default Phases&rdquo; to set up ML research stages.</div>
+                  ) : (
+                    <div className="ct-phase-list">
+                      {phaseGroupedItems.map((phase) => {
+                        const isExpanded = expandedPhaseId === phase.id;
+                        const doneCount = phase.items.filter((i) => i.statusColor === 'completed' || i.statusColor === 'green').length;
+                        const totalCount = phase.items.length;
+                        const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
                         return (
-                          <article key={row.id} className={`aris-dispatch-card${row.isUrgent ? ' is-urgent' : ''}`}>
-                            <div className="aris-dispatch-card-top">
-                              <strong>{row.title}</strong>
-                              <span className={`aris-status-badge aris-status-badge--${row.statusColor}`}>{row.statusLabel}</span>
-                            </div>
-                            {row.summary && <p>{row.summary}</p>}
-                            <div className="aris-run-meta">
-                              <span>{row.typeLabel}</span>
-                              <span>{row.actorLabel}</span>
-                              {row.nextCheckLabel && <span>{row.nextCheckLabel}</span>}
-                            </div>
-                          </article>
+                          <div key={phase.id} className={`ct-phase${isExpanded ? ' is-expanded' : ''}`}>
+                            <button className="ct-phase-header" type="button" onClick={() => setExpandedPhaseId(isExpanded ? null : phase.id)}>
+                              <span className="ct-phase-arrow">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+                              <span className="ct-phase-name">{phase.name}</span>
+                              {totalCount > 0 && (
+                                <span className="ct-phase-progress">
+                                  <span className="ct-progress-bar"><span className="ct-progress-fill" style={{ width: `${progressPct}%` }} /></span>
+                                  <span className="ct-progress-text">{doneCount}/{totalCount}</span>
+                                </span>
+                              )}
+                              {totalCount === 0 && <span className="ct-phase-empty-label">No items</span>}
+                            </button>
+                            {phase.description && isExpanded && <div className="ct-phase-desc">{phase.description}</div>}
+                            {isExpanded && (
+                              <div className="ct-phase-items">
+                                {phase.items.length === 0 ? (
+                                  <div className="ct-empty ct-empty--sm">No work items in this phase.</div>
+                                ) : (
+                                  phase.items.map((item) => (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      className={`ct-work-item-row${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
+                                      onClick={() => { setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}
+                                    >
+                                      <span className={`ct-status-dot ct-status-dot--${item.statusColor}`} />
+                                      <span className="ct-wi-title">{item.title}</span>
+                                      <span className={`ct-type-badge ct-type-badge--${item.typeLabel?.toLowerCase() || 'task'}`}>{item.typeLabel}</span>
+                                      <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
+                                    </button>
+                                  ))
+                                )}
+                                <button className="ct-add-item-btn" type="button" onClick={() => { handleCreateWorkItem(); if (phase.id !== '__unassigned__') handleWorkItemFieldChange('milestoneId', phase.id); }}>
+                                  + Add work item
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
                   )}
                 </div>
               )}
-            </section>
-          </div>
-        </>
-      )}
 
-      {arisSubview === 'projects' && (
-        <div className="aris-dispatch-overview-grid">
-          <section className="aris-context-panel">
-            <div className="aris-panel-header">
-              <h3>Project Portfolio</h3>
-              <button className="aris-secondary-btn" type="button" onClick={handleOpenProjectManager}>
-                Manage Projects
-              </button>
-            </div>
-            {projectSummaryRows.length === 0 ? (
-              <div className="aris-empty-card">No projects yet.</div>
-            ) : (
-              <div className="aris-dispatch-card-list">
-                {projectSummaryRows.map((project) => (
-                  <button
-                    key={project.id}
-                    type="button"
-                    className={`aris-run-card${selectedProjectId === project.id ? ' is-selected' : ''}`}
-                    onClick={() => setSelectedProjectId(project.id)}
-                  >
-                    <div className="aris-run-card-header">
-                      <div className="aris-run-card-title-row">
-                        <span className={`aris-status-dot aris-status-dot--${project.isUrgent ? 'failed' : 'completed'}`} />
-                        <h4>{project.title}</h4>
+              {/* Review queue summary */}
+              {reviewRows.length > 0 && (
+                <div className="ct-review-summary">
+                  <h4>Review Queue ({reviewRows.length})</h4>
+                  <div className="ct-review-list">
+                    {reviewRows.slice(0, 4).map((review) => (
+                      <div key={review.id} className="ct-review-item">
+                        <span className={`ct-status-dot ct-status-dot--review`} />
+                        <span className="ct-review-title">{review.title}</span>
+                        <span className={`ct-status-label ct-status-label--${review.statusColor}`}>{review.decisionLabel}</span>
                       </div>
-                      <span className={`aris-status-badge aris-status-badge--${project.isUrgent ? 'review' : 'completed'}`}>
-                        {project.statusLabel}
-                      </span>
-                    </div>
-                    <div className="aris-run-meta">
-                      <span>{project.workItemLabel}</span>
-                      <span>{project.runLabel}</span>
-                      <span>{project.reviewLabel}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="aris-context-panel">
-            <div className="aris-panel-header">
-              <h3>Project Now</h3>
-            </div>
-            {!projectNow ? (
-              <div className="aris-empty-card">No project now details for the selected project.</div>
-            ) : (
-              <div className="aris-dispatch-now-stack">
-                <dl className="aris-context-list">
-                  <div>
-                    <dt>Project</dt>
-                    <dd>{projectNow.project?.name || 'Unnamed project'}</dd>
+                    ))}
                   </div>
-                  <div>
-                    <dt>Milestones</dt>
-                    <dd>{projectNow.milestones?.map((milestone) => milestone.name).join(', ') || 'No active milestones'}</dd>
+                </div>
+              )}
+
+              {/* Recent runs summary */}
+              {runs.length > 0 && (
+                <div className="ct-runs-summary">
+                  <div className="ct-section-header">
+                    <h4>Recent Runs</h4>
+                    <button className="ct-btn ct-btn--sm" onClick={() => setCtPanel(CT_PANELS.RUNS)}>View All</button>
                   </div>
-                  <div>
-                    <dt>Upcoming Wake-ups</dt>
-                    <dd>{projectNow.upcomingWakeups?.length || 0}</dd>
+                  <div className="ct-run-mini-list">
+                    {runCards.slice(0, 5).map((run) => (
+                      <button key={run.id} type="button" className="ct-run-mini" onClick={() => { setSelectedRunId(run.id); setCtPanel(CT_PANELS.RUNS); }}>
+                        <span className={`ct-status-dot ct-status-dot--${run.statusColor}`} />
+                        <span className="ct-run-mini-title">{run.workflowLabel || run.title}</span>
+                        <span className={`ct-status-label ct-status-label--${run.statusColor}`}>{run.statusLabel}</span>
+                        {run.elapsedLabel && <span className="ct-elapsed">{run.elapsedLabel}</span>}
+                      </button>
+                    ))}
                   </div>
-                </dl>
-                {projectNow.activeWorkItems?.length > 0 && (
-                  <div className="aris-dispatch-card-list">
-                    {projectNow.activeWorkItems.map((item) => {
-                      const row = buildArisWorkItemRow(item);
-                      return (
-                        <article key={row.id} className={`aris-dispatch-card${row.isUrgent ? ' is-urgent' : ''}`}>
-                          <div className="aris-dispatch-card-top">
-                            <strong>{row.title}</strong>
-                            <span className={`aris-status-badge aris-status-badge--${row.statusColor}`}>{row.statusLabel}</span>
-                          </div>
-                          {row.summary && <p>{row.summary}</p>}
-                          <div className="aris-run-meta">
-                            <span>{row.typeLabel}</span>
-                            <span>{row.actorLabel}</span>
-                            {row.nextCheckLabel && <span>{row.nextCheckLabel}</span>}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        </div>
-      )}
-
-      {arisSubview === 'work_items' && (
-        <div className="aris-runs-detail-grid">
-          <section className="aris-runs-panel">
-            <div className="aris-panel-header">
-              <h3>Project Work Items</h3>
-              <button className="aris-secondary-btn" type="button" onClick={handleCreateWorkItem}>
-                New Work Item
-              </button>
-            </div>
-            {loadingWorkItems ? (
-              <div className="aris-empty-card">Loading work items…</div>
-            ) : workItemRows.length === 0 ? (
-              <div className="aris-empty-card">No work items yet. Create the first packet for this project.</div>
-            ) : (
-              <div className="aris-run-list">
-                {workItemRows.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`aris-run-card${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
-                    onClick={() => setSelectedWorkItemId(item.id)}
-                  >
-                    <div className="aris-run-card-header">
-                      <div className="aris-run-card-title-row">
-                        <span className={`aris-status-dot aris-status-dot--${item.statusColor}`} />
-                        <h4>{item.title}</h4>
-                      </div>
-                      <span className={`aris-status-badge aris-status-badge--${item.statusColor}`}>{item.statusLabel}</span>
-                    </div>
-                    {item.summary && <div className="aris-run-result-preview">{item.summary}</div>}
-                    <div className="aris-run-meta">
-                      <span>{item.typeLabel}</span>
-                      <span>{item.actorLabel}</span>
-                      {item.nextCheckLabel && <span>{item.nextCheckLabel}</span>}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="aris-context-panel aris-run-detail-panel">
-            <div className="aris-panel-header">
-              <h3>{workItemDraft.id ? 'Edit Work Item' : 'Create Work Item'}</h3>
-              <button className="aris-refresh-btn" type="button" onClick={handleSaveWorkItem} disabled={savingWorkItem}>
-                {savingWorkItem ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-
-            <div className="aris-launch-fields">
-              <label className="aris-field">
-                <span>Title</span>
-                <input value={workItemDraft.title} onChange={(event) => handleWorkItemFieldChange('title', event.target.value)} />
-              </label>
-              <label className="aris-field">
-                <span>Summary</span>
-                <textarea rows={3} value={workItemDraft.summary} onChange={(event) => handleWorkItemFieldChange('summary', event.target.value)} />
-              </label>
-              <div className="aris-launch-inline-grid">
-                <label className="aris-field">
-                  <span>Type</span>
-                  <select value={workItemDraft.type} onChange={(event) => handleWorkItemFieldChange('type', event.target.value)}>
-                    <option value="feature">Feature</option>
-                    <option value="bug">Bug</option>
-                    <option value="experiment">Experiment</option>
-                    <option value="paper">Paper</option>
-                    <option value="ops">Ops</option>
-                    <option value="decision">Decision</option>
-                    <option value="research">Research</option>
-                  </select>
-                </label>
-                <label className="aris-field">
-                  <span>Status</span>
-                  <select value={workItemDraft.status} onChange={(event) => handleWorkItemFieldChange('status', event.target.value)}>
-                    <option value="backlog">Backlog</option>
-                    <option value="ready">Ready</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="waiting">Waiting</option>
-                    <option value="review">Review</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="parked">Parked</option>
-                    <option value="done">Done</option>
-                    <option value="canceled">Canceled</option>
-                  </select>
-                </label>
-              </div>
-              <label className="aris-field">
-                <span>Goal</span>
-                <textarea rows={3} value={workItemDraft.goal} onChange={(event) => handleWorkItemFieldChange('goal', event.target.value)} />
-              </label>
-              <label className="aris-field">
-                <span>Why It Matters</span>
-                <textarea rows={3} value={workItemDraft.whyItMatters} onChange={(event) => handleWorkItemFieldChange('whyItMatters', event.target.value)} />
-              </label>
-              <label className="aris-field">
-                <span>Context</span>
-                <textarea rows={4} value={workItemDraft.contextMd} onChange={(event) => handleWorkItemFieldChange('contextMd', event.target.value)} />
-              </label>
-              <label className="aris-field">
-                <span>Verification</span>
-                <textarea rows={3} value={workItemDraft.verificationMd} onChange={(event) => handleWorkItemFieldChange('verificationMd', event.target.value)} />
-              </label>
-            </div>
-
-            <div className="aris-follow-up">
-              <div className="aris-panel-header">
-                <h3>Wake-ups</h3>
-                <button className="aris-secondary-btn" type="button" onClick={handleAddWorkItemWakeup}>
-                  Add Wake-up
-                </button>
-              </div>
-              <div className="aris-dispatch-card-list">
-                {(workItemDraft.wakeups || []).map((wakeup, index) => (
-                  <article key={`draft-wakeup-${index}`} className="aris-dispatch-card">
-                    <label className="aris-field">
-                      <span>Reason</span>
-                      <input
-                        value={wakeup.reason}
-                        onChange={(event) => handleWorkItemWakeupChange(index, 'reason', event.target.value)}
-                      />
-                    </label>
-                    <label className="aris-field">
-                      <span>Scheduled For</span>
-                      <input
-                        type="datetime-local"
-                        value={toDateTimeLocalValue(wakeup.scheduledFor)}
-                        onChange={(event) => handleWorkItemWakeupChange(index, 'scheduledFor', fromDateTimeLocalValue(event.target.value))}
-                      />
-                    </label>
-                  </article>
-                ))}
-              </div>
-              {wakeupRows.length > 0 && (
-                <div className="aris-run-meta">
-                  {wakeupRows.map((row) => (
-                    <span key={row.id || row.title}>{row.scheduledLabel || row.statusLabel}</span>
-                  ))}
                 </div>
               )}
             </div>
-
-            <div className="aris-follow-up">
-              <div className="aris-panel-header">
-                <h3>Launch Run From Work Item</h3>
-              </div>
-              <label className="aris-field">
-                <span>Run Title</span>
-                <input
-                  value={workItemRunDraft.title}
-                  onChange={(event) => setWorkItemRunDraft((prev) => ({ ...prev, title: event.target.value }))}
-                  placeholder={workItemDraft.title || 'Execution pass'}
-                />
-              </label>
-              <label className="aris-field">
-                <span>Run Prompt</span>
-                <textarea
-                  rows={4}
-                  value={workItemRunDraft.prompt}
-                  onChange={(event) => setWorkItemRunDraft((prev) => ({ ...prev, prompt: event.target.value }))}
-                  placeholder="Use the launcher prompt or write a work-item-specific execution packet."
-                />
-              </label>
-              <div className="aris-launch-footer aris-launch-footer--detail">
-                <div className="aris-launch-note">
-                  Runs launched from here inherit the selected project and require at least one wake-up.
-                </div>
-                <button className="aris-run-btn" type="button" onClick={handleLaunchWorkItemRun} disabled={launchingWorkItemRun}>
-                  {launchingWorkItemRun ? 'Launching…' : 'Launch Linked Run'}
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {arisSubview === 'review_inbox' && (
-        <section className="aris-context-panel">
-          <div className="aris-panel-header">
-            <h3>Review Inbox</h3>
-            {loadingReviewInbox && <span className="aris-elapsed">Refreshing…</span>}
-          </div>
-          {reviewRows.length === 0 ? (
-            <div className="aris-empty-card">Nothing is waiting for review.</div>
-          ) : (
-            <div className="aris-dispatch-card-list">
-              {reviewRows.map((review) => (
-                <article key={review.id} className="aris-dispatch-card">
-                  <div className="aris-dispatch-card-top">
-                    <strong>{review.title}</strong>
-                    <span className={`aris-status-badge aris-status-badge--${review.statusColor}`}>{review.decisionLabel}</span>
-                  </div>
-                  <p>{review.reviewerLabel}</p>
-                  {review.notes && <p>{review.notes}</p>}
-                  {review.createdAt && <div className="aris-run-meta"><span>{new Date(review.createdAt).toLocaleString()}</span></div>}
-                </article>
-              ))}
-            </div>
           )}
-        </section>
+
+          {/* WORK ITEMS PANEL */}
+          {ctPanel === CT_PANELS.WORK_ITEMS && (
+            <div className="ct-work-items-panel">
+              <div className="ct-section-header">
+                <h3>Work Items</h3>
+                <button className="ct-btn ct-btn--sm" type="button" onClick={handleCreateWorkItem}>+ New</button>
+              </div>
+
+              <div className="ct-wi-split">
+                {/* Work item list */}
+                <div className="ct-wi-list">
+                  {loadingWorkItems ? (
+                    <div className="ct-empty">Loading...</div>
+                  ) : workItemRows.length === 0 ? (
+                    <div className="ct-empty">No work items yet.</div>
+                  ) : (
+                    workItemRows.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`ct-work-item-row${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
+                        onClick={() => setSelectedWorkItemId(item.id)}
+                      >
+                        <span className={`ct-status-dot ct-status-dot--${item.statusColor}`} />
+                        <span className="ct-wi-title">{item.title}</span>
+                        <span className={`ct-type-badge ct-type-badge--${item.typeLabel?.toLowerCase() || 'task'}`}>{item.typeLabel}</span>
+                        <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                {/* Work item detail/editor */}
+                <div className="ct-wi-detail">
+                  <div className="ct-section-header">
+                    <h4>{workItemDraft.id ? 'Edit' : 'Create'} Work Item</h4>
+                    <button className="ct-btn ct-btn--primary ct-btn--sm" type="button" onClick={handleSaveWorkItem} disabled={savingWorkItem}>
+                      {savingWorkItem ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+
+                  <div className="ct-form">
+                    <label className="ct-field">
+                      <span>Title</span>
+                      <input value={workItemDraft.title} onChange={(e) => handleWorkItemFieldChange('title', e.target.value)} />
+                    </label>
+                    <label className="ct-field">
+                      <span>Summary</span>
+                      <textarea rows={2} value={workItemDraft.summary} onChange={(e) => handleWorkItemFieldChange('summary', e.target.value)} />
+                    </label>
+                    <div className="ct-field-row">
+                      <label className="ct-field">
+                        <span>Type</span>
+                        <select value={workItemDraft.type} onChange={(e) => handleWorkItemFieldChange('type', e.target.value)}>
+                          <option value="feature">Feature</option>
+                          <option value="experiment">Experiment</option>
+                          <option value="paper">Paper</option>
+                          <option value="research">Research</option>
+                          <option value="bug">Bug</option>
+                          <option value="ops">Ops</option>
+                          <option value="decision">Decision</option>
+                        </select>
+                      </label>
+                      <label className="ct-field">
+                        <span>Status</span>
+                        <select value={workItemDraft.status} onChange={(e) => handleWorkItemFieldChange('status', e.target.value)}>
+                          <option value="backlog">Backlog</option>
+                          <option value="ready">Ready</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="waiting">Waiting</option>
+                          <option value="review">Review</option>
+                          <option value="blocked">Blocked</option>
+                          <option value="parked">Parked</option>
+                          <option value="done">Done</option>
+                          <option value="canceled">Canceled</option>
+                        </select>
+                      </label>
+                      <label className="ct-field">
+                        <span>Phase</span>
+                        <select value={workItemDraft.milestoneId} onChange={(e) => handleWorkItemFieldChange('milestoneId', e.target.value)}>
+                          <option value="">Unassigned</option>
+                          {milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <label className="ct-field">
+                      <span>Goal</span>
+                      <textarea rows={2} value={workItemDraft.goal} onChange={(e) => handleWorkItemFieldChange('goal', e.target.value)} />
+                    </label>
+                    <label className="ct-field">
+                      <span>Context</span>
+                      <textarea rows={3} value={workItemDraft.contextMd} onChange={(e) => handleWorkItemFieldChange('contextMd', e.target.value)} />
+                    </label>
+
+                    {/* Wake-ups */}
+                    <div className="ct-wakeups">
+                      <div className="ct-section-header">
+                        <span>Wake-ups</span>
+                        <button className="ct-btn ct-btn--sm" type="button" onClick={handleAddWorkItemWakeup}>+ Add</button>
+                      </div>
+                      {(workItemDraft.wakeups || []).map((wakeup, index) => (
+                        <div key={`wakeup-${index}`} className="ct-wakeup-row">
+                          <input placeholder="Reason" value={wakeup.reason} onChange={(e) => handleWorkItemWakeupChange(index, 'reason', e.target.value)} />
+                          <input type="datetime-local" value={toDateTimeLocalValue(wakeup.scheduledFor)} onChange={(e) => handleWorkItemWakeupChange(index, 'scheduledFor', fromDateTimeLocalValue(e.target.value))} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
       )}
 
-      {arisSubview === 'launcher' && (
+      {ctPanel === CT_PANELS.LAUNCHER && (
       <div className="aris-grid">
         <section className="aris-launch-panel">
           <div className="aris-panel-header">
@@ -2127,7 +2000,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       </div>
       )}
 
-      {arisSubview === 'launcher' && showGpuPanel && (
+      {ctPanel === CT_PANELS.LAUNCHER && showGpuPanel && (
         <section className="aris-gpu-panel">
           <div className="aris-panel-header">
             <h3>GPU Availability{gpuStatus?.projectName ? ` — ${gpuStatus.projectName}` : ''}</h3>
@@ -2208,7 +2081,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         </section>
       )}
 
-      {arisSubview === 'runs' && (
+      {ctPanel === CT_PANELS.RUNS && (
       <div className="aris-runs-detail-grid">
         <section className="aris-runs-panel">
           <div className="aris-panel-header">
@@ -2627,6 +2500,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         </section>
       </div>
       )}
+
+        </main>
+      </div>{/* end ct-layout */}
 
       {showProjectManager && (
         <div className="aris-modal-backdrop" onClick={() => setShowProjectManager(false)}>

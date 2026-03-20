@@ -45,7 +45,7 @@ async function invokeArisMethod(methodName, args = []) {
   if (typeof method !== 'function') {
     throw new Error(`ARIS service method ${methodName} is not implemented`);
   }
-  return method(...args);
+  return method.call(arisService, ...args);
 }
 
 router.get('/context', requireAuth, async (req, res) => {
@@ -62,15 +62,12 @@ router.get('/context', requireAuth, async (req, res) => {
 
 router.get('/control-tower', requireAuth, async (req, res) => {
   try {
-    const controlTower = await invokeArisMethod('getControlTower', [getArisUserContext(req)]);
-    if (controlTower == null) {
-      return res.status(404).json({ error: 'ARIS control tower not found' });
-    }
-    res.json({ controlTower });
+    const controlTower = await arisService.getControlTower(getArisUserContext(req));
+    res.json({ controlTower: controlTower || { projects: [], overdueWakeups: [], reviewReadyRuns: [], blockedWorkItems: [], staleRuns: [], milestones: [] } });
   } catch (error) {
-    const status = classifyArisError(error);
     console.error('[ARIS] control tower error:', error);
-    res.status(status).json({ error: error.message || 'Failed to load ARIS control tower' });
+    // Always return a usable response — control tower should never 404
+    res.json({ controlTower: { projects: [], overdueWakeups: [], reviewReadyRuns: [], blockedWorkItems: [], staleRuns: [], milestones: [] } });
   }
 });
 
@@ -294,6 +291,74 @@ router.post('/projects/:projectId/work-items', requireAuth, async (req, res) => 
   }
 });
 
+// ─── Milestone CRUD ─────────────────────────────────────────────────────────
+
+router.get('/projects/:projectId/milestones', requireAuth, async (req, res) => {
+  try {
+    const milestones = await arisService.listMilestones(req.params.projectId);
+    res.json({ milestones: milestones || [] });
+  } catch (error) {
+    console.error('[ARIS] list milestones error:', error);
+    res.json({ milestones: [] });
+  }
+});
+
+router.post('/projects/:projectId/milestones', requireAuth, async (req, res) => {
+  try {
+    const milestone = await arisService.createMilestone(req.params.projectId, req.body || {});
+    res.status(201).json({ milestone });
+  } catch (error) {
+    const status = /required|invalid/i.test(String(error.message || '')) ? 400 : 500;
+    console.error('[ARIS] create milestone error:', error);
+    res.status(status).json({ error: error.message || 'Failed to create milestone' });
+  }
+});
+
+router.patch('/milestones/:milestoneId', requireAuth, async (req, res) => {
+  try {
+    const existing = await arisService.getMilestoneById(req.params.milestoneId);
+    if (!existing) return res.status(404).json({ error: 'Milestone not found' });
+    const updated = { ...existing, ...req.body, id: existing.id, updatedAt: new Date().toISOString() };
+    await arisService.saveMilestone(updated);
+    res.json({ milestone: updated });
+  } catch (error) {
+    console.error('[ARIS] update milestone error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update milestone' });
+  }
+});
+
+router.delete('/milestones/:milestoneId', requireAuth, async (req, res) => {
+  try {
+    await arisService.deleteMilestone(req.params.milestoneId);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[ARIS] delete milestone error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete milestone' });
+  }
+});
+
+// Seed default ML research phases for a project
+router.post('/projects/:projectId/seed-phases', requireAuth, async (req, res) => {
+  try {
+    const defaultPhases = [
+      { name: 'Data Preparation', description: 'Dataset collection, preprocessing, feature engineering' },
+      { name: 'Model Architecture', description: 'Backbone design, module implementation, architecture search' },
+      { name: 'Training & Experiments', description: 'Training runs, hyperparameter tuning, ablation studies' },
+      { name: 'Analysis & Evaluation', description: 'Results analysis, benchmarking, visualization' },
+      { name: 'Paper Writing', description: 'Draft writing, figures, related work, submission prep' },
+    ];
+    const milestones = [];
+    for (const phase of defaultPhases) {
+      const milestone = await arisService.createMilestone(req.params.projectId, phase);
+      milestones.push(milestone);
+    }
+    res.status(201).json({ milestones });
+  } catch (error) {
+    console.error('[ARIS] seed phases error:', error);
+    res.status(500).json({ error: error.message || 'Failed to seed phases' });
+  }
+});
+
 router.get('/work-items/:workItemId', requireAuth, async (req, res) => {
   try {
     const workItem = await invokeArisMethod('getWorkItem', [
@@ -367,15 +432,11 @@ router.post('/runs/:runId/wakeups', requireAuth, async (req, res) => {
 
 router.get('/review-inbox', requireAuth, async (req, res) => {
   try {
-    const reviewInbox = await invokeArisMethod('listReviewInbox', [getArisUserContext(req)]);
-    if (reviewInbox == null) {
-      return res.status(404).json({ error: 'ARIS review inbox not found' });
-    }
-    res.json({ reviewInbox });
+    const reviewInbox = await arisService.listReviewInbox(getArisUserContext(req));
+    res.json({ reviewInbox: reviewInbox || [] });
   } catch (error) {
-    const status = classifyArisError(error);
     console.error('[ARIS] review inbox error:', error);
-    res.status(status).json({ error: error.message || 'Failed to load ARIS review inbox' });
+    res.json({ reviewInbox: [] });
   }
 });
 
@@ -403,14 +464,10 @@ router.get('/projects/:projectId/now', requireAuth, async (req, res) => {
       req.params.projectId,
       getArisUserContext(req),
     ]);
-    if (!now) {
-      return res.status(404).json({ error: 'ARIS project now page not found' });
-    }
-    res.json({ now });
+    res.json({ now: now || { project: null, milestones: [], activeWorkItems: [], upcomingWakeups: [] } });
   } catch (error) {
-    const status = classifyArisError(error);
     console.error('[ARIS] project now error:', error);
-    res.status(status).json({ error: error.message || 'Failed to load ARIS project now' });
+    res.json({ now: { project: null, milestones: [], activeWorkItems: [], upcomingWakeups: [] } });
   }
 });
 
