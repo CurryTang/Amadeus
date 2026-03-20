@@ -76,6 +76,33 @@ function pluralize(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function titleCase(value, fallback = '') {
+  const text = normalizeString(value, fallback);
+  if (!text) return '';
+  return text
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function formatUtcDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function isPastDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getTime() < Date.now();
+}
+
 function labelWorkflow(workflowType) {
   const key = normalizeString(workflowType, 'custom_run');
   const match = ARIS_QUICK_ACTIONS.find((action) => action.workflowType === key || action.id === key);
@@ -127,8 +154,265 @@ function formatElapsed(startedAt) {
   return `${days}d ${hours % 24}h elapsed`;
 }
 
+function labelControlTowerKind(kind) {
+  const labels = {
+    wakeup: 'Wake-up',
+    wakeups: 'Wake-ups',
+    review: 'Review',
+    reviews: 'Reviews',
+    work_item: 'Work Item',
+    work_items: 'Work Items',
+    run: 'Run',
+    runs: 'Runs',
+    project: 'Project',
+    projects: 'Projects',
+    metric: 'Metric',
+  };
+  const key = normalizeString(kind, 'item');
+  return labels[key] || titleCase(key, 'Item');
+}
+
+function labelControlTowerStatus(status) {
+  const key = normalizeString(status, 'active');
+  const labels = {
+    overdue: 'Overdue',
+    review_ready: 'Review ready',
+    blocked: 'Blocked',
+    active: 'Active',
+    ready: 'Ready',
+    waiting: 'Waiting',
+    complete: 'Complete',
+    completed: 'Completed',
+  };
+  return labels[key] || titleCase(key, 'Active');
+}
+
+function labelWorkItemStatus(status) {
+  const key = normalizeString(status, 'backlog');
+  const labels = {
+    backlog: 'Backlog',
+    ready: 'Ready',
+    in_progress: 'In Progress',
+    waiting: 'Waiting',
+    review: 'In Review',
+    blocked: 'Blocked',
+    parked: 'Parked',
+    done: 'Done',
+    canceled: 'Canceled',
+  };
+  return labels[key] || titleCase(key, 'Backlog');
+}
+
+function labelWorkItemType(type) {
+  const key = normalizeString(type, 'feature');
+  const labels = {
+    feature: 'Feature',
+    bug: 'Bug',
+    experiment: 'Experiment',
+    paper: 'Paper',
+    ops: 'Ops',
+    decision: 'Decision',
+    research: 'Research',
+  };
+  return labels[key] || titleCase(key, 'Feature');
+}
+
+function labelActorType(actorType) {
+  const key = normalizeString(actorType, 'unknown');
+  const labels = {
+    human: 'Human',
+    agent: 'Agent',
+    hybrid: 'Hybrid',
+    unknown: 'Unknown',
+  };
+  return labels[key] || titleCase(key, 'Unknown');
+}
+
+function labelWakeupStatus(status) {
+  const key = normalizeString(status, 'scheduled');
+  const labels = {
+    scheduled: 'Scheduled',
+    fired: 'Fired',
+    dismissed: 'Dismissed',
+    snoozed: 'Snoozed',
+    resolved: 'Resolved',
+  };
+  return labels[key] || titleCase(key, 'Scheduled');
+}
+
+function labelReviewDecision(decision) {
+  const key = normalizeString(decision, 'pending');
+  const labels = {
+    accept: 'Accept',
+    revise: 'Revise',
+    split: 'Split',
+    park: 'Park',
+    reject: 'Reject',
+    escalate: 'Escalate',
+    pending: 'Pending',
+  };
+  return labels[key] || titleCase(key, 'Pending');
+}
+
+function reviewDecisionColor(decision) {
+  const key = normalizeString(decision, 'pending');
+  const colors = {
+    accept: 'accepted',
+    revise: 'review',
+    split: 'review',
+    park: 'parked',
+    reject: 'blocked',
+    escalate: 'blocked',
+    pending: 'queued',
+  };
+  return colors[key] || 'queued';
+}
+
+function workItemStatusColor(status) {
+  const key = normalizeString(status, 'backlog');
+  const colors = {
+    backlog: 'queued',
+    ready: 'queued',
+    in_progress: 'running',
+    waiting: 'queued',
+    review: 'review',
+    blocked: 'failed',
+    parked: 'queued',
+    done: 'completed',
+    canceled: 'failed',
+  };
+  return colors[key] || 'queued';
+}
+
+function wakeupStatusColor(status, isOverdue) {
+  if (isOverdue) return 'failed';
+  const key = normalizeString(status, 'scheduled');
+  const colors = {
+    scheduled: 'queued',
+    fired: 'running',
+    dismissed: 'queued',
+    snoozed: 'queued',
+    resolved: 'completed',
+  };
+  return colors[key] || 'queued';
+}
+
+export function buildArisControlTowerCard(card = {}) {
+  const kind = normalizeString(card.kind, 'item');
+  const status = normalizeString(card.status, 'active');
+  const count = Number(card.count || 0) || 0;
+  const dueAt = card.dueAt || card.scheduledFor || '';
+  const isUrgent = Boolean(card.isUrgent)
+    || status === 'overdue'
+    || status === 'review_ready'
+    || status === 'blocked'
+    || (kind === 'wakeup' && isPastDateTime(dueAt))
+    || (kind === 'review' && count > 0);
+
+  return {
+    id: normalizeString(card.id, 'pending-card'),
+    title: normalizeString(card.title, labelControlTowerKind(kind)),
+    kind,
+    kindLabel: labelControlTowerKind(kind),
+    projectLabel: card.projectName ? `Project: ${card.projectName}` : 'All projects',
+    statusLabel: labelControlTowerStatus(status),
+    countLabel: Number.isFinite(count) ? String(count) : '',
+    summaryLabel: normalizeString(card.summary || card.note),
+    dueLabel: dueAt ? `Due ${formatUtcDateTime(dueAt)}` : '',
+    isUrgent,
+  };
+}
+
+export function buildArisWorkItemRow(workItem = {}) {
+  const status = normalizeString(workItem.status, 'backlog');
+  const nextCheckAt = workItem.nextCheckAt || '';
+  const blockedReason = normalizeString(workItem.blockedReason);
+  const isOverdue = Boolean(nextCheckAt) && isPastDateTime(nextCheckAt) && ['ready', 'in_progress', 'waiting', 'review'].includes(status);
+
+  return {
+    id: normalizeString(workItem.id, 'pending-work-item'),
+    title: normalizeString(workItem.title, 'Untitled Work Item'),
+    summary: normalizeString(workItem.summary),
+    status,
+    statusLabel: labelWorkItemStatus(status),
+    statusColor: workItemStatusColor(status),
+    typeLabel: labelWorkItemType(workItem.type),
+    actorLabel: labelActorType(workItem.actorType),
+    priorityLabel: Number.isFinite(Number(workItem.priority)) ? `P${Number(workItem.priority)}` : '',
+    nextCheckLabel: nextCheckAt ? `Next check ${formatUtcDateTime(nextCheckAt)}` : '',
+    dueLabel: workItem.dueAt ? `Due ${formatUtcDateTime(workItem.dueAt)}` : '',
+    blockedLabel: blockedReason || (status === 'blocked' ? 'Blocked' : ''),
+    runCountLabel: Number.isFinite(Number(workItem.runCount)) ? `${Number(workItem.runCount)} runs` : '',
+    decisionCountLabel: Number.isFinite(Number(workItem.decisionCount)) ? `${Number(workItem.decisionCount)} decisions` : '',
+    isOverdue,
+    isUrgent: status === 'blocked' || isOverdue,
+  };
+}
+
+export function buildArisWakeupRow(wakeup = {}) {
+  const status = normalizeString(wakeup.status, 'scheduled');
+  const scheduledFor = wakeup.scheduledFor || wakeup.nextCheckAt || '';
+  const firedAt = wakeup.firedAt || '';
+  const isOverdue = status === 'scheduled' && Boolean(scheduledFor) && isPastDateTime(scheduledFor);
+
+  return {
+    id: normalizeString(wakeup.id, 'pending-wakeup'),
+    title: normalizeString(wakeup.reason, 'Wake-up'),
+    reason: normalizeString(wakeup.reason, 'Wake-up'),
+    status,
+    statusLabel: isOverdue ? 'Overdue' : labelWakeupStatus(status),
+    statusColor: wakeupStatusColor(status, isOverdue),
+    scheduledLabel: scheduledFor ? `Scheduled ${formatUtcDateTime(scheduledFor)}` : '',
+    firedLabel: firedAt ? `Fired ${formatUtcDateTime(firedAt)}` : '',
+    resolvedLabel: wakeup.resolvedAt ? `Resolved ${formatUtcDateTime(wakeup.resolvedAt)}` : '',
+    isOverdue,
+    isResolved: status === 'resolved' || status === 'dismissed',
+    isUrgent: isOverdue,
+  };
+}
+
+export function buildArisReviewRow(review = {}) {
+  const decision = normalizeString(review.decision, 'pending');
+  return {
+    id: normalizeString(review.id, 'pending-review'),
+    title: normalizeString(review.title, 'Review'),
+    decision,
+    decisionLabel: labelReviewDecision(decision),
+    statusColor: reviewDecisionColor(decision),
+    reviewerLabel: review.reviewerName ? `Reviewer: ${review.reviewerName}` : 'Reviewer pending',
+    notes: normalizeString(review.notes || review.notesMd),
+    notesLabel: normalizeString(review.notes || review.notesMd),
+    createdAt: normalizeString(review.createdAt),
+  };
+}
+
+export function buildArisProjectSummaryRow(project = {}) {
+  const workItemCount = Number(project.workItemCount || 0) || 0;
+  const activeRunCount = Number(project.activeRunCount || 0) || 0;
+  const reviewReadyCount = Number(project.reviewReadyCount || 0) || 0;
+  const overdueWakeupCount = Number(project.overdueWakeupCount || 0) || 0;
+  const blockedCount = Number(project.blockedCount || 0) || 0;
+  const parkedCount = Number(project.parkedCount || 0) || 0;
+
+  return {
+    id: normalizeString(project.id, 'pending-project'),
+    title: normalizeString(project.name, 'Untitled Project'),
+    projectLabel: `Project: ${normalizeString(project.name, 'Untitled Project')}`,
+    workItemLabel: `${workItemCount} work items`,
+    runLabel: `${activeRunCount} active runs`,
+    reviewLabel: `${reviewReadyCount} review-ready`,
+    attentionLabel: overdueWakeupCount > 0
+      ? `${pluralize(overdueWakeupCount, 'overdue wake-up')}`
+      : (blockedCount > 0
+        ? `${pluralize(blockedCount, 'blocked item')}`
+        : `${pluralize(parkedCount, 'parked item')}`),
+    statusLabel: overdueWakeupCount > 0 || reviewReadyCount > 0 ? 'Needs attention' : 'On track',
+    isUrgent: overdueWakeupCount > 0 || reviewReadyCount > 0,
+  };
+}
+
 export function buildArisRunCard(run = {}) {
-  const workflowType = normalizeString(run.workflowType, 'custom');
+  const workflowType = normalizeString(run.workflowType, 'custom_run');
   const latestScore = run.latestScore;
   const latestVerdict = normalizeString(run.latestVerdict);
   const destinationName = normalizeString(run.downstreamServerName || run.targetName || run.runnerHost);
@@ -143,8 +427,8 @@ export function buildArisRunCard(run = {}) {
     statusColor: statusColor(run.status),
     isActive: isActiveStatus(run.status),
     elapsedLabel: (status === 'running' || status === 'queued') ? formatElapsed(run.startedAt) : '',
-    runnerLabel: run.runnerHost ? `Server: ${run.runnerHost}` : '',
-    destinationLabel: destinationName ? `Target: ${destinationName}` : '',
+    runnerLabel: run.runnerHost ? `Server: ${run.runnerHost}` : 'Target server pending',
+    destinationLabel: destinationName ? `Target: ${destinationName}` : 'No saved target',
     scoreLabel: Number.isFinite(latestScore)
       ? `${latestScore.toFixed(1)}/10${latestVerdict ? ` · ${latestVerdict}` : ''}`
       : '',

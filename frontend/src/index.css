@@ -10198,6 +10198,73 @@ button.vibe-skill-chip.is-active {
   gap: 10px;
 }
 
+.aris-subview-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.aris-subview-chip {
+  border: 1px solid rgba(26, 92, 73, 0.14);
+  border-radius: 999px;
+  background: #f6fbf8;
+  color: #204238;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.aris-subview-chip:hover {
+  transform: translateY(-1px);
+}
+
+.aris-subview-chip.is-active {
+  background: linear-gradient(135deg, #1a6b52 0%, #2d7a9a 100%);
+  color: #fff;
+}
+
+.aris-dispatch-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.aris-dispatch-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.aris-dispatch-card {
+  border-radius: 16px;
+  border: 1px solid rgba(27, 59, 50, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%);
+  padding: 14px 16px;
+}
+
+.aris-dispatch-card.is-urgent {
+  border-color: rgba(176, 65, 38, 0.24);
+  box-shadow: 0 12px 24px rgba(176, 65, 38, 0.08);
+}
+
+.aris-dispatch-card p {
+  margin: 8px 0 0;
+  color: #557065;
+  line-height: 1.45;
+}
+
+.aris-dispatch-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aris-dispatch-now-stack {
+  display: grid;
+  gap: 16px;
+}
+
 .aris-refresh-btn,
 .aris-run-btn,
 .aris-action-chip {
@@ -10491,6 +10558,18 @@ button.vibe-skill-chip.is-active {
 .aris-status-badge--queued {
   background: rgba(148, 163, 184, 0.15);
   color: #64748b;
+}
+.aris-status-badge--review {
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+}
+.aris-status-badge--parked {
+  background: rgba(124, 58, 237, 0.12);
+  color: #6d28d9;
+}
+.aris-status-badge--accepted {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
 }
 
 .aris-elapsed {
@@ -11678,6 +11757,10 @@ button.vibe-skill-chip.is-active {
     grid-template-columns: 1fr;
   }
 
+  .aris-dispatch-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
   .aris-runs-detail-grid {
     grid-template-columns: 1fr;
   }
@@ -11847,6 +11930,17 @@ button.vibe-skill-chip.is-active {
   .aris-secondary-btn {
     font-size: 0.78rem;
     padding: 5px 10px;
+  }
+  .aris-subview-nav {
+    gap: 6px;
+  }
+  .aris-subview-chip {
+    font-size: 0.78rem;
+    padding: 8px 10px;
+  }
+  .aris-dispatch-overview-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   /* ARIS grid → single column, no side-by-side */

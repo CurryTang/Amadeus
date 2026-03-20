@@ -3,20 +3,29 @@ import assert from 'node:assert/strict';
 
 import {
   ARIS_QUICK_ACTIONS,
+  buildArisControlTowerCard,
   buildArisProjectRow,
+  buildArisProjectSummaryRow,
+  buildArisReviewRow,
   buildArisRunActionRow,
   buildArisRunCard,
   buildArisRunDetail,
+  buildArisWakeupRow,
+  buildArisWorkItemRow,
   buildArisTargetRow,
   buildArisWorkspaceContext,
 } from './arisWorkspacePresentation.js';
 
 test('ARIS quick actions expose launcher presets without locking input', () => {
-  assert.equal(ARIS_QUICK_ACTIONS[0].id, 'custom_run');
-  assert.match(ARIS_QUICK_ACTIONS[1].prefillPrompt, /literature|related work/i);
+  assert.equal(ARIS_QUICK_ACTIONS[0].id, 'init_repo');
+  assert.match(
+    ARIS_QUICK_ACTIONS.find((action) => action.id === 'literature_review')?.prefillPrompt || '',
+    /literature|related work/i
+  );
   assert.equal(
     ARIS_QUICK_ACTIONS.map((action) => action.id).join(','),
     [
+      'init_repo',
       'custom_run',
       'literature_review',
       'idea_discovery',
@@ -26,9 +35,10 @@ test('ARIS quick actions expose launcher presets without locking input', () => {
       'paper_improvement',
       'full_pipeline',
       'monitor_experiment',
+      'sync_workspace',
     ].join(',')
   );
-  assert.equal(ARIS_QUICK_ACTIONS[0].workflowType, 'custom_run');
+  assert.equal(ARIS_QUICK_ACTIONS[0].workflowType, 'init_repo');
 });
 
 test('buildArisRunCard marks target-server runs distinctly from experiment dispatch', () => {
@@ -84,6 +94,89 @@ test('buildArisRunCard handles sparse payloads gracefully', () => {
   assert.equal(card.statusLabel, 'Queued');
   assert.equal(card.runnerLabel, 'Target server pending');
   assert.equal(card.destinationLabel, 'No saved target');
+});
+
+test('buildArisControlTowerCard highlights overdue work', () => {
+  const card = buildArisControlTowerCard({
+    id: 'tower_1',
+    kind: 'wakeup',
+    title: 'Wake up dispatch loop',
+    projectName: 'Paper Agent',
+    status: 'overdue',
+    count: 3,
+    dueAt: '2026-03-19T12:00:00.000Z',
+  });
+
+  assert.equal(card.title, 'Wake up dispatch loop');
+  assert.equal(card.projectLabel, 'Project: Paper Agent');
+  assert.equal(card.statusLabel, 'Overdue');
+  assert.equal(card.countLabel, '3');
+  assert.equal(card.isUrgent, true);
+});
+
+test('buildArisProjectSummaryRow summarizes work and attention load', () => {
+  const row = buildArisProjectSummaryRow({
+    id: 'proj_9',
+    name: 'Dispatch Lab',
+    workItemCount: 12,
+    activeRunCount: 4,
+    reviewReadyCount: 2,
+    overdueWakeupCount: 1,
+    parkedCount: 3,
+  });
+
+  assert.equal(row.title, 'Dispatch Lab');
+  assert.equal(row.workItemLabel, '12 work items');
+  assert.equal(row.attentionLabel, '1 overdue wake-up');
+  assert.equal(row.runLabel, '4 active runs');
+});
+
+test('buildArisWorkItemRow surfaces packet state and next check timing', () => {
+  const row = buildArisWorkItemRow({
+    id: 'wi_1',
+    title: 'Draft work packet',
+    status: 'review',
+    type: 'research',
+    actorType: 'agent',
+    priority: 4,
+    nextCheckAt: '2026-03-22T09:00:00.000Z',
+    blockedReason: '',
+  });
+
+  assert.equal(row.title, 'Draft work packet');
+  assert.equal(row.statusLabel, 'In Review');
+  assert.equal(row.typeLabel, 'Research');
+  assert.equal(row.actorLabel, 'Agent');
+  assert.equal(row.priorityLabel, 'P4');
+  assert.equal(row.nextCheckLabel, 'Next check 2026-03-22 09:00');
+});
+
+test('buildArisWakeupRow marks overdue wakeups clearly', () => {
+  const row = buildArisWakeupRow({
+    id: 'wu_1',
+    reason: 'Check Codex output',
+    status: 'scheduled',
+    scheduledFor: '2026-03-18T09:00:00.000Z',
+  });
+
+  assert.equal(row.title, 'Check Codex output');
+  assert.equal(row.statusLabel, 'Overdue');
+  assert.equal(row.isOverdue, true);
+});
+
+test('buildArisReviewRow labels decisions plainly', () => {
+  const row = buildArisReviewRow({
+    id: 'rev_1',
+    title: 'Review work item output',
+    decision: 'revise',
+    reviewerName: 'czk',
+    notes: 'Need one more pass',
+  });
+
+  assert.equal(row.title, 'Review work item output');
+  assert.equal(row.decisionLabel, 'Revise');
+  assert.equal(row.reviewerLabel, 'Reviewer: czk');
+  assert.equal(row.notes, 'Need one more pass');
 });
 
 test('buildArisRunDetail exposes workspace, dataset, and action history', () => {

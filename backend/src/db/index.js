@@ -458,6 +458,8 @@ How does this work relate to other important papers in the field? What prior wor
       log_path TEXT DEFAULT '',
       run_directory TEXT DEFAULT '',
       retry_of_run_id TEXT,
+      work_item_id TEXT,
+      completed_at DATETIME,
       result_summary TEXT DEFAULT '',
       source TEXT DEFAULT 'web',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -476,6 +478,8 @@ How does this work relate to other important papers in the field? What prior wor
       { name: 'result_summary', definition: "TEXT DEFAULT ''" },
       { name: 'source', definition: "TEXT DEFAULT 'web'" },
       { name: 'plan_file', definition: "TEXT DEFAULT ''" },
+      { name: 'work_item_id', definition: 'TEXT' },
+      { name: 'completed_at', definition: 'DATETIME' },
     ];
     for (const col of runColumns) {
       if (colNames.has(col.name)) continue;
@@ -506,6 +510,153 @@ How does this work relate to other important papers in the field? What prior wor
   await db.execute(`
     CREATE INDEX IF NOT EXISTS idx_aris_run_actions_run_created
     ON aris_run_actions(run_id, created_at ASC)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_milestones (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      due_at DATETIME,
+      status TEXT DEFAULT 'planned',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES aris_projects(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_milestones_project_status_due
+    ON aris_milestones(project_id, status, due_at)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_work_items (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      milestone_id TEXT,
+      parent_work_item_id TEXT,
+      title TEXT NOT NULL,
+      summary TEXT DEFAULT '',
+      type TEXT DEFAULT 'task',
+      status TEXT NOT NULL,
+      priority INTEGER DEFAULT 0,
+      owner_user_id TEXT DEFAULT '',
+      actor_type TEXT DEFAULT 'human',
+      goal TEXT DEFAULT '',
+      why_it_matters TEXT DEFAULT '',
+      context_md TEXT DEFAULT '',
+      constraints_md TEXT DEFAULT '',
+      deliverable_md TEXT DEFAULT '',
+      verification_md TEXT DEFAULT '',
+      blocked_behavior_md TEXT DEFAULT '',
+      output_format_md TEXT DEFAULT '',
+      next_best_action TEXT DEFAULT '',
+      next_check_at DATETIME,
+      blocked_reason TEXT DEFAULT '',
+      due_at DATETIME,
+      archived_at DATETIME,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES aris_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (milestone_id) REFERENCES aris_milestones(id) ON DELETE SET NULL,
+      FOREIGN KEY (parent_work_item_id) REFERENCES aris_work_items(id) ON DELETE SET NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_work_items_project_status_updated
+    ON aris_work_items(project_id, status, updated_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_work_items_project_due
+    ON aris_work_items(project_id, due_at)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_wakeups (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      work_item_id TEXT,
+      run_id TEXT,
+      scheduled_for DATETIME NOT NULL,
+      fired_at DATETIME,
+      status TEXT NOT NULL,
+      reason TEXT DEFAULT '',
+      created_by_user_id TEXT DEFAULT '',
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES aris_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (work_item_id) REFERENCES aris_work_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (run_id) REFERENCES aris_runs(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_wakeups_status_scheduled
+    ON aris_wakeups(status, scheduled_for)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_wakeups_work_item_scheduled
+    ON aris_wakeups(work_item_id, scheduled_for)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_reviews (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      work_item_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      reviewer_user_id TEXT DEFAULT '',
+      decision TEXT NOT NULL,
+      notes_md TEXT DEFAULT '',
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES aris_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (work_item_id) REFERENCES aris_work_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (run_id) REFERENCES aris_runs(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_reviews_run_created
+    ON aris_reviews(run_id, created_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_reviews_project_created
+    ON aris_reviews(project_id, created_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_decisions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      work_item_id TEXT,
+      title TEXT NOT NULL,
+      rationale_md TEXT DEFAULT '',
+      consequence_md TEXT DEFAULT '',
+      created_by_user_id TEXT DEFAULT '',
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES aris_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (work_item_id) REFERENCES aris_work_items(id) ON DELETE SET NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_decisions_project_created
+    ON aris_decisions(project_id, created_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_runs_project_status_updated
+    ON aris_runs(project_id, status, updated_at DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_runs_work_item_status_updated
+    ON aris_runs(work_item_id, status, updated_at DESC)
   `);
 
   await db.execute(`

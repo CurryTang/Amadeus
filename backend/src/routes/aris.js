@@ -13,6 +13,41 @@ const planService = require('../services/arisPlan.service');
 const router = express.Router();
 const arisService = createArisService();
 
+function getArisUserContext(req = {}) {
+  return { username: req.userId || 'czk' };
+}
+
+function classifyArisError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  if (!message) return 500;
+  if (
+    message.includes('required')
+    || message.includes('invalid')
+    || message.includes('validation')
+    || message.includes('wake-up')
+    || message.includes('wakeup')
+    || message.includes('must')
+  ) {
+    return 400;
+  }
+  if (
+    message.includes('not found')
+    || message.includes('does not exist')
+    || message.includes('missing')
+  ) {
+    return 404;
+  }
+  return 500;
+}
+
+async function invokeArisMethod(methodName, args = []) {
+  const method = arisService[methodName];
+  if (typeof method !== 'function') {
+    throw new Error(`ARIS service method ${methodName} is not implemented`);
+  }
+  return method(...args);
+}
+
 router.get('/context', requireAuth, async (req, res) => {
   try {
     const payload = await arisService.getWorkspaceContext({
@@ -22,6 +57,20 @@ router.get('/context', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[ARIS] context error:', error);
     res.status(500).json({ error: 'Failed to load ARIS workspace context' });
+  }
+});
+
+router.get('/control-tower', requireAuth, async (req, res) => {
+  try {
+    const controlTower = await invokeArisMethod('getControlTower', [getArisUserContext(req)]);
+    if (controlTower == null) {
+      return res.status(404).json({ error: 'ARIS control tower not found' });
+    }
+    res.json({ controlTower });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] control tower error:', error);
+    res.status(status).json({ error: error.message || 'Failed to load ARIS control tower' });
   }
 });
 
@@ -207,6 +256,161 @@ router.get('/projects/:projectId/claude-md', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[ARIS] generate claude-md error:', error);
     res.status(500).json({ error: 'Failed to generate CLAUDE.md' });
+  }
+});
+
+router.get('/projects/:projectId/work-items', requireAuth, async (req, res) => {
+  try {
+    const workItems = await invokeArisMethod('listProjectWorkItems', [
+      req.params.projectId,
+      getArisUserContext(req),
+    ]);
+    if (workItems == null) {
+      return res.status(404).json({ error: 'ARIS project work items not found' });
+    }
+    res.json({ workItems });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] list project work items error:', error);
+    res.status(status).json({ error: error.message || 'Failed to load ARIS work items' });
+  }
+});
+
+router.post('/projects/:projectId/work-items', requireAuth, async (req, res) => {
+  try {
+    const workItem = await invokeArisMethod('createWorkItem', [
+      req.params.projectId,
+      req.body || {},
+      getArisUserContext(req),
+    ]);
+    if (!workItem) {
+      return res.status(404).json({ error: 'ARIS work item not found' });
+    }
+    res.status(201).json({ workItem });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] create work item error:', error);
+    res.status(status).json({ error: error.message || 'Failed to create ARIS work item' });
+  }
+});
+
+router.get('/work-items/:workItemId', requireAuth, async (req, res) => {
+  try {
+    const workItem = await invokeArisMethod('getWorkItem', [
+      req.params.workItemId,
+      getArisUserContext(req),
+    ]);
+    if (!workItem) {
+      return res.status(404).json({ error: 'ARIS work item not found' });
+    }
+    res.json({ workItem });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] get work item error:', error);
+    res.status(status).json({ error: error.message || 'Failed to load ARIS work item' });
+  }
+});
+
+router.patch('/work-items/:workItemId', requireAuth, async (req, res) => {
+  try {
+    const workItem = await invokeArisMethod('updateWorkItem', [
+      req.params.workItemId,
+      req.body || {},
+      getArisUserContext(req),
+    ]);
+    if (!workItem) {
+      return res.status(404).json({ error: 'ARIS work item not found' });
+    }
+    res.json({ workItem });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] update work item error:', error);
+    res.status(status).json({ error: error.message || 'Failed to update ARIS work item' });
+  }
+});
+
+router.post('/work-items/:workItemId/runs', requireAuth, async (req, res) => {
+  try {
+    const run = await invokeArisMethod('createWorkItemRun', [
+      req.params.workItemId,
+      req.body || {},
+      getArisUserContext(req),
+    ]);
+    if (!run) {
+      return res.status(404).json({ error: 'ARIS run not found' });
+    }
+    res.status(201).json({ run });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] create work item run error:', error);
+    res.status(status).json({ error: error.message || 'Failed to create ARIS run' });
+  }
+});
+
+router.post('/runs/:runId/wakeups', requireAuth, async (req, res) => {
+  try {
+    const wakeup = await invokeArisMethod('createRunWakeup', [
+      req.params.runId,
+      req.body || {},
+      getArisUserContext(req),
+    ]);
+    if (!wakeup) {
+      return res.status(404).json({ error: 'ARIS wake-up not found' });
+    }
+    res.status(201).json({ wakeup });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] create wakeup error:', error);
+    res.status(status).json({ error: error.message || 'Failed to create ARIS wakeup' });
+  }
+});
+
+router.get('/review-inbox', requireAuth, async (req, res) => {
+  try {
+    const reviewInbox = await invokeArisMethod('listReviewInbox', [getArisUserContext(req)]);
+    if (reviewInbox == null) {
+      return res.status(404).json({ error: 'ARIS review inbox not found' });
+    }
+    res.json({ reviewInbox });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] review inbox error:', error);
+    res.status(status).json({ error: error.message || 'Failed to load ARIS review inbox' });
+  }
+});
+
+router.post('/runs/:runId/reviews', requireAuth, async (req, res) => {
+  try {
+    const review = await invokeArisMethod('createReview', [
+      req.params.runId,
+      req.body || {},
+      getArisUserContext(req),
+    ]);
+    if (!review) {
+      return res.status(404).json({ error: 'ARIS review not found' });
+    }
+    res.status(201).json({ review });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] create review error:', error);
+    res.status(status).json({ error: error.message || 'Failed to create ARIS review' });
+  }
+});
+
+router.get('/projects/:projectId/now', requireAuth, async (req, res) => {
+  try {
+    const now = await invokeArisMethod('getProjectNow', [
+      req.params.projectId,
+      getArisUserContext(req),
+    ]);
+    if (!now) {
+      return res.status(404).json({ error: 'ARIS project now page not found' });
+    }
+    res.json({ now });
+  } catch (error) {
+    const status = classifyArisError(error);
+    console.error('[ARIS] project now error:', error);
+    res.status(status).json({ error: error.message || 'Failed to load ARIS project now' });
   }
 });
 

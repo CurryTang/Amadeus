@@ -11,17 +11,29 @@ import {
 } from '../../hooks/useClientWorkspaceRegistry.js';
 import {
   ARIS_QUICK_ACTIONS,
+  buildArisControlTowerCard,
   buildArisProjectRow,
+  buildArisProjectSummaryRow,
+  buildArisReviewRow,
   buildArisRunDetail,
   buildArisRunCard,
+  buildArisWakeupRow,
+  buildArisWorkItemRow,
   buildArisWorkspaceContext,
 } from './arisWorkspacePresentation.js';
 import {
+  createEmptyRunLaunchDraft,
   createEmptyProjectSettingsDraft,
   createEmptyRemoteEndpointDraft,
+  createEmptyWorkItemDraft,
   projectToSettingsDraft,
+  runLaunchDraftToPayload,
   settingsDraftToPayload,
   validateProjectSettingsDraft,
+  validateRunLaunchDraft,
+  validateWorkItemDraft,
+  workItemDraftToPayload,
+  workItemToDraft,
 } from './arisProjectManagerState.js';
 
 // ─── Path Autocomplete Input ────────────────────────────────────────────────
@@ -352,7 +364,31 @@ const FOLLOW_UP_ACTIONS = [
   { value: 'retry', label: 'Retry Run' },
 ];
 
+const ARIS_SUBVIEWS = [
+  { id: 'control_tower', label: 'Control Tower' },
+  { id: 'projects', label: 'Projects' },
+  { id: 'work_items', label: 'Work Items' },
+  { id: 'review_inbox', label: 'Review Inbox' },
+  { id: 'runs', label: 'Runs' },
+  { id: 'launcher', label: 'Launcher' },
+];
+
+function toDateTimeLocalValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
 export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
+  const [arisSubview, setArisSubview] = useState('control_tower');
   const [contextData, setContextData] = useState(null);
   const [runs, setRuns] = useState([]);
   const [selectedRunId, setSelectedRunId] = useState('');
@@ -362,6 +398,20 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [controlTower, setControlTower] = useState(null);
+  const [loadingControlTower, setLoadingControlTower] = useState(false);
+  const [reviewInbox, setReviewInbox] = useState([]);
+  const [loadingReviewInbox, setLoadingReviewInbox] = useState(false);
+  const [projectNow, setProjectNow] = useState(null);
+  const [loadingProjectNow, setLoadingProjectNow] = useState(false);
+  const [workItems, setWorkItems] = useState([]);
+  const [loadingWorkItems, setLoadingWorkItems] = useState(false);
+  const [selectedWorkItemId, setSelectedWorkItemId] = useState('');
+  const [selectedWorkItemDetail, setSelectedWorkItemDetail] = useState(null);
+  const [workItemDraft, setWorkItemDraft] = useState(createEmptyWorkItemDraft());
+  const [savingWorkItem, setSavingWorkItem] = useState(false);
+  const [launchingWorkItemRun, setLaunchingWorkItemRun] = useState(false);
+  const [workItemRunDraft, setWorkItemRunDraft] = useState(createEmptyRunLaunchDraft());
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedTargetId, setSelectedTargetId] = useState('');
@@ -432,6 +482,88 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     });
     return payload;
   };
+
+  const fetchControlTower = useCallback(async () => {
+    setLoadingControlTower(true);
+    try {
+      const response = await axios.get(`${apiUrl}/aris/control-tower`, {
+        headers: getAuthHeaders(),
+      });
+      setControlTower(response.data?.controlTower || null);
+      return response.data?.controlTower || null;
+    } finally {
+      setLoadingControlTower(false);
+    }
+  }, [apiUrl, getAuthHeaders]);
+
+  const fetchReviewInbox = useCallback(async () => {
+    setLoadingReviewInbox(true);
+    try {
+      const response = await axios.get(`${apiUrl}/aris/review-inbox`, {
+        headers: getAuthHeaders(),
+      });
+      const items = response.data?.reviewInbox || [];
+      setReviewInbox(items);
+      return items;
+    } finally {
+      setLoadingReviewInbox(false);
+    }
+  }, [apiUrl, getAuthHeaders]);
+
+  const fetchProjectNow = useCallback(async (projectId) => {
+    if (!projectId) {
+      setProjectNow(null);
+      return null;
+    }
+    setLoadingProjectNow(true);
+    try {
+      const response = await axios.get(`${apiUrl}/aris/projects/${projectId}/now`, {
+        headers: getAuthHeaders(),
+      });
+      const payload = response.data?.now || null;
+      setProjectNow(payload);
+      return payload;
+    } finally {
+      setLoadingProjectNow(false);
+    }
+  }, [apiUrl, getAuthHeaders]);
+
+  const fetchProjectWorkItems = useCallback(async (projectId) => {
+    if (!projectId) {
+      setWorkItems([]);
+      setSelectedWorkItemId('');
+      setSelectedWorkItemDetail(null);
+      return [];
+    }
+    setLoadingWorkItems(true);
+    try {
+      const response = await axios.get(`${apiUrl}/aris/projects/${projectId}/work-items`, {
+        headers: getAuthHeaders(),
+      });
+      const items = response.data?.workItems || [];
+      setWorkItems(items);
+      setSelectedWorkItemId((prev) => {
+        if (prev && items.some((item) => item.id === prev)) return prev;
+        return items[0]?.id || '';
+      });
+      return items;
+    } finally {
+      setLoadingWorkItems(false);
+    }
+  }, [apiUrl, getAuthHeaders]);
+
+  const fetchWorkItemDetail = useCallback(async (workItemId) => {
+    if (!workItemId) {
+      setSelectedWorkItemDetail(null);
+      return null;
+    }
+    const response = await axios.get(`${apiUrl}/aris/work-items/${workItemId}`, {
+      headers: getAuthHeaders(),
+    });
+    const detail = response.data?.workItem || null;
+    setSelectedWorkItemDetail(detail);
+    return detail;
+  }, [apiUrl, getAuthHeaders]);
 
   const fetchPlanTree = async (runId) => {
     if (!runId) { setPlanTree(null); return; }
@@ -660,14 +792,18 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       setLoadingRuns(true);
       setError('');
       try {
-        const [contextResponse, runsResponse] = await Promise.all([
+        const [contextResponse, runsResponse, controlTowerPayload, reviewInboxItems] = await Promise.all([
           axios.get(`${apiUrl}/aris/context`, { headers: getAuthHeaders() }),
           axios.get(`${apiUrl}/aris/runs`, { headers: getAuthHeaders() }),
+          fetchControlTower(),
+          fetchReviewInbox(),
         ]);
         if (!active) return;
         const payload = contextResponse.data || {};
         const nextRuns = runsResponse.data?.runs || [];
         setContextData(payload);
+        setControlTower(controlTowerPayload || null);
+        setReviewInbox(reviewInboxItems || []);
         const defaultSelections = payload.defaultSelections || {};
         setSelectedProjectId(defaultSelections.projectId || payload.projects?.[0]?.id || '');
         setSelectedTargetId(defaultSelections.targetId || '');
@@ -687,7 +823,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     return () => {
       active = false;
     };
-  }, [apiUrl, getAuthHeaders]);
+  }, [apiUrl, fetchControlTower, fetchReviewInbox, getAuthHeaders]);
 
   // Auto-poll runs list when any run is active (running/queued)
   const hasActiveRuns = useMemo(() => runs.some((r) => r.status === 'running' || r.status === 'queued'), [runs]);
@@ -703,6 +839,11 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     () => (contextData?.projects || []).find((project) => project.id === selectedProjectId) || null,
     [contextData, selectedProjectId]
   );
+
+  useEffect(() => {
+    fetchProjectNow(selectedProjectId).catch(() => {});
+    fetchProjectWorkItems(selectedProjectId).catch(() => {});
+  }, [fetchProjectNow, fetchProjectWorkItems, selectedProjectId]);
 
   const projectTargets = useMemo(
     () => (contextData?.targets || []).filter((target) => String(target.projectId) === String(selectedProjectId)),
@@ -776,11 +917,81 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     () => (contextData?.projects || []).map((project) => buildArisProjectRow(project)),
     [contextData]
   );
+  const projectSummaryRows = useMemo(
+    () => ((controlTower?.projects || contextData?.projects || [])).map((project) => buildArisProjectSummaryRow({
+      ...project,
+      activeRunCount: project.activeRunCount ?? project.inFlightRunCount ?? 0,
+      reviewReadyCount: project.reviewReadyCount ?? project.reviewReadyRunCount ?? 0,
+      overdueWakeupCount: project.overdueWakeupCount ?? 0,
+    })),
+    [contextData, controlTower]
+  );
+  const controlTowerCards = useMemo(
+    () => {
+      const actionableItems = [
+        ...(controlTower?.overdueWakeups || []).map((item) => ({ ...item, kind: 'wakeup', status: 'overdue', title: item.reason || 'Wake-up' })),
+        ...(controlTower?.reviewReadyRuns || []).map((item) => ({ ...item, kind: 'review', status: 'review_ready', title: item.title || item.workflowType || 'Review-ready run', summary: item.resultSummary || item.summary || '' })),
+        ...(controlTower?.blockedWorkItems || []).map((item) => ({ ...item, kind: 'work_item', status: 'blocked', title: item.title || 'Blocked work item', summary: item.blockedReason || item.summary || '' })),
+        ...(controlTower?.staleRuns || []).map((item) => ({ ...item, kind: 'run', status: 'waiting', title: item.title || item.workflowType || 'Stale run', summary: item.summary || '' })),
+      ];
+      return actionableItems.map((item) => buildArisControlTowerCard(item));
+    },
+    [controlTower]
+  );
+  const reviewRows = useMemo(
+    () => reviewInbox.map((item) => buildArisReviewRow({
+      ...item,
+      title: item.title || item.workflowType || 'Review-ready run',
+      decision: item.decision || 'pending',
+      notesMd: item.resultSummary || item.summary || '',
+    })),
+    [reviewInbox]
+  );
+  const workItemRows = useMemo(
+    () => workItems.map((item) => buildArisWorkItemRow(item)),
+    [workItems]
+  );
+  const selectedWorkItem = useMemo(
+    () => selectedWorkItemDetail || workItems.find((item) => item.id === selectedWorkItemId) || null,
+    [selectedWorkItemDetail, selectedWorkItemId, workItems]
+  );
+  const wakeupRows = useMemo(
+    () => {
+      const sourceWakeups = selectedWorkItem?.wakeups || workItemDraft.wakeups || [];
+      return sourceWakeups.map((item) => buildArisWakeupRow(item));
+    },
+    [selectedWorkItem, workItemDraft]
+  );
   const runCards = useMemo(() => runs.map((run) => buildArisRunCard(run)), [runs]);
   const selectedRunCard = useMemo(
     () => buildArisRunDetail(selectedRunDetail || runs.find((run) => run.id === selectedRunId) || {}),
     [runs, selectedRunDetail, selectedRunId]
   );
+
+  useEffect(() => {
+    fetchWorkItemDetail(selectedWorkItemId).catch(() => {});
+  }, [fetchWorkItemDetail, selectedWorkItemId]);
+
+  useEffect(() => {
+    if (!selectedWorkItem) {
+      const draft = createEmptyWorkItemDraft();
+      draft.projectId = selectedProjectId;
+      setWorkItemDraft(draft);
+      setWorkItemRunDraft((prev) => ({ ...createEmptyRunLaunchDraft(), projectId: selectedProjectId, workItemId: '' }));
+      return;
+    }
+
+    const nextDraft = workItemToDraft(selectedWorkItem);
+    setWorkItemDraft(nextDraft);
+    setWorkItemRunDraft((prev) => ({
+      ...createEmptyRunLaunchDraft(),
+      ...prev,
+      projectId: selectedProjectId,
+      workItemId: selectedWorkItem.id,
+      title: selectedWorkItem.title || prev.title,
+      wakeups: nextDraft.wakeups?.length ? nextDraft.wakeups : prev.wakeups,
+    }));
+  }, [selectedProjectId, selectedWorkItem]);
 
   const resetProjectSettingsDraft = (project = null) => {
     const targets = project
@@ -1016,7 +1227,14 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     setError('');
     setLoadingRuns(true);
     try {
-      await Promise.all([refreshContext(), fetchRuns()]);
+      await Promise.all([
+        refreshContext(),
+        fetchRuns(),
+        fetchControlTower(),
+        fetchReviewInbox(),
+        fetchProjectNow(selectedProjectId),
+        fetchProjectWorkItems(selectedProjectId),
+      ]);
       if (selectedRunId) {
         await fetchRunDetail(selectedRunId, { silent: true });
       }
@@ -1081,6 +1299,128 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     }
   };
 
+  const handleCreateWorkItem = () => {
+    const nextDraft = createEmptyWorkItemDraft();
+    nextDraft.projectId = selectedProjectId;
+    setSelectedWorkItemId('');
+    setSelectedWorkItemDetail(null);
+    setWorkItemDraft(nextDraft);
+    setWorkItemRunDraft({
+      ...createEmptyRunLaunchDraft(),
+      projectId: selectedProjectId,
+      workItemId: '',
+      title: '',
+    });
+    setArisSubview('work_items');
+  };
+
+  const handleWorkItemFieldChange = (field, value) => {
+    setWorkItemDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleWorkItemWakeupChange = (index, field, value) => {
+    setWorkItemDraft((prev) => ({
+      ...prev,
+      wakeups: (prev.wakeups || []).map((wakeup, wakeupIndex) => (
+        wakeupIndex === index ? { ...wakeup, [field]: value } : wakeup
+      )),
+    }));
+  };
+
+  const handleAddWorkItemWakeup = () => {
+    setWorkItemDraft((prev) => ({
+      ...prev,
+      wakeups: [...(prev.wakeups || []), { id: '', reason: '', scheduledFor: '', status: 'scheduled', firedAt: '', resolvedAt: '' }],
+    }));
+  };
+
+  const handleSaveWorkItem = async () => {
+    const validationError = validateWorkItemDraft(workItemDraft);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setSavingWorkItem(true);
+    setError('');
+    try {
+      const payload = workItemDraftToPayload({
+        ...workItemDraft,
+        projectId: selectedProjectId,
+      });
+      if (workItemDraft.id) {
+        await axios.patch(`${apiUrl}/aris/work-items/${workItemDraft.id}`, payload, {
+          headers: getAuthHeaders(),
+        });
+      } else {
+        await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/work-items`, payload, {
+          headers: getAuthHeaders(),
+        });
+      }
+      const refreshedItems = await fetchProjectWorkItems(selectedProjectId);
+      const savedItem = refreshedItems.find((item) => item.id === workItemDraft.id)
+        || refreshedItems.find((item) => item.title === payload.title)
+        || null;
+      if (savedItem) {
+        setSelectedWorkItemId(savedItem.id);
+        await fetchWorkItemDetail(savedItem.id);
+      }
+      await Promise.all([fetchControlTower(), fetchReviewInbox(), fetchProjectNow(selectedProjectId)]);
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || 'Failed to save work item');
+    } finally {
+      setSavingWorkItem(false);
+    }
+  };
+
+  const handleLaunchWorkItemRun = async () => {
+    const payload = runLaunchDraftToPayload({
+      ...workItemRunDraft,
+      projectId: selectedProjectId,
+      workItemId: selectedWorkItemId || workItemDraft.id,
+      title: workItemRunDraft.title || workItemDraft.title,
+      prompt: workItemRunDraft.prompt || prompt,
+      wakeups: workItemDraft.wakeups,
+    });
+    const validationError = validateRunLaunchDraft(payload);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setLaunchingWorkItemRun(true);
+    setError('');
+    try {
+      const response = await axios.post(
+        `${apiUrl}/aris/work-items/${payload.workItemId}/runs`,
+        {
+          ...payload,
+          workflowType: selectedWorkflow,
+          targetId: selectedTargetId || null,
+          actorKind: selectedTargetId ? 'codex' : 'human',
+        },
+        { headers: getAuthHeaders() }
+      );
+      const createdRun = response.data?.run || null;
+      if (createdRun?.id) {
+        setSelectedRunId(createdRun.id);
+        await fetchRunDetail(createdRun.id, { silent: true });
+      }
+      await Promise.all([
+        fetchRuns(),
+        fetchControlTower(),
+        fetchReviewInbox(),
+        fetchProjectWorkItems(selectedProjectId),
+        fetchProjectNow(selectedProjectId),
+      ]);
+      setArisSubview('runs');
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || 'Failed to launch run from work item');
+    } finally {
+      setLaunchingWorkItemRun(false);
+    }
+  };
+
   if (loading) {
     return (
       <section className="aris-workspace aris-workspace--loading">
@@ -1093,11 +1433,11 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     <section className="aris-workspace">
       <div className="aris-hero">
         <div className="aris-hero-copy">
-          <span className="aris-kicker">Project-Centric ARIS</span>
+          <span className="aris-kicker">Dispatch-Controlled ARIS</span>
           <h2>ARIS Researcher</h2>
           <p>
-            Create a project once, link the local workspace with the browser directory picker, save
-            reusable SSH deployment targets, and then launch ARIS runs with project + target + workflow + prompt.
+            Operate ARIS as a control plane for slow-feedback work: projects, work items, wake-ups, reviews,
+            and runs all live together so you can dispatch in waves instead of losing threads.
           </p>
         </div>
         <div className="aris-hero-actions">
@@ -1112,6 +1452,454 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
 
       {error && <div className="error-banner"><span>{error}</span></div>}
 
+      <div className="aris-subview-nav" role="tablist" aria-label="ARIS views">
+        {ARIS_SUBVIEWS.map((view) => (
+          <button
+            key={view.id}
+            className={`aris-subview-chip${arisSubview === view.id ? ' is-active' : ''}`}
+            type="button"
+            onClick={() => setArisSubview(view.id)}
+          >
+            {view.label}
+          </button>
+        ))}
+      </div>
+
+      {arisSubview === 'control_tower' && (
+        <>
+          <div className="aris-dispatch-overview-grid">
+            <section className="aris-context-panel">
+              <div className="aris-panel-header">
+                <h3>Needs Attention</h3>
+                {loadingControlTower && <span className="aris-elapsed">Refreshing…</span>}
+              </div>
+              {controlTowerCards.length === 0 ? (
+                <div className="aris-empty-card">No urgent dispatch items right now.</div>
+              ) : (
+                <div className="aris-dispatch-card-list">
+                  {controlTowerCards.map((card) => (
+                    <article key={card.id} className={`aris-dispatch-card${card.isUrgent ? ' is-urgent' : ''}`}>
+                      <div className="aris-dispatch-card-top">
+                        <strong>{card.title}</strong>
+                        <span className={`aris-status-badge aris-status-badge--${card.isUrgent ? 'failed' : 'queued'}`}>
+                          {card.statusLabel}
+                        </span>
+                      </div>
+                      <p>{card.projectLabel}</p>
+                      {card.summaryLabel && <p>{card.summaryLabel}</p>}
+                      <div className="aris-run-meta">
+                        {card.countLabel && <span>{card.countLabel}</span>}
+                        {card.dueLabel && <span>{card.dueLabel}</span>}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="aris-context-panel">
+              <div className="aris-panel-header">
+                <h3>Active Projects</h3>
+              </div>
+              {projectSummaryRows.length === 0 ? (
+                <div className="aris-empty-card">No projects available yet.</div>
+              ) : (
+                <div className="aris-dispatch-card-list">
+                  {projectSummaryRows.map((project) => (
+                    <article key={project.id} className={`aris-dispatch-card${project.isUrgent ? ' is-urgent' : ''}`}>
+                      <div className="aris-dispatch-card-top">
+                        <strong>{project.title}</strong>
+                        <span className={`aris-status-badge aris-status-badge--${project.isUrgent ? 'review' : 'completed'}`}>
+                          {project.statusLabel}
+                        </span>
+                      </div>
+                      <div className="aris-run-meta">
+                        <span>{project.workItemLabel}</span>
+                        <span>{project.runLabel}</span>
+                      </div>
+                      <div className="aris-run-meta">
+                        <span>{project.reviewLabel}</span>
+                        <span>{project.attentionLabel}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+
+          <div className="aris-dispatch-overview-grid">
+            <section className="aris-context-panel">
+              <div className="aris-panel-header">
+                <h3>Review Queue</h3>
+                {loadingReviewInbox && <span className="aris-elapsed">Refreshing…</span>}
+              </div>
+              {reviewRows.length === 0 ? (
+                <div className="aris-empty-card">No review-ready runs.</div>
+              ) : (
+                <div className="aris-dispatch-card-list">
+                  {reviewRows.slice(0, 6).map((review) => (
+                    <article key={review.id} className="aris-dispatch-card">
+                      <div className="aris-dispatch-card-top">
+                        <strong>{review.title}</strong>
+                        <span className={`aris-status-badge aris-status-badge--${review.statusColor}`}>{review.decisionLabel}</span>
+                      </div>
+                      <p>{review.reviewerLabel}</p>
+                      {review.notes && <p>{review.notes}</p>}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="aris-context-panel">
+              <div className="aris-panel-header">
+                <h3>Selected Project Now</h3>
+                {loadingProjectNow && <span className="aris-elapsed">Refreshing…</span>}
+              </div>
+              {!selectedProjectId ? (
+                <div className="aris-empty-card">Select a project to load its current operating view.</div>
+              ) : !projectNow ? (
+                <div className="aris-empty-card">No project now summary yet.</div>
+              ) : (
+                <div className="aris-dispatch-now-stack">
+                  <dl className="aris-context-list">
+                    <div>
+                      <dt>Project</dt>
+                      <dd>{projectNow.project?.name || selectedProject?.name || 'Selected project'}</dd>
+                    </div>
+                    <div>
+                      <dt>Active Work</dt>
+                      <dd>{projectNow.activeWorkItems?.length || 0} work items in motion</dd>
+                    </div>
+                    <div>
+                      <dt>Upcoming Checks</dt>
+                      <dd>{projectNow.upcomingWakeups?.length || 0} wake-ups scheduled</dd>
+                    </div>
+                    <div>
+                      <dt>Milestones</dt>
+                      <dd>{projectNow.milestones?.length || 0} milestone records</dd>
+                    </div>
+                  </dl>
+                  {projectNow.activeWorkItems?.length > 0 && (
+                    <div className="aris-dispatch-card-list">
+                      {projectNow.activeWorkItems.slice(0, 4).map((item) => {
+                        const row = buildArisWorkItemRow(item);
+                        return (
+                          <article key={row.id} className={`aris-dispatch-card${row.isUrgent ? ' is-urgent' : ''}`}>
+                            <div className="aris-dispatch-card-top">
+                              <strong>{row.title}</strong>
+                              <span className={`aris-status-badge aris-status-badge--${row.statusColor}`}>{row.statusLabel}</span>
+                            </div>
+                            {row.summary && <p>{row.summary}</p>}
+                            <div className="aris-run-meta">
+                              <span>{row.typeLabel}</span>
+                              <span>{row.actorLabel}</span>
+                              {row.nextCheckLabel && <span>{row.nextCheckLabel}</span>}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+
+      {arisSubview === 'projects' && (
+        <div className="aris-dispatch-overview-grid">
+          <section className="aris-context-panel">
+            <div className="aris-panel-header">
+              <h3>Project Portfolio</h3>
+              <button className="aris-secondary-btn" type="button" onClick={handleOpenProjectManager}>
+                Manage Projects
+              </button>
+            </div>
+            {projectSummaryRows.length === 0 ? (
+              <div className="aris-empty-card">No projects yet.</div>
+            ) : (
+              <div className="aris-dispatch-card-list">
+                {projectSummaryRows.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    className={`aris-run-card${selectedProjectId === project.id ? ' is-selected' : ''}`}
+                    onClick={() => setSelectedProjectId(project.id)}
+                  >
+                    <div className="aris-run-card-header">
+                      <div className="aris-run-card-title-row">
+                        <span className={`aris-status-dot aris-status-dot--${project.isUrgent ? 'failed' : 'completed'}`} />
+                        <h4>{project.title}</h4>
+                      </div>
+                      <span className={`aris-status-badge aris-status-badge--${project.isUrgent ? 'review' : 'completed'}`}>
+                        {project.statusLabel}
+                      </span>
+                    </div>
+                    <div className="aris-run-meta">
+                      <span>{project.workItemLabel}</span>
+                      <span>{project.runLabel}</span>
+                      <span>{project.reviewLabel}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="aris-context-panel">
+            <div className="aris-panel-header">
+              <h3>Project Now</h3>
+            </div>
+            {!projectNow ? (
+              <div className="aris-empty-card">No project now details for the selected project.</div>
+            ) : (
+              <div className="aris-dispatch-now-stack">
+                <dl className="aris-context-list">
+                  <div>
+                    <dt>Project</dt>
+                    <dd>{projectNow.project?.name || 'Unnamed project'}</dd>
+                  </div>
+                  <div>
+                    <dt>Milestones</dt>
+                    <dd>{projectNow.milestones?.map((milestone) => milestone.name).join(', ') || 'No active milestones'}</dd>
+                  </div>
+                  <div>
+                    <dt>Upcoming Wake-ups</dt>
+                    <dd>{projectNow.upcomingWakeups?.length || 0}</dd>
+                  </div>
+                </dl>
+                {projectNow.activeWorkItems?.length > 0 && (
+                  <div className="aris-dispatch-card-list">
+                    {projectNow.activeWorkItems.map((item) => {
+                      const row = buildArisWorkItemRow(item);
+                      return (
+                        <article key={row.id} className={`aris-dispatch-card${row.isUrgent ? ' is-urgent' : ''}`}>
+                          <div className="aris-dispatch-card-top">
+                            <strong>{row.title}</strong>
+                            <span className={`aris-status-badge aris-status-badge--${row.statusColor}`}>{row.statusLabel}</span>
+                          </div>
+                          {row.summary && <p>{row.summary}</p>}
+                          <div className="aris-run-meta">
+                            <span>{row.typeLabel}</span>
+                            <span>{row.actorLabel}</span>
+                            {row.nextCheckLabel && <span>{row.nextCheckLabel}</span>}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {arisSubview === 'work_items' && (
+        <div className="aris-runs-detail-grid">
+          <section className="aris-runs-panel">
+            <div className="aris-panel-header">
+              <h3>Project Work Items</h3>
+              <button className="aris-secondary-btn" type="button" onClick={handleCreateWorkItem}>
+                New Work Item
+              </button>
+            </div>
+            {loadingWorkItems ? (
+              <div className="aris-empty-card">Loading work items…</div>
+            ) : workItemRows.length === 0 ? (
+              <div className="aris-empty-card">No work items yet. Create the first packet for this project.</div>
+            ) : (
+              <div className="aris-run-list">
+                {workItemRows.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`aris-run-card${selectedWorkItemId === item.id ? ' is-selected' : ''}`}
+                    onClick={() => setSelectedWorkItemId(item.id)}
+                  >
+                    <div className="aris-run-card-header">
+                      <div className="aris-run-card-title-row">
+                        <span className={`aris-status-dot aris-status-dot--${item.statusColor}`} />
+                        <h4>{item.title}</h4>
+                      </div>
+                      <span className={`aris-status-badge aris-status-badge--${item.statusColor}`}>{item.statusLabel}</span>
+                    </div>
+                    {item.summary && <div className="aris-run-result-preview">{item.summary}</div>}
+                    <div className="aris-run-meta">
+                      <span>{item.typeLabel}</span>
+                      <span>{item.actorLabel}</span>
+                      {item.nextCheckLabel && <span>{item.nextCheckLabel}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="aris-context-panel aris-run-detail-panel">
+            <div className="aris-panel-header">
+              <h3>{workItemDraft.id ? 'Edit Work Item' : 'Create Work Item'}</h3>
+              <button className="aris-refresh-btn" type="button" onClick={handleSaveWorkItem} disabled={savingWorkItem}>
+                {savingWorkItem ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+
+            <div className="aris-launch-fields">
+              <label className="aris-field">
+                <span>Title</span>
+                <input value={workItemDraft.title} onChange={(event) => handleWorkItemFieldChange('title', event.target.value)} />
+              </label>
+              <label className="aris-field">
+                <span>Summary</span>
+                <textarea rows={3} value={workItemDraft.summary} onChange={(event) => handleWorkItemFieldChange('summary', event.target.value)} />
+              </label>
+              <div className="aris-launch-inline-grid">
+                <label className="aris-field">
+                  <span>Type</span>
+                  <select value={workItemDraft.type} onChange={(event) => handleWorkItemFieldChange('type', event.target.value)}>
+                    <option value="feature">Feature</option>
+                    <option value="bug">Bug</option>
+                    <option value="experiment">Experiment</option>
+                    <option value="paper">Paper</option>
+                    <option value="ops">Ops</option>
+                    <option value="decision">Decision</option>
+                    <option value="research">Research</option>
+                  </select>
+                </label>
+                <label className="aris-field">
+                  <span>Status</span>
+                  <select value={workItemDraft.status} onChange={(event) => handleWorkItemFieldChange('status', event.target.value)}>
+                    <option value="backlog">Backlog</option>
+                    <option value="ready">Ready</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="waiting">Waiting</option>
+                    <option value="review">Review</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="parked">Parked</option>
+                    <option value="done">Done</option>
+                    <option value="canceled">Canceled</option>
+                  </select>
+                </label>
+              </div>
+              <label className="aris-field">
+                <span>Goal</span>
+                <textarea rows={3} value={workItemDraft.goal} onChange={(event) => handleWorkItemFieldChange('goal', event.target.value)} />
+              </label>
+              <label className="aris-field">
+                <span>Why It Matters</span>
+                <textarea rows={3} value={workItemDraft.whyItMatters} onChange={(event) => handleWorkItemFieldChange('whyItMatters', event.target.value)} />
+              </label>
+              <label className="aris-field">
+                <span>Context</span>
+                <textarea rows={4} value={workItemDraft.contextMd} onChange={(event) => handleWorkItemFieldChange('contextMd', event.target.value)} />
+              </label>
+              <label className="aris-field">
+                <span>Verification</span>
+                <textarea rows={3} value={workItemDraft.verificationMd} onChange={(event) => handleWorkItemFieldChange('verificationMd', event.target.value)} />
+              </label>
+            </div>
+
+            <div className="aris-follow-up">
+              <div className="aris-panel-header">
+                <h3>Wake-ups</h3>
+                <button className="aris-secondary-btn" type="button" onClick={handleAddWorkItemWakeup}>
+                  Add Wake-up
+                </button>
+              </div>
+              <div className="aris-dispatch-card-list">
+                {(workItemDraft.wakeups || []).map((wakeup, index) => (
+                  <article key={`draft-wakeup-${index}`} className="aris-dispatch-card">
+                    <label className="aris-field">
+                      <span>Reason</span>
+                      <input
+                        value={wakeup.reason}
+                        onChange={(event) => handleWorkItemWakeupChange(index, 'reason', event.target.value)}
+                      />
+                    </label>
+                    <label className="aris-field">
+                      <span>Scheduled For</span>
+                      <input
+                        type="datetime-local"
+                        value={toDateTimeLocalValue(wakeup.scheduledFor)}
+                        onChange={(event) => handleWorkItemWakeupChange(index, 'scheduledFor', fromDateTimeLocalValue(event.target.value))}
+                      />
+                    </label>
+                  </article>
+                ))}
+              </div>
+              {wakeupRows.length > 0 && (
+                <div className="aris-run-meta">
+                  {wakeupRows.map((row) => (
+                    <span key={row.id || row.title}>{row.scheduledLabel || row.statusLabel}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="aris-follow-up">
+              <div className="aris-panel-header">
+                <h3>Launch Run From Work Item</h3>
+              </div>
+              <label className="aris-field">
+                <span>Run Title</span>
+                <input
+                  value={workItemRunDraft.title}
+                  onChange={(event) => setWorkItemRunDraft((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder={workItemDraft.title || 'Execution pass'}
+                />
+              </label>
+              <label className="aris-field">
+                <span>Run Prompt</span>
+                <textarea
+                  rows={4}
+                  value={workItemRunDraft.prompt}
+                  onChange={(event) => setWorkItemRunDraft((prev) => ({ ...prev, prompt: event.target.value }))}
+                  placeholder="Use the launcher prompt or write a work-item-specific execution packet."
+                />
+              </label>
+              <div className="aris-launch-footer aris-launch-footer--detail">
+                <div className="aris-launch-note">
+                  Runs launched from here inherit the selected project and require at least one wake-up.
+                </div>
+                <button className="aris-run-btn" type="button" onClick={handleLaunchWorkItemRun} disabled={launchingWorkItemRun}>
+                  {launchingWorkItemRun ? 'Launching…' : 'Launch Linked Run'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {arisSubview === 'review_inbox' && (
+        <section className="aris-context-panel">
+          <div className="aris-panel-header">
+            <h3>Review Inbox</h3>
+            {loadingReviewInbox && <span className="aris-elapsed">Refreshing…</span>}
+          </div>
+          {reviewRows.length === 0 ? (
+            <div className="aris-empty-card">Nothing is waiting for review.</div>
+          ) : (
+            <div className="aris-dispatch-card-list">
+              {reviewRows.map((review) => (
+                <article key={review.id} className="aris-dispatch-card">
+                  <div className="aris-dispatch-card-top">
+                    <strong>{review.title}</strong>
+                    <span className={`aris-status-badge aris-status-badge--${review.statusColor}`}>{review.decisionLabel}</span>
+                  </div>
+                  <p>{review.reviewerLabel}</p>
+                  {review.notes && <p>{review.notes}</p>}
+                  {review.createdAt && <div className="aris-run-meta"><span>{new Date(review.createdAt).toLocaleString()}</span></div>}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {arisSubview === 'launcher' && (
       <div className="aris-grid">
         <section className="aris-launch-panel">
           <div className="aris-panel-header">
@@ -1337,8 +2125,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           </dl>
         </section>
       </div>
+      )}
 
-      {showGpuPanel && (
+      {arisSubview === 'launcher' && showGpuPanel && (
         <section className="aris-gpu-panel">
           <div className="aris-panel-header">
             <h3>GPU Availability{gpuStatus?.projectName ? ` — ${gpuStatus.projectName}` : ''}</h3>
@@ -1419,6 +2208,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         </section>
       )}
 
+      {arisSubview === 'runs' && (
       <div className="aris-runs-detail-grid">
         <section className="aris-runs-panel">
           <div className="aris-panel-header">
@@ -1836,6 +2626,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           )}
         </section>
       </div>
+      )}
 
       {showProjectManager && (
         <div className="aris-modal-backdrop" onClick={() => setShowProjectManager(false)}>

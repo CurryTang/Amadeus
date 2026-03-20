@@ -27,9 +27,30 @@ const ARIS_ACTION_TYPES = [
   'retry',
 ];
 
+const DISPATCH_WORK_ITEM_STATES = [
+  'backlog',
+  'ready',
+  'in_progress',
+  'waiting',
+  'review',
+  'blocked',
+  'parked',
+  'done',
+  'canceled',
+];
+
+const DISPATCH_REVIEW_DECISIONS = [
+  'accept',
+  'revise',
+  'split',
+  'park',
+  'reject',
+  'escalate',
+];
+
 const quickActions = [
-  { id: 'init_repo', label: 'Init Repo', workflowType: 'init_repo', prefillPrompt: 'Initialize a new AIRS research repository for:' },
   { id: 'custom_run', label: 'Custom Run', workflowType: 'custom_run', prefillPrompt: 'Run this custom ARIS workflow on the selected project target:' },
+  { id: 'init_repo', label: 'Init Repo', workflowType: 'init_repo', prefillPrompt: 'Initialize a new AIRS research repository for:' },
   { id: 'literature_review', label: 'Literature Review', workflowType: 'literature_review', prefillPrompt: 'Survey the literature and related work for:' },
   { id: 'idea_discovery', label: 'Idea Discovery', workflowType: 'idea_discovery', prefillPrompt: 'Discover promising research ideas around:' },
   { id: 'run_experiment', label: 'Run Experiment', workflowType: 'run_experiment', prefillPrompt: 'Run the following experiment on the persistent remote workspace:' },
@@ -64,6 +85,11 @@ const projectStore = [];
 const targetStore = [];
 const launchStore = [];
 const actionStore = [];
+const milestoneStore = [];
+const workItemStore = [];
+const wakeupStore = [];
+const reviewStore = [];
+const decisionStore = [];
 const arisProjectFilesService = createArisProjectFilesService();
 
 function isNonEmpty(value) {
@@ -171,10 +197,102 @@ function normalizeLaunch(row = {}) {
     logPath: row.logPath ?? row.log_path ?? '',
     runDirectory: row.runDirectory ?? row.run_directory ?? '',
     retryOfRunId: row.retryOfRunId ?? row.retry_of_run_id ?? null,
+    workItemId: row.workItemId ?? row.work_item_id ?? null,
+    completedAt: row.completedAt ?? row.completed_at ?? null,
     maxIterations: row.maxIterations ?? row.max_iterations ?? null,
     reviewerModel: row.reviewerModel ?? row.reviewer_model ?? null,
     resultSummary: row.resultSummary ?? row.result_summary ?? '',
     source: row.source ?? 'web',
+  };
+}
+
+function normalizeMilestone(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? '',
+    name: row.name ?? '',
+    description: row.description ?? '',
+    dueAt: toIsoOrNull(row.dueAt ?? row.due_at),
+    status: row.status ?? 'planned',
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+    updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+function normalizeWorkItem(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? '',
+    milestoneId: row.milestoneId ?? row.milestone_id ?? null,
+    parentWorkItemId: row.parentWorkItemId ?? row.parent_work_item_id ?? null,
+    title: row.title ?? '',
+    summary: row.summary ?? '',
+    type: row.type ?? 'task',
+    status: row.status ?? 'backlog',
+    priority: Number(row.priority ?? 0) || 0,
+    ownerUserId: row.ownerUserId ?? row.owner_user_id ?? '',
+    actorType: row.actorType ?? row.actor_type ?? 'human',
+    goal: row.goal ?? '',
+    whyItMatters: row.whyItMatters ?? row.why_it_matters ?? '',
+    contextMd: row.contextMd ?? row.context_md ?? '',
+    constraintsMd: row.constraintsMd ?? row.constraints_md ?? '',
+    deliverableMd: row.deliverableMd ?? row.deliverable_md ?? '',
+    verificationMd: row.verificationMd ?? row.verification_md ?? '',
+    blockedBehaviorMd: row.blockedBehaviorMd ?? row.blocked_behavior_md ?? '',
+    outputFormatMd: row.outputFormatMd ?? row.output_format_md ?? '',
+    nextBestAction: row.nextBestAction ?? row.next_best_action ?? '',
+    nextCheckAt: toIsoOrNull(row.nextCheckAt ?? row.next_check_at),
+    blockedReason: row.blockedReason ?? row.blocked_reason ?? '',
+    dueAt: toIsoOrNull(row.dueAt ?? row.due_at),
+    archivedAt: toIsoOrNull(row.archivedAt ?? row.archived_at),
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+    updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+function normalizeWakeup(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? '',
+    workItemId: row.workItemId ?? row.work_item_id ?? null,
+    runId: row.runId ?? row.run_id ?? null,
+    scheduledFor: toIsoOrNull(row.scheduledFor ?? row.scheduled_for) || new Date().toISOString(),
+    firedAt: toIsoOrNull(row.firedAt ?? row.fired_at),
+    status: row.status ?? 'scheduled',
+    reason: row.reason ?? '',
+    createdByUserId: row.createdByUserId ?? row.created_by_user_id ?? '',
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+function normalizeReview(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? '',
+    workItemId: row.workItemId ?? row.work_item_id ?? '',
+    runId: row.runId ?? row.run_id ?? '',
+    reviewerUserId: row.reviewerUserId ?? row.reviewer_user_id ?? '',
+    decision: row.decision ?? 'accept',
+    notesMd: row.notesMd ?? row.notes_md ?? '',
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+function normalizeDecision(row = {}) {
+  if (!row || !row.id) return null;
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? '',
+    workItemId: row.workItemId ?? row.work_item_id ?? null,
+    title: row.title ?? '',
+    rationaleMd: row.rationaleMd ?? row.rationale_md ?? '',
+    consequenceMd: row.consequenceMd ?? row.consequence_md ?? '',
+    createdByUserId: row.createdByUserId ?? row.created_by_user_id ?? '',
+    createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
   };
 }
 
@@ -830,6 +948,8 @@ async function defaultListLaunches() {
           log_path,
           run_directory,
           retry_of_run_id,
+          work_item_id,
+          completed_at,
           result_summary,
           source
         FROM aris_runs
@@ -841,6 +961,631 @@ async function defaultListLaunches() {
     return (result.rows || []).map(normalizeLaunch).filter(Boolean);
   } catch (_) {
     return launchStore.map((launch) => ({ ...launch }));
+  }
+}
+
+async function defaultListMilestones(projectId = '') {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          name,
+          description,
+          due_at,
+          status,
+          created_at,
+          updated_at
+        FROM aris_milestones
+        ${projectId ? 'WHERE project_id = ?' : ''}
+        ORDER BY datetime(COALESCE(updated_at, created_at)) DESC
+      `,
+      args: projectId ? [projectId] : [],
+    });
+    return (result.rows || []).map(normalizeMilestone).filter(Boolean);
+  } catch (_) {
+    return milestoneStore
+      .filter((milestone) => !projectId || milestone.projectId === projectId)
+      .map((milestone) => ({ ...milestone }));
+  }
+}
+
+async function defaultGetMilestoneById(milestoneId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          name,
+          description,
+          due_at,
+          status,
+          created_at,
+          updated_at
+        FROM aris_milestones
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [milestoneId],
+    });
+    return normalizeMilestone(result.rows?.[0]);
+  } catch (_) {
+    return milestoneStore.find((milestone) => milestone.id === milestoneId) || null;
+  }
+}
+
+async function defaultSaveMilestone(milestone) {
+  const normalized = normalizeMilestone(milestone);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_milestones (
+          id,
+          project_id,
+          name,
+          description,
+          due_at,
+          status,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.projectId,
+        normalized.name,
+        normalized.description,
+        normalized.dueAt || null,
+        normalized.status,
+        normalized.createdAt,
+        normalized.updatedAt || normalized.createdAt,
+      ],
+    });
+  } catch (_) {
+    const index = milestoneStore.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) milestoneStore.splice(index, 1);
+    milestoneStore.unshift({ ...normalized });
+  }
+}
+
+async function defaultDeleteMilestone(milestoneId) {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: 'DELETE FROM aris_milestones WHERE id = ?',
+      args: [milestoneId],
+    });
+  } catch (_) {
+    const index = milestoneStore.findIndex((entry) => entry.id === milestoneId);
+    if (index >= 0) milestoneStore.splice(index, 1);
+  }
+}
+
+async function defaultListWorkItems(projectId = '') {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          milestone_id,
+          parent_work_item_id,
+          title,
+          summary,
+          type,
+          status,
+          priority,
+          owner_user_id,
+          actor_type,
+          goal,
+          why_it_matters,
+          context_md,
+          constraints_md,
+          deliverable_md,
+          verification_md,
+          blocked_behavior_md,
+          output_format_md,
+          next_best_action,
+          next_check_at,
+          blocked_reason,
+          due_at,
+          archived_at,
+          created_at,
+          updated_at
+        FROM aris_work_items
+        ${projectId ? 'WHERE project_id = ?' : ''}
+        ORDER BY
+          CASE status
+            WHEN 'blocked' THEN 0
+            WHEN 'review' THEN 1
+            WHEN 'in_progress' THEN 2
+            WHEN 'waiting' THEN 3
+            WHEN 'ready' THEN 4
+            WHEN 'backlog' THEN 5
+            WHEN 'parked' THEN 6
+            WHEN 'done' THEN 7
+            WHEN 'canceled' THEN 8
+            ELSE 9
+          END,
+          COALESCE(priority, 0) DESC,
+          datetime(COALESCE(updated_at, created_at)) DESC
+      `,
+      args: projectId ? [projectId] : [],
+    });
+    return (result.rows || []).map(normalizeWorkItem).filter(Boolean);
+  } catch (_) {
+    return workItemStore
+      .filter((workItem) => !projectId || workItem.projectId === projectId)
+      .map((workItem) => ({ ...workItem }));
+  }
+}
+
+async function defaultGetWorkItemById(workItemId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          milestone_id,
+          parent_work_item_id,
+          title,
+          summary,
+          type,
+          status,
+          priority,
+          owner_user_id,
+          actor_type,
+          goal,
+          why_it_matters,
+          context_md,
+          constraints_md,
+          deliverable_md,
+          verification_md,
+          blocked_behavior_md,
+          output_format_md,
+          next_best_action,
+          next_check_at,
+          blocked_reason,
+          due_at,
+          archived_at,
+          created_at,
+          updated_at
+        FROM aris_work_items
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [workItemId],
+    });
+    return normalizeWorkItem(result.rows?.[0]);
+  } catch (_) {
+    return workItemStore.find((workItem) => workItem.id === workItemId) || null;
+  }
+}
+
+async function defaultSaveWorkItem(workItem) {
+  const normalized = normalizeWorkItem(workItem);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_work_items (
+          id,
+          project_id,
+          milestone_id,
+          parent_work_item_id,
+          title,
+          summary,
+          type,
+          status,
+          priority,
+          owner_user_id,
+          actor_type,
+          goal,
+          why_it_matters,
+          context_md,
+          constraints_md,
+          deliverable_md,
+          verification_md,
+          blocked_behavior_md,
+          output_format_md,
+          next_best_action,
+          next_check_at,
+          blocked_reason,
+          due_at,
+          archived_at,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.projectId,
+        normalized.milestoneId,
+        normalized.parentWorkItemId,
+        normalized.title,
+        normalized.summary,
+        normalized.type,
+        normalized.status,
+        normalized.priority,
+        normalized.ownerUserId,
+        normalized.actorType,
+        normalized.goal,
+        normalized.whyItMatters,
+        normalized.contextMd,
+        normalized.constraintsMd,
+        normalized.deliverableMd,
+        normalized.verificationMd,
+        normalized.blockedBehaviorMd,
+        normalized.outputFormatMd,
+        normalized.nextBestAction,
+        normalized.nextCheckAt || null,
+        normalized.blockedReason,
+        normalized.dueAt || null,
+        normalized.archivedAt || null,
+        normalized.createdAt,
+        normalized.updatedAt || normalized.createdAt,
+      ],
+    });
+  } catch (_) {
+    const index = workItemStore.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) workItemStore.splice(index, 1);
+    workItemStore.unshift({ ...normalized });
+  }
+}
+
+async function defaultDeleteWorkItem(workItemId) {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: 'DELETE FROM aris_work_items WHERE id = ?',
+      args: [workItemId],
+    });
+  } catch (_) {
+    const index = workItemStore.findIndex((entry) => entry.id === workItemId);
+    if (index >= 0) workItemStore.splice(index, 1);
+  }
+}
+
+async function defaultListWakeups(filters = {}) {
+  try {
+    const clauses = [];
+    const args = [];
+    if (filters.projectId) { clauses.push('project_id = ?'); args.push(filters.projectId); }
+    if (filters.workItemId) { clauses.push('work_item_id = ?'); args.push(filters.workItemId); }
+    if (filters.runId) { clauses.push('run_id = ?'); args.push(filters.runId); }
+    if (filters.status) { clauses.push('status = ?'); args.push(filters.status); }
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          work_item_id,
+          run_id,
+          scheduled_for,
+          fired_at,
+          status,
+          reason,
+          created_by_user_id,
+          created_at
+        FROM aris_wakeups
+        ${clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''}
+        ORDER BY datetime(scheduled_for) ASC, datetime(created_at) ASC
+      `,
+      args,
+    });
+    return (result.rows || []).map(normalizeWakeup).filter(Boolean);
+  } catch (_) {
+    return wakeupStore
+      .filter((wakeup) => (!filters.projectId || wakeup.projectId === filters.projectId)
+        && (!filters.workItemId || wakeup.workItemId === filters.workItemId)
+        && (!filters.runId || wakeup.runId === filters.runId)
+        && (!filters.status || wakeup.status === filters.status))
+      .map((wakeup) => ({ ...wakeup }));
+  }
+}
+
+async function defaultGetWakeupById(wakeupId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          work_item_id,
+          run_id,
+          scheduled_for,
+          fired_at,
+          status,
+          reason,
+          created_by_user_id,
+          created_at
+        FROM aris_wakeups
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [wakeupId],
+    });
+    return normalizeWakeup(result.rows?.[0]);
+  } catch (_) {
+    return wakeupStore.find((wakeup) => wakeup.id === wakeupId) || null;
+  }
+}
+
+async function defaultSaveWakeup(wakeup) {
+  const normalized = normalizeWakeup(wakeup);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_wakeups (
+          id,
+          project_id,
+          work_item_id,
+          run_id,
+          scheduled_for,
+          fired_at,
+          status,
+          reason,
+          created_by_user_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.projectId,
+        normalized.workItemId,
+        normalized.runId,
+        normalized.scheduledFor,
+        normalized.firedAt || null,
+        normalized.status,
+        normalized.reason,
+        normalized.createdByUserId,
+        normalized.createdAt,
+      ],
+    });
+  } catch (_) {
+    const index = wakeupStore.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) wakeupStore.splice(index, 1);
+    wakeupStore.unshift({ ...normalized });
+  }
+}
+
+async function defaultDeleteWakeup(wakeupId) {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: 'DELETE FROM aris_wakeups WHERE id = ?',
+      args: [wakeupId],
+    });
+  } catch (_) {
+    const index = wakeupStore.findIndex((entry) => entry.id === wakeupId);
+    if (index >= 0) wakeupStore.splice(index, 1);
+  }
+}
+
+async function defaultListReviews(filters = {}) {
+  try {
+    const clauses = [];
+    const args = [];
+    if (filters.projectId) { clauses.push('project_id = ?'); args.push(filters.projectId); }
+    if (filters.workItemId) { clauses.push('work_item_id = ?'); args.push(filters.workItemId); }
+    if (filters.runId) { clauses.push('run_id = ?'); args.push(filters.runId); }
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          work_item_id,
+          run_id,
+          reviewer_user_id,
+          decision,
+          notes_md,
+          created_at
+        FROM aris_reviews
+        ${clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''}
+        ORDER BY datetime(created_at) DESC
+      `,
+      args,
+    });
+    return (result.rows || []).map(normalizeReview).filter(Boolean);
+  } catch (_) {
+    return reviewStore
+      .filter((review) => (!filters.projectId || review.projectId === filters.projectId)
+        && (!filters.workItemId || review.workItemId === filters.workItemId)
+        && (!filters.runId || review.runId === filters.runId))
+      .map((review) => ({ ...review }));
+  }
+}
+
+async function defaultGetReviewById(reviewId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          work_item_id,
+          run_id,
+          reviewer_user_id,
+          decision,
+          notes_md,
+          created_at
+        FROM aris_reviews
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [reviewId],
+    });
+    return normalizeReview(result.rows?.[0]);
+  } catch (_) {
+    return reviewStore.find((review) => review.id === reviewId) || null;
+  }
+}
+
+async function defaultSaveReview(review) {
+  const normalized = normalizeReview(review);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_reviews (
+          id,
+          project_id,
+          work_item_id,
+          run_id,
+          reviewer_user_id,
+          decision,
+          notes_md,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.projectId,
+        normalized.workItemId,
+        normalized.runId,
+        normalized.reviewerUserId,
+        normalized.decision,
+        normalized.notesMd,
+        normalized.createdAt,
+      ],
+    });
+  } catch (_) {
+    const index = reviewStore.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) reviewStore.splice(index, 1);
+    reviewStore.unshift({ ...normalized });
+  }
+}
+
+async function defaultDeleteReview(reviewId) {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: 'DELETE FROM aris_reviews WHERE id = ?',
+      args: [reviewId],
+    });
+  } catch (_) {
+    const index = reviewStore.findIndex((entry) => entry.id === reviewId);
+    if (index >= 0) reviewStore.splice(index, 1);
+  }
+}
+
+async function defaultListDecisions(filters = {}) {
+  try {
+    const clauses = [];
+    const args = [];
+    if (filters.projectId) { clauses.push('project_id = ?'); args.push(filters.projectId); }
+    if (filters.workItemId) { clauses.push('work_item_id = ?'); args.push(filters.workItemId); }
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          work_item_id,
+          title,
+          rationale_md,
+          consequence_md,
+          created_by_user_id,
+          created_at
+        FROM aris_decisions
+        ${clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''}
+        ORDER BY datetime(created_at) DESC
+      `,
+      args,
+    });
+    return (result.rows || []).map(normalizeDecision).filter(Boolean);
+  } catch (_) {
+    return decisionStore
+      .filter((decision) => (!filters.projectId || decision.projectId === filters.projectId)
+        && (!filters.workItemId || decision.workItemId === filters.workItemId))
+      .map((decision) => ({ ...decision }));
+  }
+}
+
+async function defaultGetDecisionById(decisionId) {
+  try {
+    const db = getDb();
+    const result = await db.execute({
+      sql: `
+        SELECT
+          id,
+          project_id,
+          work_item_id,
+          title,
+          rationale_md,
+          consequence_md,
+          created_by_user_id,
+          created_at
+        FROM aris_decisions
+        WHERE id = ?
+        LIMIT 1
+      `,
+      args: [decisionId],
+    });
+    return normalizeDecision(result.rows?.[0]);
+  } catch (_) {
+    return decisionStore.find((decision) => decision.id === decisionId) || null;
+  }
+}
+
+async function defaultSaveDecision(decision) {
+  const normalized = normalizeDecision(decision);
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: `
+        INSERT OR REPLACE INTO aris_decisions (
+          id,
+          project_id,
+          work_item_id,
+          title,
+          rationale_md,
+          consequence_md,
+          created_by_user_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        normalized.id,
+        normalized.projectId,
+        normalized.workItemId,
+        normalized.title,
+        normalized.rationaleMd,
+        normalized.consequenceMd,
+        normalized.createdByUserId,
+        normalized.createdAt,
+      ],
+    });
+  } catch (_) {
+    const index = decisionStore.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) decisionStore.splice(index, 1);
+    decisionStore.unshift({ ...normalized });
+  }
+}
+
+async function defaultDeleteDecision(decisionId) {
+  try {
+    const db = getDb();
+    await db.execute({
+      sql: 'DELETE FROM aris_decisions WHERE id = ?',
+      args: [decisionId],
+    });
+  } catch (_) {
+    const index = decisionStore.findIndex((entry) => entry.id === decisionId);
+    if (index >= 0) decisionStore.splice(index, 1);
   }
 }
 
@@ -909,6 +1654,8 @@ async function defaultGetLaunchById(runId) {
           log_path,
           run_directory,
           retry_of_run_id,
+          work_item_id,
+          completed_at,
           result_summary,
           source
         FROM aris_runs
@@ -957,9 +1704,11 @@ async function defaultSaveLaunch(launch) {
           log_path,
           run_directory,
           retry_of_run_id,
+          work_item_id,
+          completed_at,
           result_summary,
           source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         normalized.id,
@@ -989,6 +1738,8 @@ async function defaultSaveLaunch(launch) {
         normalized.logPath,
         normalized.runDirectory,
         normalized.retryOfRunId,
+        normalized.workItemId,
+        normalized.completedAt,
         normalized.resultSummary,
         normalized.source,
       ],
@@ -1133,6 +1884,79 @@ printf '%s\n' "$LOG_FILE"
 
 async function defaultBuildProjectFiles({ projectName = '', localProjectPath = '', projectId = '', remoteTargets = [] } = {}) {
   return arisProjectFilesService.buildProjectFiles({ projectName, localProjectPath, projectId, remoteTargets });
+}
+
+function normalizeDispatchRunStatus(run = {}) {
+  const status = String(run.status || 'draft').trim();
+  if (status === 'running') return 'in_flight';
+  if (status === 'completed') return 'review_ready';
+  if (status === 'failed') return 'blocked';
+  if (status === 'canceled') return 'canceled';
+  if (status === 'queued') return 'queued';
+  if (status === 'draft') return 'draft';
+  return status;
+}
+
+function deriveWorkItemStatus(workItem = {}, runs = [], wakeups = [], reviews = []) {
+  const stored = String(workItem.status || 'backlog').trim();
+  if (['parked', 'done', 'canceled'].includes(stored)) return stored;
+  if (reviews.length > 0) {
+    const latest = reviews[0];
+    if (latest?.decision === 'accept') return 'done';
+    if (latest?.decision === 'park') return 'parked';
+    if (latest?.decision === 'reject' || latest?.decision === 'escalate') return 'blocked';
+    return 'review';
+  }
+  if (runs.some((run) => normalizeDispatchRunStatus(run) === 'review_ready')) return 'review';
+  if (runs.some((run) => normalizeDispatchRunStatus(run) === 'blocked')) return 'blocked';
+  if (runs.some((run) => ['in_flight', 'queued'].includes(normalizeDispatchRunStatus(run)))) return 'in_progress';
+  if (wakeups.some((wakeup) => String(wakeup.status || '') === 'scheduled')) return 'waiting';
+  if (stored === 'review') return 'review';
+  if (stored === 'waiting') return 'waiting';
+  if (stored === 'in_progress') return 'in_progress';
+  if (DISPATCH_WORK_ITEM_STATES.includes(stored)) return stored;
+  return 'backlog';
+}
+
+function sortByUrgency(a = {}, b = {}) {
+  const aScore = Number(a._urgencyScore || 0);
+  const bScore = Number(b._urgencyScore || 0);
+  if (aScore !== bScore) return bScore - aScore;
+  const aTime = Date.parse(a.scheduledFor || a.updatedAt || a.createdAt || 0) || 0;
+  const bTime = Date.parse(b.scheduledFor || b.updatedAt || b.createdAt || 0) || 0;
+  return aTime - bTime;
+}
+
+function buildWorkItemPacket(payload = {}, projectId = '') {
+  const now = new Date().toISOString();
+  return normalizeWorkItem({
+    id: payload.id || `aris_work_item_${Date.now()}`,
+    projectId,
+    milestoneId: payload.milestoneId ?? null,
+    parentWorkItemId: payload.parentWorkItemId ?? null,
+    title: String(payload.title || '').trim(),
+    summary: String(payload.summary || '').trim(),
+    type: String(payload.type || 'task').trim() || 'task',
+    status: String(payload.status || 'backlog').trim() || 'backlog',
+    priority: Number(payload.priority ?? 0) || 0,
+    ownerUserId: String(payload.ownerUserId || '').trim(),
+    actorType: String(payload.actorType || 'human').trim() || 'human',
+    goal: String(payload.goal || '').trim(),
+    whyItMatters: String(payload.whyItMatters || '').trim(),
+    contextMd: String(payload.contextMd || '').trim(),
+    constraintsMd: String(payload.constraintsMd || '').trim(),
+    deliverableMd: String(payload.deliverableMd || '').trim(),
+    verificationMd: String(payload.verificationMd || '').trim(),
+    blockedBehaviorMd: String(payload.blockedBehaviorMd || '').trim(),
+    outputFormatMd: String(payload.outputFormatMd || '').trim(),
+    nextBestAction: String(payload.nextBestAction || '').trim(),
+    nextCheckAt: payload.nextCheckAt || null,
+    blockedReason: String(payload.blockedReason || '').trim(),
+    dueAt: payload.dueAt || null,
+    archivedAt: payload.archivedAt || null,
+    createdAt: payload.createdAt || now,
+    updatedAt: payload.updatedAt || now,
+  });
 }
 
 // ─── Review report retrieval ─────────────────────────────────────────────────
@@ -1308,6 +2132,26 @@ function createArisService(overrides = {}) {
     listRunActions: overrides.listRunActions || defaultListRunActions,
     saveRunAction: overrides.saveRunAction || defaultSaveRunAction,
     dispatchRunAction: overrides.dispatchRunAction || defaultDispatchRunAction,
+    listMilestones: overrides.listMilestones || defaultListMilestones,
+    getMilestoneById: overrides.getMilestoneById || defaultGetMilestoneById,
+    saveMilestone: overrides.saveMilestone || defaultSaveMilestone,
+    deleteMilestone: overrides.deleteMilestone || defaultDeleteMilestone,
+    listWorkItems: overrides.listWorkItems || defaultListWorkItems,
+    getWorkItemById: overrides.getWorkItemById || defaultGetWorkItemById,
+    saveWorkItem: overrides.saveWorkItem || defaultSaveWorkItem,
+    deleteWorkItem: overrides.deleteWorkItem || defaultDeleteWorkItem,
+    listWakeups: overrides.listWakeups || defaultListWakeups,
+    getWakeupById: overrides.getWakeupById || defaultGetWakeupById,
+    saveWakeup: overrides.saveWakeup || defaultSaveWakeup,
+    deleteWakeup: overrides.deleteWakeup || defaultDeleteWakeup,
+    listReviews: overrides.listReviews || defaultListReviews,
+    getReviewById: overrides.getReviewById || defaultGetReviewById,
+    saveReview: overrides.saveReview || defaultSaveReview,
+    deleteReview: overrides.deleteReview || defaultDeleteReview,
+    listDecisions: overrides.listDecisions || defaultListDecisions,
+    getDecisionById: overrides.getDecisionById || defaultGetDecisionById,
+    saveDecision: overrides.saveDecision || defaultSaveDecision,
+    deleteDecision: overrides.deleteDecision || defaultDeleteDecision,
     buildProjectFiles: overrides.buildProjectFiles || defaultBuildProjectFiles,
     materializeProjectFiles: overrides.materializeProjectFiles || arisProjectFilesService.materializeProjectFiles,
   };
@@ -1429,7 +2273,17 @@ function createArisService(overrides = {}) {
 
     resolvedProject = await deps.getProjectById(projectId);
     if (!resolvedProject) {
-      throw new Error('Project not found');
+      if (retryOfRunId || payload.projectName || payload.localProjectPath) {
+        resolvedProject = {
+          id: projectId,
+          name: String(payload.projectName || '').trim() || 'Untitled Project',
+          clientWorkspaceId: '',
+          localProjectPath: String(payload.localProjectPath || '').trim(),
+          syncExcludes: [],
+        };
+      } else {
+        throw new Error('Project not found');
+      }
     }
 
     if (targetId) {
@@ -1780,6 +2634,419 @@ function createArisService(overrides = {}) {
       return existing;
     },
 
+    async listMilestones(projectId = '') {
+      return deps.listMilestones(projectId);
+    },
+
+    async createMilestone(projectId, payload = {}) {
+      const project = await deps.getProjectById(projectId);
+      if (!project) throw new Error('Project not found');
+      const name = String(payload.name || '').trim();
+      if (!name) throw new Error('name is required');
+
+      const milestone = normalizeMilestone({
+        id: `aris_milestone_${Date.now()}`,
+        projectId,
+        name,
+        description: String(payload.description || '').trim(),
+        dueAt: payload.dueAt || null,
+        status: String(payload.status || 'planned').trim() || 'planned',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await deps.saveMilestone(milestone);
+      return milestone;
+    },
+
+    async listProjectWorkItems(projectId = '') {
+      const workItems = await deps.listWorkItems(projectId);
+      const launches = await deps.listLaunches();
+      const wakeups = await deps.listWakeups({ projectId });
+      const reviews = await deps.listReviews({ projectId });
+
+      return workItems
+        .filter((workItem) => !projectId || String(workItem.projectId) === String(projectId))
+        .map((workItem) => {
+          const relatedRuns = launches.filter((run) => String(run.workItemId) === String(workItem.id));
+          const relatedWakeups = wakeups.filter((wakeup) => String(wakeup.workItemId) === String(workItem.id));
+          const relatedReviews = reviews.filter((review) => String(review.workItemId) === String(workItem.id));
+          const dispatchStatus = deriveWorkItemStatus(workItem, relatedRuns, relatedWakeups, relatedReviews);
+          return {
+            ...workItem,
+            dispatchStatus,
+            runCount: relatedRuns.length,
+            reviewCount: relatedReviews.length,
+            wakeupCount: relatedWakeups.length,
+            overdueWakeupCount: relatedWakeups.filter((wakeup) => wakeup.status === 'scheduled' && Date.parse(wakeup.scheduledFor) < Date.now()).length,
+            latestRunStatus: relatedRuns[0] ? normalizeDispatchRunStatus(relatedRuns[0]) : '',
+          };
+        });
+    },
+
+    async getWorkItem(workItemId) {
+      const workItem = await deps.getWorkItemById(workItemId);
+      if (!workItem) return null;
+      const launches = await deps.listLaunches();
+      const wakeups = await deps.listWakeups({ workItemId });
+      const reviews = await deps.listReviews({ workItemId });
+      const relatedRuns = launches.filter((run) => String(run.workItemId) === String(workItem.id));
+      return {
+        ...workItem,
+        dispatchStatus: deriveWorkItemStatus(workItem, relatedRuns, wakeups, reviews),
+        runs: relatedRuns.map((run) => ({ ...run, dispatchStatus: normalizeDispatchRunStatus(run) })),
+        wakeups,
+        reviews,
+      };
+    },
+
+    async createWorkItem(projectId, payload = {}, { username = 'czk' } = {}) {
+      const project = await deps.getProjectById(projectId);
+      if (!project) throw new Error('Project not found');
+      const title = String(payload.title || '').trim();
+      if (!title) throw new Error('title is required');
+      const wakeupPayloads = Array.isArray(payload.wakeups) ? payload.wakeups : [];
+      const workItem = buildWorkItemPacket({
+        ...payload,
+        title,
+        status: payload.status || 'backlog',
+      }, projectId);
+      await deps.saveWorkItem(workItem);
+      const now = new Date().toISOString();
+      for (let index = 0; index < wakeupPayloads.length; index += 1) {
+        const wakeup = normalizeWakeup({
+          id: wakeupPayloads[index].id || `aris_wakeup_${Date.now()}_${index}`,
+          projectId,
+          workItemId: workItem.id,
+          runId: null,
+          scheduledFor: wakeupPayloads[index].scheduledFor || wakeupPayloads[index].scheduled_for || now,
+          firedAt: wakeupPayloads[index].firedAt || wakeupPayloads[index].fired_at || null,
+          status: wakeupPayloads[index].status || 'scheduled',
+          reason: wakeupPayloads[index].reason || '',
+          createdByUserId: username,
+          createdAt: now,
+        });
+        await deps.saveWakeup(wakeup);
+      }
+      return workItem;
+    },
+
+    async updateWorkItem(workItemId, payload = {}, { username = 'czk' } = {}) {
+      const existing = await deps.getWorkItemById(workItemId);
+      if (!existing) throw new Error('Work item not found');
+      const wakeupPayloads = Array.isArray(payload.wakeups) ? payload.wakeups : null;
+      const workItem = buildWorkItemPacket({
+        ...existing,
+        ...payload,
+        id: existing.id,
+        projectId: existing.projectId,
+        status: payload.status ?? existing.status,
+      }, existing.projectId);
+      await deps.saveWorkItem(workItem);
+      if (wakeupPayloads) {
+        const existingWakeups = await deps.listWakeups({ workItemId: existing.id });
+        for (const wakeup of existingWakeups) {
+          if (!wakeup.runId) {
+            await deps.deleteWakeup(wakeup.id);
+          }
+        }
+        const now = new Date().toISOString();
+        for (let index = 0; index < wakeupPayloads.length; index += 1) {
+          const wakeup = normalizeWakeup({
+            id: wakeupPayloads[index].id || `aris_wakeup_${Date.now()}_${index}`,
+            projectId: existing.projectId,
+            workItemId: workItem.id,
+            runId: null,
+            scheduledFor: wakeupPayloads[index].scheduledFor || wakeupPayloads[index].scheduled_for || now,
+            firedAt: wakeupPayloads[index].firedAt || wakeupPayloads[index].fired_at || null,
+            status: wakeupPayloads[index].status || 'scheduled',
+            reason: wakeupPayloads[index].reason || '',
+            createdByUserId: username,
+            createdAt: now,
+          });
+          await deps.saveWakeup(wakeup);
+        }
+      }
+      return workItem;
+    },
+
+    async createWorkItemRun(workItemId, payload = {}, { username = 'czk' } = {}) {
+      const workItem = await deps.getWorkItemById(workItemId);
+      if (!workItem) throw new Error('Work item not found');
+      const project = await deps.getProjectById(workItem.projectId);
+      if (!project) throw new Error('Project not found');
+
+      const wakeupPayloads = Array.isArray(payload.wakeups) && payload.wakeups.length > 0
+        ? payload.wakeups
+        : (payload.wakeup ? [payload.wakeup] : []);
+      if (wakeupPayloads.length === 0) {
+        throw new Error('At least one wake-up is required before creating a run');
+      }
+
+      const now = new Date().toISOString();
+      const run = normalizeLaunch({
+        id: `aris_run_${Date.now()}`,
+        projectId: workItem.projectId,
+        projectName: project.name,
+        workItemId: workItem.id,
+        targetId: null,
+        targetName: '',
+        localProjectPath: project.localProjectPath || '',
+        workflowType: String(payload.workflowType || 'custom_run').trim() || 'custom_run',
+        prompt: String(payload.prompt || workItem.deliverableMd || workItem.goal || workItem.summary || workItem.title).trim(),
+        title: String(payload.title || workItem.title || 'Dispatch Run').trim(),
+        runnerServerId: payload.runnerServerId ?? null,
+        runnerHost: String(payload.runnerHost || 'dispatch').trim(),
+        downstreamServerId: payload.downstreamServerId ?? null,
+        downstreamServerName: String(payload.downstreamServerName || '').trim(),
+        remoteWorkspacePath: String(payload.remoteWorkspacePath || project.localProjectPath || '').trim(),
+        datasetRoot: String(payload.datasetRoot || '').trim(),
+        requiresUpload: Boolean(payload.requiresUpload ?? false),
+        status: 'queued',
+        activePhase: 'queued',
+        latestScore: null,
+        latestVerdict: '',
+        startedAt: now,
+        updatedAt: now,
+        summary: String(payload.summary || '').trim(),
+        syncStrategy: '',
+        remotePid: null,
+        logPath: '',
+        runDirectory: '',
+        retryOfRunId: null,
+        completedAt: null,
+        resultSummary: '',
+        source: 'dispatch',
+      });
+
+      await deps.saveLaunch(run);
+
+      const savedWakeups = [];
+      for (let index = 0; index < wakeupPayloads.length; index += 1) {
+        const wakeup = normalizeWakeup({
+          id: `aris_wakeup_${Date.now()}_${index}`,
+          projectId: workItem.projectId,
+          workItemId: workItem.id,
+          runId: run.id,
+          scheduledFor: wakeupPayloads[index].scheduledFor || wakeupPayloads[index].scheduled_for || now,
+          firedAt: wakeupPayloads[index].firedAt || wakeupPayloads[index].fired_at || null,
+          status: wakeupPayloads[index].status || 'scheduled',
+          reason: wakeupPayloads[index].reason || '',
+          createdByUserId: username,
+          createdAt: now,
+        });
+        await deps.saveWakeup(wakeup);
+        savedWakeups.push(wakeup);
+      }
+
+      const nextStatus = ['parked', 'done', 'canceled'].includes(String(workItem.status || ''))
+        ? workItem.status
+        : 'waiting';
+      await deps.saveWorkItem({
+        ...workItem,
+        status: nextStatus,
+        nextCheckAt: savedWakeups[0]?.scheduledFor || workItem.nextCheckAt || null,
+        updatedAt: now,
+      });
+
+      return {
+        ...run,
+        wakeups: savedWakeups,
+      };
+    },
+
+    async createWakeup(runId, payload = {}, { username = 'czk' } = {}) {
+      const run = await deps.getLaunchById(runId);
+      if (!run) throw new Error('Run not found');
+      const project = await deps.getProjectById(run.projectId);
+      if (!project) throw new Error('Project not found');
+      const now = new Date().toISOString();
+      const wakeup = normalizeWakeup({
+        id: `aris_wakeup_${Date.now()}`,
+        projectId: run.projectId,
+        workItemId: run.workItemId || null,
+        runId: run.id,
+        scheduledFor: payload.scheduledFor || payload.scheduled_for || now,
+        firedAt: payload.firedAt || payload.fired_at || null,
+        status: String(payload.status || 'scheduled').trim() || 'scheduled',
+        reason: String(payload.reason || '').trim(),
+        createdByUserId: username,
+        createdAt: now,
+      });
+      await deps.saveWakeup(wakeup);
+      return wakeup;
+    },
+
+    async createRunWakeup(runId, payload = {}, context = {}) {
+      return this.createWakeup(runId, payload, context);
+    },
+
+    async createReview(runId, payload = {}, { username = 'czk' } = {}) {
+      const run = await deps.getLaunchById(runId);
+      if (!run) throw new Error('Run not found');
+      const workItemId = run.workItemId || payload.workItemId || payload.work_item_id;
+      if (!workItemId) throw new Error('Work item is required for a review');
+      const workItem = await deps.getWorkItemById(workItemId);
+      if (!workItem) throw new Error('Work item not found');
+      const project = await deps.getProjectById(workItem.projectId);
+      if (!project) throw new Error('Project not found');
+      const decision = String(payload.decision || '').trim();
+      if (!DISPATCH_REVIEW_DECISIONS.includes(decision)) {
+        throw new Error('Invalid review decision');
+      }
+
+      const now = new Date().toISOString();
+      const review = normalizeReview({
+        id: `aris_review_${Date.now()}`,
+        projectId: project.id,
+        workItemId: workItem.id,
+        runId: run.id,
+        reviewerUserId: username,
+        decision,
+        notesMd: String(payload.notesMd || payload.notes_md || '').trim(),
+        createdAt: now,
+      });
+      await deps.saveReview(review);
+
+      const decisionMap = {
+        accept: { status: 'done', title: `Accepted ${workItem.title}` },
+        revise: { status: 'ready', title: `Revise ${workItem.title}` },
+        split: { status: 'ready', title: `Split ${workItem.title}` },
+        park: { status: 'parked', title: `Parked ${workItem.title}` },
+        reject: { status: 'blocked', title: `Rejected ${workItem.title}` },
+        escalate: { status: 'blocked', title: `Escalated ${workItem.title}` },
+      };
+      const nextState = decisionMap[decision] || { status: workItem.status, title: `Review ${workItem.title}` };
+
+      await deps.saveWorkItem({
+        ...workItem,
+        status: nextState.status,
+        updatedAt: now,
+      });
+
+      await deps.saveDecision(normalizeDecision({
+        id: `aris_decision_${Date.now()}`,
+        projectId: project.id,
+        workItemId: workItem.id,
+        title: nextState.title,
+        rationaleMd: review.notesMd,
+        consequenceMd: `Review decision: ${decision}`,
+        createdByUserId: username,
+        createdAt: now,
+      }));
+
+      if (run.completedAt == null && decision === 'accept') {
+        await deps.saveLaunch({
+          ...run,
+          completedAt: now,
+          updatedAt: now,
+        });
+      }
+
+      return review;
+    },
+
+    async getControlTower({ projectId = '' } = {}) {
+      const projects = await deps.listProjects();
+      const workItems = await deps.listWorkItems(projectId);
+      const launches = await deps.listLaunches();
+      const wakeups = await deps.listWakeups(projectId ? { projectId } : {});
+      const reviews = await deps.listReviews(projectId ? { projectId } : {});
+
+      const reviewedRunIds = new Set(reviews.map((review) => String(review.runId)));
+      const now = Date.now();
+      const activeProjects = projects.map((project) => {
+        const projectWorkItems = workItems.filter((item) => String(item.projectId) === String(project.id));
+        const projectRuns = launches.filter((run) => String(run.projectId) === String(project.id));
+        const projectWakeups = wakeups.filter((wakeup) => String(wakeup.projectId) === String(project.id));
+        return {
+          ...project,
+          workItemCount: projectWorkItems.length,
+          inFlightRunCount: projectRuns.filter((run) => normalizeDispatchRunStatus(run) === 'in_flight').length,
+          reviewReadyRunCount: projectRuns.filter((run) => normalizeDispatchRunStatus(run) === 'review_ready' && !reviewedRunIds.has(String(run.id))).length,
+          overdueWakeupCount: projectWakeups.filter((wakeup) => wakeup.status === 'scheduled' && Date.parse(wakeup.scheduledFor) < now).length,
+        };
+      });
+
+      const reviewReadyRuns = launches
+        .filter((run) => (!projectId || String(run.projectId) === String(projectId))
+          && normalizeDispatchRunStatus(run) === 'review_ready'
+          && !reviewedRunIds.has(String(run.id)))
+        .map((run) => ({ ...run, dispatchStatus: normalizeDispatchRunStatus(run) }))
+        .sort(sortByUrgency);
+
+      const overdueWakeups = wakeups
+        .filter((wakeup) => (!projectId || String(wakeup.projectId) === String(projectId))
+          && wakeup.status === 'scheduled'
+          && Date.parse(wakeup.scheduledFor) < now)
+        .map((wakeup) => ({ ...wakeup, _urgencyScore: 1000 }))
+        .sort(sortByUrgency);
+
+      const blockedWorkItems = workItems
+        .filter((item) => (!projectId || String(item.projectId) === String(projectId))
+          && deriveWorkItemStatus(item, launches.filter((run) => String(run.workItemId) === String(item.id)), wakeups.filter((wakeup) => String(wakeup.workItemId) === String(item.id)), reviews.filter((review) => String(review.workItemId) === String(item.id))) === 'blocked')
+        .map((item) => ({ ...item, dispatchStatus: 'blocked' }));
+
+      const staleRuns = launches
+        .filter((run) => (!projectId || String(run.projectId) === String(projectId))
+          && ['in_flight', 'queued'].includes(normalizeDispatchRunStatus(run))
+          && Date.parse(run.updatedAt || run.startedAt || 0) < now - (6 * 60 * 60 * 1000))
+        .map((run) => ({ ...run, dispatchStatus: normalizeDispatchRunStatus(run) }))
+        .sort(sortByUrgency);
+
+      return {
+        projects: activeProjects,
+        overdueWakeups,
+        reviewReadyRuns,
+        blockedWorkItems,
+        staleRuns,
+      };
+    },
+
+    async getReviewInbox({ projectId = '' } = {}) {
+      const tower = await this.getControlTower({ projectId });
+      return tower.reviewReadyRuns.map((run) => ({
+        ...run,
+        _urgencyScore: run._urgencyScore || 0,
+      }));
+    },
+
+    async listReviewInbox(context = {}) {
+      return this.getReviewInbox(context);
+    },
+
+    async getProjectNow(projectId) {
+      const project = await deps.getProjectById(projectId);
+      if (!project) throw new Error('Project not found');
+      const workItems = await deps.listWorkItems(projectId);
+      const launches = await deps.listLaunches();
+      const wakeups = await deps.listWakeups({ projectId });
+      const reviews = await deps.listReviews({ projectId });
+
+      const currentMilestones = await deps.listMilestones(projectId);
+      const nowWorkItems = workItems
+        .map((item) => {
+          const relatedRuns = launches.filter((run) => String(run.workItemId) === String(item.id));
+          const relatedWakeups = wakeups.filter((wakeup) => String(wakeup.workItemId) === String(item.id));
+          const relatedReviews = reviews.filter((review) => String(review.workItemId) === String(item.id));
+          return {
+            ...item,
+            dispatchStatus: deriveWorkItemStatus(item, relatedRuns, relatedWakeups, relatedReviews),
+          };
+        })
+        .filter((item) => ['in_progress', 'waiting', 'review', 'blocked'].includes(item.dispatchStatus))
+        .sort(sortByUrgency);
+
+      return {
+        project,
+        milestones: currentMilestones,
+        activeWorkItems: nowWorkItems,
+        upcomingWakeups: wakeups
+          .filter((wakeup) => String(wakeup.projectId) === String(projectId))
+          .sort(sortByUrgency)
+          .slice(0, 10),
+      };
+    },
+
     async createLaunchRequest(payload = {}, { username = 'czk' } = {}) {
       const { launch, runner, downstreamServer } = await buildLaunchFromPayload(payload, { username });
       return dispatchAndPersistLaunch(launch, runner, downstreamServer);
@@ -1883,6 +3150,8 @@ function createArisService(overrides = {}) {
         targetId: existing.targetId,
         workflowType: existing.workflowType,
         prompt: existing.prompt,
+        projectName: existing.projectName,
+        localProjectPath: existing.localProjectPath,
         title: existing.title,
         remoteWorkspacePath: existing.remoteWorkspacePath,
         datasetRoot: existing.datasetRoot,
