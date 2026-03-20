@@ -578,6 +578,14 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     } catch (_) { /* non-critical */ }
   }, [apiUrl, getAuthHeaders]);
 
+  // Auto-poll sessions every 15s when overview is active
+  useEffect(() => {
+    if (ctPanel !== CT_PANELS.OVERVIEW) return;
+    fetchLocalSessions();
+    const interval = setInterval(fetchLocalSessions, 15000);
+    return () => clearInterval(interval);
+  }, [ctPanel, fetchLocalSessions]);
+
   const expandedPhaseIdRef = useRef(expandedPhaseId);
   expandedPhaseIdRef.current = expandedPhaseId;
 
