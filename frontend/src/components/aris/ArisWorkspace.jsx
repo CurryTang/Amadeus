@@ -1428,14 +1428,29 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const handleToggleItemStatus = async (itemId, currentStatus) => {
     const currentIdx = STATUS_CYCLE.indexOf(currentStatus);
     const nextStatus = STATUS_CYCLE[(currentIdx + 1) % STATUS_CYCLE.length];
+    // Optimistic — instant UI update
+    setWorkItems((prev) => prev.map((w) => w.id === itemId ? { ...w, status: nextStatus } : w));
     try {
       await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: nextStatus }, { headers: getAuthHeaders() });
-      // Optimistic update
-      setWorkItems((prev) => prev.map((w) => w.id === itemId ? { ...w, status: nextStatus } : w));
-      // Refresh in background
+    } catch (err) {
+      // Revert on failure
+      setWorkItems((prev) => prev.map((w) => w.id === itemId ? { ...w, status: currentStatus } : w));
+      setError(err?.response?.data?.error || 'Failed to update status');
+    }
+  };
+
+  const handleDeleteWorkItem = async (itemId) => {
+    // Optimistic remove
+    const prevItems = workItems;
+    setWorkItems((prev) => prev.filter((w) => w.id !== itemId));
+    if (selectedWorkItemId === itemId) { setSelectedWorkItemId(''); setSelectedWorkItemDetail(null); }
+    try {
+      await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: 'canceled', archivedAt: new Date().toISOString() }, { headers: getAuthHeaders() });
+      // Background refresh
       fetchProjectWorkItems(selectedProjectId).catch(() => {});
     } catch (err) {
-      setError(err?.response?.data?.error || 'Failed to update status');
+      setWorkItems(prevItems); // revert
+      setError(err?.response?.data?.error || 'Failed to delete item');
     }
   };
 
@@ -1473,27 +1488,32 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         ...workItemDraft,
         projectId: selectedProjectId,
       });
+      let response;
       if (workItemDraft.id) {
-        await axios.patch(`${apiUrl}/aris/work-items/${workItemDraft.id}`, payload, {
+        response = await axios.patch(`${apiUrl}/aris/work-items/${workItemDraft.id}`, payload, {
           headers: getAuthHeaders(),
         });
       } else {
-        await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/work-items`, payload, {
+        response = await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/work-items`, payload, {
           headers: getAuthHeaders(),
         });
       }
-      const refreshedItems = await fetchProjectWorkItems(selectedProjectId);
-      const savedItem = refreshedItems.find((item) => item.id === workItemDraft.id)
-        || refreshedItems.find((item) => item.title === payload.title)
-        || null;
+      // Optimistic: add/update item locally, then background refresh
+      const savedItem = response.data?.workItem;
       if (savedItem) {
+        setWorkItems((prev) => {
+          const exists = prev.some((w) => w.id === savedItem.id);
+          return exists ? prev.map((w) => w.id === savedItem.id ? savedItem : w) : [savedItem, ...prev];
+        });
         setSelectedWorkItemId(savedItem.id);
-        await fetchWorkItemDetail(savedItem.id);
+        setWorkItemDraft((prev) => ({ ...prev, id: savedItem.id }));
       }
-      await Promise.all([fetchControlTower(), fetchReviewInbox(), fetchProjectNow(selectedProjectId)]);
+      setSavingWorkItem(false);
+      // Background refreshes — don't block UI
+      fetchProjectWorkItems(selectedProjectId).catch(() => {});
+      fetchControlTower().catch(() => {});
     } catch (err) {
       setError(err?.response?.data?.error || err.message || 'Failed to save work item');
-    } finally {
       setSavingWorkItem(false);
     }
   };
@@ -1593,6 +1613,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
               <span className={`ct-status-label ct-status-label--${item.statusColor}`}>{item.statusLabel}</span>
             </button>
             <button className="ct-btn-ghost ct-btn-ghost--sm" title="Add follow-up" onClick={() => handleCreateFollowUp(item)}>+</button>
+            <button className="ct-btn-ghost ct-btn-ghost--sm ct-btn-ghost--danger" title="Remove" onClick={(e) => { e.stopPropagation(); handleDeleteWorkItem(item.id); }}>&times;</button>
           </div>
           {item.children?.length > 0 && renderItemTree(item.children, depth + 1)}
         </div>

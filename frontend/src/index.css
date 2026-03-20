@@ -13325,6 +13325,10 @@ button.vibe-skill-chip.is-active {
 /* Remove old status dot from tree rows since toggle replaces it */
 .ct-wi-tree-row .ct-work-item-row .ct-status-dot { display: none; }
 
+/* Show action buttons only on hover */
+.ct-wi-tree-row .ct-btn-ghost--danger { opacity: 0; transition: opacity 0.1s; }
+.ct-wi-tree-row:hover .ct-btn-ghost--danger { opacity: 1; }
+
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
   .ct-layout { grid-template-columns: 1fr; }
