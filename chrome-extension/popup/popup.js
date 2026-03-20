@@ -29,6 +29,7 @@ let allTags = [];
 let selectedTags = [];
 let currentArxivInfo = null; // Keep for backward compatibility
 let currentOpenReviewInfo = null;
+let currentPublisherInfo = null; // For paywalled publishers (ScienceDirect, IEEE, Springer, Wiley, ACM)
 let userHasEditedTitle = false; // Prevent async metadata from overwriting user edits
 let authToken = null; // JWT for authenticated API calls
 const { buildArxivSaveRequest, resolveApiBaseUrl, shouldFetchArxivMetadata } = globalThis.AutoReaderArxivSave;
@@ -370,7 +371,47 @@ function getDefaultPresets() {
       color: '#00629b',
       type: 'paper',
       patterns: ['ieeexplore.ieee.org/document/*', 'ieeexplore.ieee.org/abstract/*'],
-      endpoint: '',
+      endpoint: '/upload/direct', // Uses savePaywalledPaper() → /upload/direct
+      enabled: true,
+    },
+    {
+      id: 'sciencedirect',
+      name: 'ScienceDirect',
+      icon: '🔶',
+      color: '#e87511',
+      type: 'paper',
+      patterns: ['sciencedirect.com/science/article/*', 'www.sciencedirect.com/science/article/*'],
+      endpoint: '/upload/direct',
+      enabled: true,
+    },
+    {
+      id: 'springer',
+      name: 'Springer',
+      icon: '📗',
+      color: '#0070a8',
+      type: 'paper',
+      patterns: ['link.springer.com/article/*', 'link.springer.com/chapter/*'],
+      endpoint: '/upload/direct',
+      enabled: true,
+    },
+    {
+      id: 'wiley',
+      name: 'Wiley',
+      icon: '📘',
+      color: '#1a1a2e',
+      type: 'paper',
+      patterns: ['onlinelibrary.wiley.com/doi/*'],
+      endpoint: '/upload/direct',
+      enabled: true,
+    },
+    {
+      id: 'acm',
+      name: 'ACM Digital Library',
+      icon: '💻',
+      color: '#0085ca',
+      type: 'paper',
+      patterns: ['dl.acm.org/doi/*'],
+      endpoint: '/upload/direct',
       enabled: true,
     },
     {
@@ -420,6 +461,8 @@ async function checkForPresets() {
             await handleHuggingFacePreset(tab);
           } else if (preset.id === 'alphaxiv') {
             await handleAlphaXivPreset(tab);
+          } else if (['ieee', 'sciencedirect', 'springer', 'wiley', 'acm'].includes(preset.id)) {
+            await handlePaywalledPreset(tab, preset);
           } else {
             // Generic preset handling
             showPresetBanner(preset);
@@ -668,6 +711,207 @@ function adjustColor(color, amount) {
   const g = Math.max(0, Math.min(255, parseInt(hex.substr(2, 2), 16) + amount));
   const b = Math.max(0, Math.min(255, parseInt(hex.substr(4, 2), 16) + amount));
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+// Handle paywalled publisher preset (IEEE, ScienceDirect, Springer, Wiley, ACM)
+async function handlePaywalledPreset(tab, preset) {
+  try {
+    const publisherInfo = await chrome.tabs.sendMessage(tab.id, { action: 'getPublisherInfo' });
+    if (publisherInfo && publisherInfo.isPaywalled) {
+      currentPublisherInfo = publisherInfo;
+      showPublisherMode(publisherInfo, preset);
+      return;
+    }
+  } catch (e) {
+    console.log('Content script publisher extraction unavailable:', e);
+  }
+
+  // Fallback: try injected script for metadata extraction
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (publisherId) => {
+        const normalize = (v) => String(v || '').trim().replace(/\s+/g, ' ');
+        const getMeta = (name) => {
+          const m = document.querySelector(
+            `meta[name="${name}"], meta[property="${name}"], meta[itemprop="${name}"]`
+          );
+          return m ? m.getAttribute('content') || '' : '';
+        };
+
+        return {
+          isPaywalled: true,
+          publisher: publisherId,
+          doi: getMeta('citation_doi') || '',
+          pdfUrl: getMeta('citation_pdf_url') || '',
+          title: normalize(getMeta('citation_title')) || document.title,
+          authors: Array.from(document.querySelectorAll('meta[name="citation_author"]'))
+            .map(n => normalize(n.getAttribute('content'))).filter(Boolean),
+          abstract: normalize(getMeta('description') || getMeta('og:description') || ''),
+          publishedDate: getMeta('citation_publication_date') || getMeta('citation_date') || '',
+          journal: normalize(getMeta('citation_journal_title') || ''),
+          pageUrl: window.location.href,
+        };
+      },
+      args: [preset.id],
+    });
+
+    if (result?.result?.isPaywalled) {
+      currentPublisherInfo = result.result;
+      showPublisherMode(currentPublisherInfo, preset);
+      return;
+    }
+  } catch (e) {
+    console.warn('Injected publisher extraction failed:', e);
+  }
+
+  // Final fallback: just show the banner with basic info
+  currentPublisherInfo = {
+    isPaywalled: true,
+    publisher: preset.id,
+    pdfUrl: '',
+    title: tab.title || '',
+    authors: [],
+    abstract: '',
+    pageUrl: tab.url,
+  };
+  showPublisherMode(currentPublisherInfo, preset);
+}
+
+// Show paywalled publisher UI
+function showPublisherMode(publisherInfo, preset) {
+  // Update title
+  if (publisherInfo.title && !userHasEditedTitle) {
+    titleInput.value = publisherInfo.title;
+  }
+
+  // Set type to paper
+  typeSelect.value = 'paper';
+
+  // Add metadata to notes
+  let notesContent = '';
+  if (publisherInfo.authors && publisherInfo.authors.length > 0) {
+    notesContent = `Authors: ${publisherInfo.authors.join(', ')}`;
+  }
+  if (publisherInfo.journal) {
+    notesContent += `\n\nJournal: ${publisherInfo.journal}`;
+  }
+  if (publisherInfo.doi) {
+    notesContent += `\n\nDOI: ${publisherInfo.doi}`;
+  }
+  if (publisherInfo.abstract) {
+    notesContent += `\n\nAbstract: ${publisherInfo.abstract}`;
+  }
+  if (notesContent) {
+    notesInput.value = notesContent.trim();
+  }
+
+  // Show publisher banner
+  showPublisherBanner(publisherInfo, preset);
+}
+
+// Show paywalled publisher banner with save button
+function showPublisherBanner(publisherInfo, preset) {
+  if (document.getElementById('publisherBanner')) return;
+
+  const hasAccess = !!publisherInfo.pdfUrl;
+  const banner = document.createElement('div');
+  banner.id = 'publisherBanner';
+  banner.className = 'arxiv-banner';
+  banner.style.background = `linear-gradient(135deg, ${preset.color} 0%, ${adjustColor(preset.color, -20)} 100%)`;
+  banner.innerHTML = `
+    <div class="arxiv-badge">
+      <span class="arxiv-icon">${preset.icon}</span>
+      <span>${preset.name} Paper</span>
+    </div>
+    ${publisherInfo.doi ? `<div class="arxiv-id">DOI: ${publisherInfo.doi}</div>` : ''}
+    <button type="button" id="savePublisherPdf" class="btn btn-arxiv" ${!hasAccess ? 'title="No PDF link found — you may not have access"' : ''}>
+      ${hasAccess ? `<span>📥</span> Save PDF` : `<span>⚠️</span> Save PDF`}
+    </button>
+    ${!hasAccess ? '<div style="font-size:10px;opacity:0.8;margin-top:2px;">PDF link not found — make sure you\'re logged in</div>' : ''}
+  `;
+
+  const header = document.querySelector('header');
+  header.after(banner);
+
+  document.getElementById('savePublisherPdf').addEventListener('click', savePaywalledPaper);
+}
+
+// Save paper from paywalled publisher — fetches PDF via browser cookies then uploads
+async function savePaywalledPaper() {
+  if (!currentPublisherInfo) {
+    showStatus('No publisher paper detected', 'error');
+    return;
+  }
+
+  if (!currentPublisherInfo.pdfUrl) {
+    showStatus('No PDF link found. Make sure you are logged in and have access to this paper.', 'error');
+    return;
+  }
+
+  const data = getFormData();
+  setLoading(true, `Fetching PDF from ${currentPublisherInfo.publisher}...`);
+
+  try {
+    // Step 1: Fetch PDF blob via background service worker (has cookie access)
+    const pdfResult = await chrome.runtime.sendMessage({
+      action: 'fetchPdfBlob',
+      url: currentPublisherInfo.pdfUrl,
+      publisher: currentPublisherInfo.publisher,
+    });
+
+    if (pdfResult.error) {
+      throw new Error(pdfResult.error);
+    }
+
+    setLoading(true, 'Uploading PDF...');
+
+    // Step 2: Convert base64 back to blob for FormData upload
+    const byteChars = atob(pdfResult.base64);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteNumbers[i] = byteChars.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const pdfBlob = new Blob([byteArray], { type: 'application/pdf' });
+
+    // Create a filename from title or DOI
+    const filename = (data.title || currentPublisherInfo.doi || 'paper')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, '_')
+      .substring(0, 80) + '.pdf';
+
+    // Step 3: Upload to backend via /upload/direct
+    const formData = new FormData();
+    formData.append('file', pdfBlob, filename);
+    formData.append('title', data.title || currentPublisherInfo.title || 'Untitled');
+    formData.append('type', 'paper');
+    formData.append('tags', JSON.stringify(data.tags));
+    formData.append('notes', data.notes || '');
+    formData.append('analysisProvider', data.analysisProvider || 'gemini-cli');
+    if (currentPublisherInfo.pageUrl) {
+      formData.append('originalUrl', currentPublisherInfo.pageUrl);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/upload/direct`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload failed (HTTP ${response.status})`);
+    }
+
+    showStatus('Paper saved successfully!', 'success');
+    resetForm();
+  } catch (error) {
+    console.error('Publisher save error:', error);
+    showStatus(error.message || 'Failed to save paper', 'error');
+  } finally {
+    setLoading(false);
+  }
 }
 
 // Load current tab info
@@ -1350,7 +1594,11 @@ function detectContentType(url) {
       lowerUrl.includes('semanticscholar') ||
       lowerUrl.includes('doi.org') ||
       lowerUrl.includes('ieee.org') ||
-      lowerUrl.includes('acm.org')) {
+      lowerUrl.includes('acm.org') ||
+      lowerUrl.includes('sciencedirect.com') ||
+      lowerUrl.includes('springer.com') ||
+      lowerUrl.includes('wiley.com') ||
+      lowerUrl.includes('nature.com')) {
     return 'paper';
   }
 
@@ -1386,6 +1634,12 @@ saveAsPdfBtn.addEventListener('click', async () => {
     return;
   }
 
+  // If on paywalled publisher page, use publisher flow
+  if (currentPublisherInfo && currentPublisherInfo.isPaywalled) {
+    await savePaywalledPaper();
+    return;
+  }
+
   // Otherwise convert webpage to PDF
   if (!validateForm(data, true)) return;
 
@@ -1415,7 +1669,12 @@ saveAsPdfBtn.addEventListener('click', async () => {
     resetForm();
   } catch (error) {
     console.error('PDF conversion error:', error);
-    showStatus('Failed to convert page. Please try again.', 'error');
+    const msg = error.message || 'Unknown error';
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+      showStatus(`Network error: cannot reach ${API_BASE_URL}. Check extension settings.`, 'error');
+    } else {
+      showStatus(`Failed to convert page: ${msg}`, 'error');
+    }
   } finally {
     setLoading(false);
   }
@@ -1545,6 +1804,12 @@ function setLoading(loading, message = 'Loading...') {
   const alphaXivBtn = document.getElementById('saveAlphaXivPdf');
   if (alphaXivBtn) {
     alphaXivBtn.disabled = loading;
+  }
+
+  // Also disable publisher button if it exists
+  const publisherBtn = document.getElementById('savePublisherPdf');
+  if (publisherBtn) {
+    publisherBtn.disabled = loading;
   }
 
   if (loading) {

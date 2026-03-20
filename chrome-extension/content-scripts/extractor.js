@@ -23,6 +23,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const alphaXivInfo = extractAlphaXivInfo();
     sendResponse(alphaXivInfo);
   }
+  if (request.action === 'getPublisherInfo') {
+    const publisherInfo = extractPublisherInfo();
+    sendResponse(publisherInfo);
+  }
   return true;
 });
 
@@ -528,6 +532,185 @@ function detectContentType() {
   if (ogType === 'book') return 'book';
 
   return 'other';
+}
+
+// --- Paywalled publisher support ---
+
+// Detect paywalled publisher from hostname
+function detectPaywalledPublisher() {
+  const hostname = window.location.hostname.toLowerCase();
+  const url = window.location.href;
+
+  if (hostname.includes('sciencedirect.com') || hostname.includes('elsevier.com')) {
+    return 'sciencedirect';
+  }
+  if (hostname.includes('ieeexplore.ieee.org')) {
+    return 'ieee';
+  }
+  if (hostname.includes('link.springer.com') || hostname.includes('springerlink.com')) {
+    return 'springer';
+  }
+  if (hostname.includes('onlinelibrary.wiley.com') || hostname.includes('wiley.com')) {
+    return 'wiley';
+  }
+  if (hostname.includes('dl.acm.org')) {
+    return 'acm';
+  }
+  return null;
+}
+
+// Extract publisher paper info using citation_ meta tags (standard across most academic publishers)
+function extractPublisherInfo() {
+  const publisher = detectPaywalledPublisher();
+  if (!publisher) {
+    return { isPaywalled: false };
+  }
+
+  const normalize = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+
+  // citation_pdf_url is the standard meta tag for PDF links across academic publishers
+  const pdfUrl = getMetaContent('citation_pdf_url') || findPdfUrlFallback(publisher);
+  const doi = getMetaContent('citation_doi') || extractDoiFromPage();
+
+  const info = {
+    isPaywalled: true,
+    publisher,
+    doi: doi || '',
+    pdfUrl: pdfUrl || '',
+    title: normalize(getMetaContent('citation_title')) || getTitle(),
+    authors: Array.from(document.querySelectorAll('meta[name="citation_author"]'))
+      .map(node => normalize(node.getAttribute('content')))
+      .filter(Boolean),
+    abstract: normalize(
+      getMetaContent('citation_abstract') ||
+      getMetaContent('description') ||
+      getMetaContent('og:description') ||
+      ''
+    ),
+    publishedDate: getMetaContent('citation_publication_date') ||
+                   getMetaContent('citation_date') ||
+                   getMetaContent('citation_online_date') || '',
+    journal: normalize(getMetaContent('citation_journal_title') || ''),
+    volume: getMetaContent('citation_volume') || '',
+    issue: getMetaContent('citation_issue') || '',
+    pageUrl: window.location.href,
+  };
+
+  // Publisher-specific fallbacks
+  if (!info.authors.length) {
+    info.authors = extractAuthorsFallback(publisher);
+  }
+  if (!info.abstract) {
+    info.abstract = extractAbstractFallback(publisher);
+  }
+
+  return info;
+}
+
+// Find PDF URL using publisher-specific selectors when citation_pdf_url is missing
+function findPdfUrlFallback(publisher) {
+  const origin = window.location.origin;
+  const url = window.location.href;
+
+  switch (publisher) {
+    case 'sciencedirect': {
+      // ScienceDirect: look for PDF download link
+      const pdfLink = document.querySelector('a[href*="/pdfft"], a.pdf-download, a[data-tracking-action="download-pdf"]');
+      if (pdfLink) return new URL(pdfLink.href, origin).href;
+      // Construct from PII
+      const piiMatch = url.match(/\/pii\/(S?\d+X?)/i);
+      if (piiMatch) return `${origin}/science/article/pii/${piiMatch[1]}/pdfft`;
+      return '';
+    }
+    case 'ieee': {
+      // IEEE: arnumber-based PDF URL
+      const arnumberMatch = url.match(/\/document\/(\d+)/);
+      if (arnumberMatch) return `https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber=${arnumberMatch[1]}`;
+      const pdfLink = document.querySelector('a[href*="stamp.jsp"], a[href*="getPDF"]');
+      if (pdfLink) return new URL(pdfLink.href, origin).href;
+      return '';
+    }
+    case 'springer': {
+      // Springer: /content/pdf/<doi>.pdf
+      const doiMatch = url.match(/\/article\/(10\.\d{4,}\/[^\s?#]+)/);
+      if (doiMatch) return `${origin}/content/pdf/${doiMatch[1]}.pdf`;
+      const pdfLink = document.querySelector('a[data-track-action="download article"], a[href*="/content/pdf/"]');
+      if (pdfLink) return new URL(pdfLink.href, origin).href;
+      return '';
+    }
+    case 'wiley': {
+      // Wiley: /doi/pdfdirect/<doi>
+      const doiMatch = url.match(/\/doi(?:\/(?:abs|full|epdf))?\/(10\.\d{4,}\/[^\s?#]+)/);
+      if (doiMatch) return `${origin}/doi/pdfdirect/${doiMatch[1]}`;
+      const pdfLink = document.querySelector('a[href*="/doi/pdfdirect/"], a[href*="/doi/pdf/"]');
+      if (pdfLink) return new URL(pdfLink.href, origin).href;
+      return '';
+    }
+    case 'acm': {
+      // ACM: /doi/pdf/<doi>
+      const doiMatch = url.match(/\/doi(?:\/(?:abs|full|pdf))?\/(10\.\d{4,}\/[^\s?#]+)/);
+      if (doiMatch) return `${origin}/doi/pdf/${doiMatch[1]}`;
+      const pdfLink = document.querySelector('a[href*="/doi/pdf/"]');
+      if (pdfLink) return new URL(pdfLink.href, origin).href;
+      return '';
+    }
+  }
+  return '';
+}
+
+// Extract DOI from page when not in meta tags
+function extractDoiFromPage() {
+  // Try various meta tags
+  const doiMeta = document.querySelector('meta[name="DOI"], meta[name="doi"], meta[scheme="doi"]');
+  if (doiMeta) return doiMeta.getAttribute('content');
+
+  // Try URL patterns
+  const doiMatch = window.location.href.match(/(10\.\d{4,}\/[^\s?#&]+)/);
+  if (doiMatch) return doiMatch[1];
+
+  // Try page links
+  const doiLink = document.querySelector('a[href*="doi.org/10."]');
+  if (doiLink) {
+    const m = doiLink.href.match(/(10\.\d{4,}\/[^\s?#&]+)/);
+    if (m) return m[1];
+  }
+
+  return '';
+}
+
+// Publisher-specific author extraction fallbacks
+function extractAuthorsFallback(publisher) {
+  const selectors = {
+    sciencedirect: '.author-name, .author .content a, #author-group .author span.text',
+    ieee: '.authors-info span.author-name, .authors-accordion-container .author-info-name',
+    springer: '.c-article-author-list a[data-test="author-name"], .authors__name',
+    wiley: '.loa-authors .author-info span, .accordion__closed .author-name',
+    acm: '.loa span.loa__author-name, .author-name',
+  };
+
+  const sel = selectors[publisher];
+  if (!sel) return [];
+
+  return Array.from(document.querySelectorAll(sel))
+    .map(el => el.textContent.trim())
+    .filter(Boolean);
+}
+
+// Publisher-specific abstract extraction fallbacks
+function extractAbstractFallback(publisher) {
+  const selectors = {
+    sciencedirect: '.abstract div.text, #abstracts .abstract',
+    ieee: '.abstract-text, div.abstract-desktop-div',
+    springer: '.c-article-section__content p, #Abs1-content p',
+    wiley: '.article-section__content .abstract-group p, .abstract-group__content p',
+    acm: '.abstractSection p, .article__abstract p',
+  };
+
+  const sel = selectors[publisher];
+  if (!sel) return '';
+
+  const el = document.querySelector(sel);
+  return el ? el.textContent.trim().replace(/^Abstract[:\s]*/i, '') : '';
 }
 
 // Notify that content script is ready
