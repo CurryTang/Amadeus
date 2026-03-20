@@ -248,6 +248,23 @@ router.get('/projects/:projectId/claude-md', requireAuth, async (req, res) => {
       lines.push('');
     }
 
+    lines.push('## ARIS API');
+    lines.push('');
+    lines.push('Use these endpoints to interact with the ARIS project management system:');
+    lines.push('');
+    lines.push(`- **Base URL**: \`https://auto-reader.duckdns.org/api\``);
+    lines.push(`- **Project ID**: \`${project.id}\``);
+    lines.push(`- **Auth**: \`Authorization: Bearer <token>\` (stored in project \`.env\` as \`ARIS_TOKEN\`)`);
+    lines.push('');
+    lines.push('### Key Endpoints');
+    lines.push('');
+    lines.push(`- Upload plan: \`POST /aris/projects/${project.id}/plans\` body: \`{ title, content }\``);
+    lines.push(`- List work items: \`GET /aris/projects/${project.id}/work-items\``);
+    lines.push(`- Create work item: \`POST /aris/projects/${project.id}/work-items\` body: \`{ title, contextMd, type, status, milestoneId }\``);
+    lines.push(`- Update work item: \`PATCH /aris/work-items/<id>\` body: \`{ status, contextMd, ... }\``);
+    lines.push(`- List milestones: \`GET /aris/projects/${project.id}/milestones\``);
+    lines.push('');
+
     const content = lines.join('\n');
     res.json({ content, projectName: project.name });
   } catch (error) {
@@ -334,6 +351,44 @@ router.delete('/milestones/:milestoneId', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[ARIS] delete milestone error:', error);
     res.status(500).json({ error: error.message || 'Failed to delete milestone' });
+  }
+});
+
+// Upload a plan/document to the project as a work item under a "Plans & Docs" phase
+router.post('/projects/:projectId/plans', requireAuth, async (req, res) => {
+  try {
+    const { title, content, type = 'plan', milestoneId, status = 'backlog' } = req.body || {};
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    if (!content) return res.status(400).json({ error: 'content is required' });
+
+    const projectId = req.params.projectId;
+    let targetMilestoneId = milestoneId;
+
+    // If no milestoneId, auto-create or find "Plans & Docs" phase
+    if (!targetMilestoneId) {
+      const milestones = await arisService.listMilestones(projectId);
+      let planPhase = milestones.find((m) => m.name === 'Plans & Docs');
+      if (!planPhase) {
+        planPhase = await arisService.createMilestone(projectId, {
+          name: 'Plans & Docs',
+          description: 'Implementation plans, design docs, and research notes',
+        });
+      }
+      targetMilestoneId = planPhase.id;
+    }
+
+    const workItem = await arisService.createWorkItem(projectId, {
+      title,
+      contextMd: content,
+      type: type || 'plan',
+      status,
+      milestoneId: targetMilestoneId,
+    }, { username: req.userId || 'czk' });
+
+    res.status(201).json({ workItem, milestoneId: targetMilestoneId });
+  } catch (error) {
+    console.error('[ARIS] upload plan error:', error);
+    res.status(500).json({ error: error.message || 'Failed to upload plan' });
   }
 });
 
