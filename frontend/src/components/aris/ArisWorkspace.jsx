@@ -2782,9 +2782,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       {showProjectManager && (
         <div className="aris-modal-backdrop" onClick={() => setShowProjectManager(false)}>
           <div className="aris-project-manager" onClick={(event) => event.stopPropagation()}>
+            <button className="ct-modal-close" type="button" onClick={() => setShowProjectManager(false)} title="Close">&times;</button>
             <div className="aris-panel-header">
               <h3>Manage Projects</h3>
-              <button className="aris-refresh-btn" onClick={() => setShowProjectManager(false)}>Close</button>
             </div>
 
             <div className="aris-project-manager-grid">

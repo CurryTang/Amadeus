@@ -11319,22 +11319,47 @@ button.vibe-skill-chip.is-active {
   inset: 0;
   background: rgba(11, 21, 18, 0.45);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 24px;
+  padding: 40px 24px;
   z-index: 2000;
+  overflow-y: auto;
 }
 
 .aris-project-manager {
-  width: min(1120px, 100%);
-  max-height: min(88vh, 920px);
-  overflow: auto;
-  padding: 20px;
-  border-radius: 22px;
-  background: #fffdf8;
-  border: 1px solid rgba(24, 54, 45, 0.08);
+  position: relative;
+  width: min(1120px, calc(100% - 48px));
+  max-height: none;
+  overflow: visible;
+  padding: 24px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
   box-shadow: 0 24px 60px rgba(18, 37, 31, 0.22);
+  margin: 0 auto;
 }
+
+.ct-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 1.3rem;
+  line-height: 1;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  transition: all 0.1s;
+}
+
+.ct-modal-close:hover { background: #e2e8f0; color: #1e293b; }
 
 .aris-project-manager-grid {
   display: grid;
