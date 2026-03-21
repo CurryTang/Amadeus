@@ -696,6 +696,72 @@ How does this work relate to other important papers in the field? What prior wor
     ON aris_plan_nodes(run_id, sort_order ASC)
   `);
 
+  // ─── Daily Tasks & Day Plans ───────────────────────────────────────────────
+
+  // Recurring / one-time personal tasks (read papers, exercise, leetcode, etc.)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_daily_tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      category TEXT DEFAULT 'general',
+      frequency TEXT NOT NULL DEFAULT 'daily',
+      weekday INTEGER DEFAULT NULL,
+      estimated_minutes INTEGER DEFAULT 30,
+      weekly_credit INTEGER DEFAULT 7,
+      priority INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_daily_tasks_active
+    ON aris_daily_tasks(is_active, frequency)
+  `);
+
+  // Track completions of daily tasks
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_daily_completions (
+      id TEXT PRIMARY KEY,
+      daily_task_id TEXT NOT NULL,
+      completed_date TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      duration_minutes INTEGER DEFAULT NULL,
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (daily_task_id) REFERENCES aris_daily_tasks(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_daily_completions_task_date
+    ON aris_daily_completions(daily_task_id, completed_date DESC)
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_daily_completions_date
+    ON aris_daily_completions(completed_date DESC)
+  `);
+
+  // AI-generated day plans
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_day_plans (
+      id TEXT PRIMARY KEY,
+      plan_date TEXT NOT NULL,
+      status TEXT DEFAULT 'draft',
+      plan_json TEXT NOT NULL DEFAULT '[]',
+      summary TEXT DEFAULT '',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_aris_day_plans_date
+    ON aris_day_plans(plan_date DESC)
+  `);
+
   // Migration: add proxy_jump column for SSH ProxyJump support.
   try {
     const sshCols = await db.execute(`PRAGMA table_info(ssh_servers)`);

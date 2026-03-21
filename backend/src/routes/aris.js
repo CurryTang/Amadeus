@@ -9,9 +9,11 @@ const s3Service = require('../services/s3.service');
 const arxivService = require('../services/arxiv.service');
 
 const planService = require('../services/arisPlan.service');
+const { createArisDailyService } = require('../services/arisDaily.service');
 
 const router = express.Router();
 const arisService = createArisService();
+const dailyService = createArisDailyService();
 
 function getArisUserContext(req = {}) {
   return { username: req.userId || 'czk' };
@@ -966,6 +968,134 @@ router.post('/local-sessions', requireAuth, async (req, res) => {
 // GET /api/aris/local-sessions — retrieve the latest snapshot
 router.get('/local-sessions', requireAuth, async (req, res) => {
   res.json(localSessionSnapshot);
+});
+
+// ─── Daily Tasks & Day Plans ─────────────────────────────────────────────────
+
+// GET /api/aris/daily-tasks — list all daily tasks
+router.get('/daily-tasks', requireAuth, async (req, res) => {
+  try {
+    const activeOnly = req.query.active === '1';
+    const tasks = await dailyService.listDailyTasks({ activeOnly });
+    res.json({ tasks });
+  } catch (error) {
+    console.error('[ARIS] list daily tasks error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// POST /api/aris/daily-tasks — create daily task
+router.post('/daily-tasks', requireAuth, async (req, res) => {
+  try {
+    const task = await dailyService.createDailyTask(req.body);
+    res.json({ task });
+  } catch (error) {
+    console.error('[ARIS] create daily task error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// PATCH /api/aris/daily-tasks/:taskId — update daily task
+router.patch('/daily-tasks/:taskId', requireAuth, async (req, res) => {
+  try {
+    const task = await dailyService.updateDailyTask(req.params.taskId, req.body);
+    res.json({ task });
+  } catch (error) {
+    console.error('[ARIS] update daily task error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// DELETE /api/aris/daily-tasks/:taskId — delete daily task
+router.delete('/daily-tasks/:taskId', requireAuth, async (req, res) => {
+  try {
+    await dailyService.deleteDailyTask(req.params.taskId);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[ARIS] delete daily task error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// POST /api/aris/daily-tasks/:taskId/toggle — toggle completion for a date
+router.post('/daily-tasks/:taskId/toggle', requireAuth, async (req, res) => {
+  try {
+    const result = await dailyService.toggleCompletion(req.params.taskId, req.body.date);
+    res.json(result);
+  } catch (error) {
+    console.error('[ARIS] toggle completion error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// GET /api/aris/daily-completions — list completions for a date or week
+router.get('/daily-completions', requireAuth, async (req, res) => {
+  try {
+    const completions = await dailyService.listCompletions({
+      date: req.query.date,
+      weekStart: req.query.weekStart,
+      dailyTaskId: req.query.taskId,
+    });
+    res.json({ completions });
+  } catch (error) {
+    console.error('[ARIS] list completions error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// GET /api/aris/weekly-progress — weekly credit progress
+router.get('/weekly-progress', requireAuth, async (req, res) => {
+  try {
+    const progress = await dailyService.getWeeklyProgress(req.query.date);
+    res.json({ progress });
+  } catch (error) {
+    console.error('[ARIS] weekly progress error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// GET /api/aris/ongoing-work-items — all ongoing work items across projects
+router.get('/ongoing-work-items', requireAuth, async (req, res) => {
+  try {
+    const items = await dailyService.getOngoingWorkItems();
+    res.json({ items });
+  } catch (error) {
+    console.error('[ARIS] ongoing work items error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// GET /api/aris/day-plan — get today's (or specified date's) plan
+router.get('/day-plan', requireAuth, async (req, res) => {
+  try {
+    const plan = await dailyService.getDayPlan(req.query.date);
+    res.json({ plan });
+  } catch (error) {
+    console.error('[ARIS] get day plan error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// POST /api/aris/day-plan — save a day plan
+router.post('/day-plan', requireAuth, async (req, res) => {
+  try {
+    const plan = await dailyService.saveDayPlan(req.body.date, req.body.items, req.body.summary);
+    res.json({ plan });
+  } catch (error) {
+    console.error('[ARIS] save day plan error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// GET /api/aris/day-context — build full context for day scheduling
+router.get('/day-context', requireAuth, async (req, res) => {
+  try {
+    const context = await dailyService.buildDayContext(req.query.date);
+    res.json({ context });
+  } catch (error) {
+    console.error('[ARIS] day context error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
 });
 
 module.exports = router;
