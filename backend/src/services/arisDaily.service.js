@@ -230,14 +230,19 @@ function createArisDailyService() {
 
   async function getOngoingWorkItems() {
     const db = getDb();
+    // Fetch projects first for name lookup (avoids JOIN alias issues with mongo-compat)
+    const projectsResult = await db.execute(`SELECT id, name FROM aris_projects`);
+    const projectMap = {};
+    for (const p of (projectsResult.rows || [])) {
+      projectMap[p.id] = p.name;
+    }
+
     const result = await db.execute({
-      sql: `SELECT wi.*, p.name as project_name
-            FROM aris_work_items wi
-            JOIN aris_projects p ON p.id = wi.project_id
-            WHERE wi.status IN ('in_progress', 'ready', 'review', 'blocked', 'waiting')
-              AND wi.archived_at IS NULL
+      sql: `SELECT * FROM aris_work_items
+            WHERE status IN ('in_progress', 'ready', 'review', 'blocked', 'waiting')
+              AND archived_at IS NULL
             ORDER BY
-              CASE wi.status
+              CASE status
                 WHEN 'blocked' THEN 0
                 WHEN 'review' THEN 1
                 WHEN 'in_progress' THEN 2
@@ -245,13 +250,13 @@ function createArisDailyService() {
                 WHEN 'ready' THEN 4
                 ELSE 5
               END,
-              COALESCE(wi.priority, 0) DESC,
-              datetime(COALESCE(wi.updated_at, wi.created_at)) DESC`,
+              COALESCE(priority, 0) DESC,
+              datetime(COALESCE(updated_at, created_at)) DESC`,
     });
     return (result.rows || []).map((row) => ({
       id: row.id,
       projectId: row.project_id,
-      projectName: row.project_name,
+      projectName: projectMap[row.project_id] || 'Unknown Project',
       title: row.title,
       summary: row.summary || '',
       type: row.type || 'task',

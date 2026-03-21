@@ -572,3 +572,97 @@ export function buildArisRunDetail(run = {}) {
     actionRows: Array.isArray(run.actions) ? run.actions.map((action) => buildArisRunActionRow(action)) : [],
   };
 }
+
+// ─── Daily Tasks & Day Plans ─────────────────────────────────────────────────
+
+export const DAILY_TASK_CATEGORIES = [
+  { id: 'reading', label: 'Reading', icon: '📖' },
+  { id: 'exercise', label: 'Exercise', icon: '🏃' },
+  { id: 'coding', label: 'Coding', icon: '💻' },
+  { id: 'research', label: 'Research', icon: '🔬' },
+  { id: 'writing', label: 'Writing', icon: '✍️' },
+  { id: 'review', label: 'Review', icon: '👁️' },
+  { id: 'learning', label: 'Learning', icon: '📚' },
+  { id: 'general', label: 'General', icon: '📋' },
+];
+
+export const DAILY_TASK_FREQUENCIES = [
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly' },
+  { id: 'one_time', label: 'One-time' },
+];
+
+export function categoryLabel(categoryId) {
+  const cat = DAILY_TASK_CATEGORIES.find((c) => c.id === categoryId);
+  return cat ? cat.label : titleCase(categoryId, 'General');
+}
+
+export function categoryIcon(categoryId) {
+  const cat = DAILY_TASK_CATEGORIES.find((c) => c.id === categoryId);
+  return cat ? cat.icon : '📋';
+}
+
+export function frequencyLabel(frequencyId) {
+  const freq = DAILY_TASK_FREQUENCIES.find((f) => f.id === frequencyId);
+  return freq ? freq.label : titleCase(frequencyId, 'Daily');
+}
+
+export function buildDailyTaskRow(task) {
+  return {
+    id: task.id,
+    title: normalizeString(task.title, 'Untitled'),
+    description: normalizeString(task.description),
+    category: task.category || 'general',
+    categoryLabel: categoryLabel(task.category),
+    categoryIcon: categoryIcon(task.category),
+    frequency: task.frequency || 'daily',
+    frequencyLabel: frequencyLabel(task.frequency),
+    estimatedMinutes: task.estimatedMinutes ?? 30,
+    weeklyCredit: task.weeklyCredit ?? 7,
+    completedThisWeek: task.completedThisWeek ?? 0,
+    remaining: task.remaining ?? 0,
+    isOnTrack: task.isOnTrack ?? false,
+    isActive: task.isActive !== false,
+    priority: task.priority ?? 0,
+  };
+}
+
+export function buildOngoingWorkItemRow(item) {
+  const status = normalizeString(item.status, 'ready');
+  const workItemLabels = {
+    backlog: 'Backlog', ready: 'Ready', in_progress: 'In Progress',
+    waiting: 'Waiting', review: 'Review', blocked: 'Blocked',
+    parked: 'Parked', done: 'Done', canceled: 'Canceled',
+  };
+  return {
+    id: item.id,
+    projectId: item.projectId,
+    projectName: normalizeString(item.projectName, 'Unknown Project'),
+    title: normalizeString(item.title, 'Untitled'),
+    type: item.type || 'task',
+    typeLabel: titleCase(item.type, 'Task'),
+    status,
+    statusLabel: workItemLabels[status] || titleCase(status, 'Ready'),
+    statusColor: workItemStatusColor(status),
+    priority: item.priority ?? 0,
+    actorType: item.actorType || 'human',
+    dueAt: item.dueAt || null,
+    isOverdue: Boolean(item.dueAt) && isPastDateTime(item.dueAt),
+    nextBestAction: normalizeString(item.nextBestAction),
+  };
+}
+
+export function buildDayPlanItem(item) {
+  return {
+    id: item.id || '',
+    time: item.time || '',
+    title: item.title || '',
+    description: item.description || '',
+    category: item.category || 'general',
+    categoryIcon: categoryIcon(item.category),
+    estimatedMinutes: item.estimatedMinutes ?? 30,
+    sourceType: item.sourceType || 'daily_task', // 'daily_task' | 'work_item' | 'break'
+    sourceId: item.sourceId || '',
+    isDone: item.isDone || false,
+  };
+}
