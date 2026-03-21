@@ -96,25 +96,32 @@ function runCodex(prompt, options = {}) {
   const timeoutMs = options.timeout || DEFAULT_TIMEOUT_MS;
   const model = options.model || config.codexCli?.model || 'gpt-5.1-codex-mini';
   const guardedPrompt = applyTopPriorityFileRemovalRule(prompt);
+  // Use stdin for large prompts to avoid E2BIG (Linux MAX_ARG_STRLEN ~128KB)
+  const useStdin = Buffer.byteLength(guardedPrompt) > 100000;
   return new Promise((resolve, reject) => {
-    // codex exec --full-auto -m <model> "<prompt>"
-    // --full-auto = automatic execution with workspace-write sandbox, no approval prompts
     const args = [
       'exec',
       '--dangerously-bypass-approvals-and-sandbox',
       '-m', model,
-      guardedPrompt,
     ];
+    if (useStdin) {
+      args.push('-'); // Read prompt from stdin
+    } else {
+      args.push(guardedPrompt);
+    }
 
-    console.log(`[Codex CLI] Running: ${codexPath} exec --dangerously-bypass-approvals-and-sandbox -m ${model} (prompt: ${guardedPrompt.length} chars)`);
+    console.log(`[Codex CLI] Running: ${codexPath} exec -m ${model} (prompt: ${guardedPrompt.length} chars, stdin: ${useStdin})`);
 
-    // Session isolation is handled by concurrency=1 in config (only one Codex
-    // process at a time). Overriding HOME or XDG_CONFIG_HOME would break auth
-    // since Codex stores credentials in ~/.codex/auth.json.
     const proc = spawn(codexPath, args, {
       timeout: timeoutMs,
       maxBuffer: 50 * 1024 * 1024, // 50MB buffer
     });
+
+    // Write prompt via stdin for large payloads
+    if (useStdin) {
+      proc.stdin.write(guardedPrompt);
+      proc.stdin.end();
+    }
 
     let stdout = '';
     let stderr = '';
