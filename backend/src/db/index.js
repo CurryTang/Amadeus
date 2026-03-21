@@ -132,9 +132,9 @@ async function initDatabase() {
     )
   `);
 
-  // Insert default prompt template if not exists
+  // Insert default prompt template if not exists (check any user)
   const existingTemplate = await db.execute(`
-    SELECT id FROM prompt_templates WHERE name = 'Vanilla Summary' AND user_id = 'default_user'
+    SELECT id FROM prompt_templates WHERE name = 'Vanilla Summary' LIMIT 1
   `);
 
   if (existingTemplate.rows.length === 0) {

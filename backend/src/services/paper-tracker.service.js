@@ -196,7 +196,16 @@ async function deleteSource(id) {
   await db.execute({ sql: `DELETE FROM tracker_sources WHERE id = ?`, args: [id] });
 }
 
+// Track last-checked timestamps in memory to avoid unnecessary DB writes.
+// Only flush to DB if the timestamp is more than 5 minutes stale.
+const _lastCheckedCache = {};
+
 async function markSourceChecked(id) {
+  const now = Date.now();
+  const last = _lastCheckedCache[id] || 0;
+  // Skip DB write if checked less than 5 minutes ago
+  if (now - last < 5 * 60 * 1000) return;
+  _lastCheckedCache[id] = now;
   const db = getDb();
   await db.execute({
     sql: `UPDATE tracker_sources SET last_checked_at = CURRENT_TIMESTAMP WHERE id = ?`,
