@@ -621,6 +621,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [editingPhaseName, setEditingPhaseName] = useState('');
   const [addingPhase, setAddingPhase] = useState(false);
   const [newPhaseName, setNewPhaseName] = useState('');
+  const [showAddMilestone, setShowAddMilestone] = useState(false);
+  const [milestoneDraft, setMilestoneDraft] = useState({ name: '', type: 'deadline', dueAt: '', recurrenceDay: 5 });
   const [quickNote, setQuickNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
@@ -962,6 +964,36 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       if (expandedPhaseId === milestoneId) setExpandedPhaseId(null);
       await fetchMilestones(selectedProjectId);
     } catch (err) { setError(err.response?.data?.error || 'Failed to delete phase'); }
+  };
+
+  const handleCreateMilestone = async () => {
+    if (!milestoneDraft.name.trim() || !selectedProjectId) return;
+    try {
+      const payload = {
+        name: milestoneDraft.name.trim(),
+        ...(milestoneDraft.type === 'recurring'
+          ? { recurrence: 'weekly', recurrenceDay: parseInt(milestoneDraft.recurrenceDay, 10) }
+          : { dueAt: milestoneDraft.dueAt || null }),
+      };
+      await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/milestones`, payload, { headers: getAuthHeaders() });
+      setMilestoneDraft({ name: '', type: 'deadline', dueAt: '', recurrenceDay: 5 });
+      setShowAddMilestone(false);
+      await fetchMilestones(selectedProjectId);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to create milestone'); }
+  };
+
+  const handleWorkItemAction = async (itemId, action) => {
+    try {
+      if (action === 'done_today') {
+        // Mark as waiting (done for today, will check back)
+        await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: 'in_progress', nextBestAction: `Done for today (${new Date().toLocaleDateString()})` }, { headers: getAuthHeaders() });
+      } else if (action === 'waiting') {
+        await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: 'waiting' }, { headers: getAuthHeaders() });
+      } else if (action === 'all_done') {
+        await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: 'done' }, { headers: getAuthHeaders() });
+      }
+      await fetchOngoingItems();
+    } catch (err) { setError(err.response?.data?.error || 'Failed to update work item'); }
   };
 
   const handleSaveQuickNote = async () => {
@@ -2195,6 +2227,56 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 );
               })()}
 
+              {/* Deadlines & Milestones */}
+              {selectedProjectId && (() => {
+                const deadlineMilestones = milestones.filter((m) => m.recurrence || m.dueAt);
+                return (
+                  <div className="ct-milestones-section">
+                    <div className="ct-section-header">
+                      <h4>Deadlines &amp; Milestones</h4>
+                      <button className="ct-btn ct-btn--sm" onClick={() => setShowAddMilestone(true)}>+ Add</button>
+                    </div>
+                    {deadlineMilestones.length === 0 && !showAddMilestone && (
+                      <div className="ct-empty ct-empty--sm">No deadlines or recurring milestones. Add one to help AI prioritize scheduling.</div>
+                    )}
+                    {deadlineMilestones.map((m) => (
+                      <div key={m.id} className="ct-milestone-item">
+                        <span className="ct-milestone-icon">{m.recurrence ? '🔄' : '🎯'}</span>
+                        <div className="ct-milestone-info">
+                          <span className="ct-milestone-name">{m.name}</span>
+                          <span className="ct-milestone-meta">
+                            {m.recurrence === 'weekly' ? `Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][m.recurrenceDay ?? 0]}` : m.dueAt ? new Date(m.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
+                          </span>
+                        </div>
+                        <button className="ct-btn-ghost ct-btn-ghost--sm ct-btn-ghost--danger" onClick={() => handleDeletePhase(m.id)}>&times;</button>
+                      </div>
+                    ))}
+                    {showAddMilestone && (
+                      <div className="ct-milestone-form">
+                        <input type="text" placeholder="e.g. Group Meeting, Paper Deadline..." value={milestoneDraft.name} onChange={(e) => setMilestoneDraft({ ...milestoneDraft, name: e.target.value })} className="myday-form-input" autoFocus />
+                        <select value={milestoneDraft.type} onChange={(e) => setMilestoneDraft({ ...milestoneDraft, type: e.target.value })} className="myday-form-select">
+                          <option value="deadline">One-time Deadline</option>
+                          <option value="recurring">Weekly Recurring</option>
+                        </select>
+                        {milestoneDraft.type === 'recurring' ? (
+                          <select value={milestoneDraft.recurrenceDay} onChange={(e) => setMilestoneDraft({ ...milestoneDraft, recurrenceDay: e.target.value })} className="myday-form-select">
+                            {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d, i) => (
+                              <option key={d} value={i}>{d}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input type="date" value={milestoneDraft.dueAt} onChange={(e) => setMilestoneDraft({ ...milestoneDraft, dueAt: e.target.value })} className="myday-form-input" />
+                        )}
+                        <div className="ct-milestone-form-actions">
+                          <button className="ct-btn ct-btn--primary ct-btn--sm" onClick={handleCreateMilestone}>Create</button>
+                          <button className="ct-btn ct-btn--sm" onClick={() => setShowAddMilestone(false)}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Research Phases */}
               {selectedProjectId && (
                 <div className="ct-phases">
@@ -2552,16 +2634,21 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   {ongoingItems.map((item) => {
                     const row = buildOngoingWorkItemRow(item);
                     return (
-                      <div key={item.id} className="myday-ongoing-row" onClick={() => { setSelectedProjectId(item.projectId); setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}>
+                      <div key={item.id} className="myday-ongoing-row">
                         <span className={`ct-status-dot ct-status-dot--${row.statusColor}`} />
-                        <div className="myday-ongoing-info">
+                        <div className="myday-ongoing-info" onClick={() => { setSelectedProjectId(item.projectId); setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }} style={{ cursor: 'pointer' }}>
                           <span className="myday-ongoing-title">{row.title}</span>
                           <span className="myday-ongoing-meta">
-                            {row.projectName} &middot; {row.typeLabel} &middot; {row.statusLabel}
+                            {row.projectName} &middot; {row.statusLabel}
+                            {item.status === 'waiting' && ' (agent/experiment running)'}
                             {row.isOverdue && <span className="myday-overdue-badge">overdue</span>}
                           </span>
                         </div>
-                        <span className="myday-ongoing-priority">P{row.priority}</span>
+                        <div className="myday-item-actions">
+                          <button className="myday-action-btn myday-action-btn--done-today" title="Done for today" onClick={(e) => { e.stopPropagation(); handleWorkItemAction(item.id, 'done_today'); }}>Today</button>
+                          <button className="myday-action-btn myday-action-btn--waiting" title="Waiting (agent/experiment running)" onClick={(e) => { e.stopPropagation(); handleWorkItemAction(item.id, 'waiting'); }}>Wait</button>
+                          <button className="myday-action-btn myday-action-btn--all-done" title="All finished" onClick={(e) => { e.stopPropagation(); handleWorkItemAction(item.id, 'all_done'); }}>Done</button>
+                        </div>
                       </div>
                     );
                   })}

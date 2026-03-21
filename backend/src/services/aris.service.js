@@ -215,6 +215,8 @@ function normalizeMilestone(row = {}) {
     description: row.description ?? '',
     dueAt: toIsoOrNull(row.dueAt ?? row.due_at),
     status: row.status ?? 'planned',
+    recurrence: row.recurrence ?? null,
+    recurrenceDay: row.recurrenceDay ?? row.recurrence_day ?? null,
     createdAt: toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
     updatedAt: toIsoOrNull(row.updatedAt ?? row.updated_at) ?? toIsoOrNull(row.createdAt ?? row.created_at) ?? new Date().toISOString(),
   };
@@ -969,15 +971,7 @@ async function defaultListMilestones(projectId = '') {
     const db = getDb();
     const result = await db.execute({
       sql: `
-        SELECT
-          id,
-          project_id,
-          name,
-          description,
-          due_at,
-          status,
-          created_at,
-          updated_at
+        SELECT *
         FROM aris_milestones
         ${projectId ? 'WHERE project_id = ?' : ''}
         ORDER BY datetime(COALESCE(updated_at, created_at)) DESC
@@ -997,15 +991,7 @@ async function defaultGetMilestoneById(milestoneId) {
     const db = getDb();
     const result = await db.execute({
       sql: `
-        SELECT
-          id,
-          project_id,
-          name,
-          description,
-          due_at,
-          status,
-          created_at,
-          updated_at
+        SELECT *
         FROM aris_milestones
         WHERE id = ?
         LIMIT 1
@@ -1031,9 +1017,11 @@ async function defaultSaveMilestone(milestone) {
           description,
           due_at,
           status,
+          recurrence,
+          recurrence_day,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         normalized.id,
@@ -1042,6 +1030,8 @@ async function defaultSaveMilestone(milestone) {
         normalized.description,
         normalized.dueAt || null,
         normalized.status,
+        normalized.recurrence || null,
+        normalized.recurrenceDay ?? null,
         normalized.createdAt,
         normalized.updatedAt || normalized.createdAt,
       ],
@@ -2651,6 +2641,8 @@ function createArisService(overrides = {}) {
         description: String(payload.description || '').trim(),
         dueAt: payload.dueAt || null,
         status: String(payload.status || 'planned').trim() || 'planned',
+        recurrence: payload.recurrence || null,
+        recurrenceDay: payload.recurrenceDay ?? null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });

@@ -14146,6 +14146,119 @@ button.vibe-skill-chip.is-active {
   font-weight: 400;
 }
 
+/* Work item action buttons */
+.myday-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.myday-action-btn {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.myday-action-btn:hover {
+  background: #f1f5f9;
+}
+
+.myday-action-btn--done-today {
+  color: #2563eb;
+  border-color: #93c5fd;
+}
+
+.myday-action-btn--done-today:hover {
+  background: #eff6ff;
+}
+
+.myday-action-btn--waiting {
+  color: #d97706;
+  border-color: #fcd34d;
+}
+
+.myday-action-btn--waiting:hover {
+  background: #fffbeb;
+}
+
+.myday-action-btn--all-done {
+  color: #16a34a;
+  border-color: #86efac;
+}
+
+.myday-action-btn--all-done:hover {
+  background: #f0fdf4;
+}
+
+/* Milestone section on overview */
+.ct-milestones-section {
+  margin-bottom: 16px;
+}
+
+.ct-milestone-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  margin-top: 4px;
+}
+
+.ct-milestone-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.ct-milestone-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ct-milestone-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.ct-milestone-meta {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.ct-milestone-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-top: 6px;
+  align-items: center;
+}
+
+.ct-milestone-form .myday-form-input,
+.ct-milestone-form .myday-form-select {
+  flex: 1;
+  min-width: 120px;
+}
+
+.ct-milestone-form-actions {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+
 /* Day plan / schedule */
 .myday-plan-summary {
   font-size: 12px;
