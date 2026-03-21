@@ -90,10 +90,12 @@ function runClaudeHeadless(prompt, options = {}) {
  * @returns {Promise<string>}
  */
 async function extractPdfText(filePath) {
-  const pdfParse = require('pdf-parse');
+  const { PDFParse } = require('pdf-parse');
   const buffer = await fs.readFile(filePath);
-  const data = await pdfParse(buffer);
-  return data.text;
+  const parser = new PDFParse({ data: buffer });
+  const result = await parser.getText();
+  await parser.destroy().catch(() => {});
+  return result.text;
 }
 
 /**
