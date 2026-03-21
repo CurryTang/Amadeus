@@ -421,6 +421,7 @@ ${sourceFilesContent}
 
 module.exports = {
   isAvailable,
+  runCodex,
   readDocument,
   readWithPrompts,
   readMarkdown,

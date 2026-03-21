@@ -911,29 +911,16 @@ let localSessionSnapshot = { sessions: [], updatedAt: null };
 // Cache AI-generated session summaries by matched JSONL filename
 const sessionSummaryCache = new Map();
 
-// Generate a short AI summary for a session using OpenAI gpt-4o-mini
+// Generate a short AI summary for a session using Codex CLI (free with account)
 async function generateSessionSummary(rawContext, matchedFile) {
   if (!rawContext || sessionSummaryCache.has(matchedFile)) {
     return sessionSummaryCache.get(matchedFile) || '';
   }
-  const apiKey = process.env.OPENAI_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) return '';
   try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        max_tokens: 30,
-        messages: [
-          { role: 'system', content: 'Summarize this Claude Code conversation in 5-8 words. Be specific about the task. Return ONLY the summary, no quotes.' },
-          { role: 'user', content: rawContext },
-        ],
-      }),
-    });
-    if (!resp.ok) return '';
-    const data = await resp.json();
-    const summary = (data.choices?.[0]?.message?.content || '').trim();
+    const codexService = require('../services/codex-cli.service');
+    const prompt = `Summarize this Claude Code conversation in 5-8 words. Be specific about the task. Return ONLY the summary, no quotes, no explanation.\n\n${rawContext}`;
+    const result = await codexService.runCodex(prompt, { timeout: 30000 });
+    const summary = (result.text || '').trim().substring(0, 80);
     if (summary) sessionSummaryCache.set(matchedFile, summary);
     return summary;
   } catch (e) {
