@@ -266,12 +266,13 @@ router.get('/:id/notes', async (req, res) => {
     const { getDb } = require('../db');
     const s3Service = require('../services/s3.service');
     const db = getDb();
+    const docId = parseInt(req.params.id, 10) || req.params.id;
 
     const result = await db.execute({
       sql: `SELECT id, title, notes_s3_key, code_notes_s3_key, processing_status,
                    reader_mode, has_code, code_url
             FROM documents WHERE id = ?`,
-      args: [req.params.id],
+      args: [docId],
     });
 
     if (result.rows.length === 0) {
@@ -286,7 +287,7 @@ router.get('/:id/notes', async (req, res) => {
             FROM reading_history
             WHERE document_id = ?
             ORDER BY read_at DESC`,
-      args: [req.params.id],
+      args: [docId],
     });
 
     const readingHistory = history.rows.map(row => ({
