@@ -623,6 +623,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [newPhaseName, setNewPhaseName] = useState('');
   const [showAddMilestone, setShowAddMilestone] = useState(false);
   const [milestoneDraft, setMilestoneDraft] = useState({ name: '', type: 'deadline', dueAt: '', recurrenceDay: 5 });
+  const [syncingProgress, setSyncingProgress] = useState(false);
   const [quickNote, setQuickNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
@@ -964,6 +965,24 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       if (expandedPhaseId === milestoneId) setExpandedPhaseId(null);
       await fetchMilestones(selectedProjectId);
     } catch (err) { setError(err.response?.data?.error || 'Failed to delete phase'); }
+  };
+
+  const handleSyncProgress = async () => {
+    if (!selectedProjectId || syncingProgress) return;
+    setSyncingProgress(true);
+    try {
+      const res = await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/sync-progress`, {}, { headers: getAuthHeaders() });
+      // It runs in background — show status and refresh after a delay
+      const msg = res.data?.message || 'Sync started';
+      setError(null);
+      // Poll for completion by refreshing work items after delays
+      setTimeout(() => { fetchMilestones(selectedProjectId); }, 15000);
+      setTimeout(() => { fetchMilestones(selectedProjectId); setSyncingProgress(false); }, 60000);
+      alert(msg + '. Work items will update in ~30-60 seconds.');
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to sync progress');
+      setSyncingProgress(false);
+    }
   };
 
   const handleCreateMilestone = async () => {
@@ -2234,7 +2253,12 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   <div className="ct-milestones-section">
                     <div className="ct-section-header">
                       <h4>Deadlines &amp; Milestones</h4>
-                      <button className="ct-btn ct-btn--sm" onClick={() => setShowAddMilestone(true)}>+ Add</button>
+                      <div className="ct-header-actions">
+                        <button className="ct-btn ct-btn--sm" onClick={handleSyncProgress} disabled={syncingProgress}>
+                          {syncingProgress ? 'Syncing...' : 'Sync Progress'}
+                        </button>
+                        <button className="ct-btn ct-btn--sm" onClick={() => setShowAddMilestone(true)}>+ Add</button>
+                      </div>
                     </div>
                     {deadlineMilestones.length === 0 && !showAddMilestone && (
                       <div className="ct-empty ct-empty--sm">No deadlines or recurring milestones. Add one to help AI prioritize scheduling.</div>

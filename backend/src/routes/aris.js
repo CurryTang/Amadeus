@@ -1098,6 +1098,158 @@ router.get('/day-context', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/aris/projects/:projectId/sync-progress — scan local docs/ and sync work items
+// Runs Codex CLI in background, returns immediately
+const syncProgressInFlight = new Set();
+router.post('/projects/:projectId/sync-progress', requireAuth, async (req, res) => {
+  const { projectId } = req.params;
+  if (syncProgressInFlight.has(projectId)) {
+    return res.json({ status: 'already_running', message: 'Sync already in progress for this project' });
+  }
+  try {
+    const project = await arisService.getProjectById(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const localPath = project.localFullPath || project.localProjectPath;
+    if (!localPath) return res.status(400).json({ error: 'Project has no local path configured' });
+
+    // Return immediately, run sync in background
+    res.json({ status: 'started', message: `Syncing ${project.name}...` });
+
+    syncProgressInFlight.add(projectId);
+    (async () => {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const docsDir = path.join(localPath, 'docs');
+        if (!fs.existsSync(docsDir)) {
+          console.log(`[SyncProgress] No docs/ folder at ${docsDir}`);
+          return;
+        }
+
+        // Collect doc content (plans, recent files)
+        const collectDocs = (dir, prefix = '') => {
+          const entries = [];
+          try {
+            for (const f of fs.readdirSync(dir)) {
+              const fp = path.join(dir, f);
+              const stat = fs.statSync(fp);
+              if (stat.isDirectory() && !['old', 'data', 'figs', '.git', 'node_modules', '__pycache__'].includes(f)) {
+                entries.push(...collectDocs(fp, prefix + f + '/'));
+              } else if (f.endsWith('.md') && stat.size < 100000) {
+                entries.push({ name: prefix + f, content: fs.readFileSync(fp, 'utf8').substring(0, 3000) });
+              }
+            }
+          } catch (_) {}
+          return entries;
+        };
+
+        const docs = collectDocs(docsDir);
+        if (docs.length === 0) {
+          console.log(`[SyncProgress] No markdown docs found in ${docsDir}`);
+          return;
+        }
+
+        // Get existing work items and milestones
+        const workItems = await arisService.listProjectWorkItems(projectId);
+        const milestones = await arisService.listMilestones(projectId);
+
+        const existingItemsSummary = (workItems || []).map((wi) => `- [${wi.status}] ${wi.title}`).join('\n');
+        const milestonesSummary = (milestones || []).map((m) => `- ${m.name} (${m.status})`).join('\n');
+        const docsSummary = docs.map((d) => `### ${d.name}\n${d.content}`).join('\n\n---\n\n');
+
+        const prompt = `You are analyzing a research project's docs/ folder to sync progress with a task tracker.
+
+PROJECT: ${project.name}
+
+EXISTING WORK ITEMS:
+${existingItemsSummary || '(none)'}
+
+EXISTING PHASES/MILESTONES:
+${milestonesSummary || '(none)'}
+
+DOCUMENTS:
+${docsSummary}
+
+Based on the documents, produce a JSON object with:
+1. "new_items": array of {title, summary, milestoneId?} — tasks mentioned in docs but NOT in existing items
+2. "done_items": array of item titles that appear completed based on the docs
+3. "notes": a brief summary of what you found
+
+Rules:
+- Only add genuinely new tasks, not duplicates of existing ones
+- Only mark items done if the docs clearly indicate completion
+- Keep titles concise (under 80 chars)
+- If a task belongs to a specific phase/milestone, include the milestoneId
+- Return ONLY valid JSON, no markdown fences
+
+Available milestone IDs: ${(milestones || []).map((m) => `${m.id} (${m.name})`).join(', ') || 'none'}`;
+
+        const codexService = require('../services/codex-cli.service');
+        console.log(`[SyncProgress] Running Codex for ${project.name} (${docs.length} docs)...`);
+        const result = await codexService.runCodex(prompt, { timeout: 120000 });
+        const text = (result.text || '').trim();
+
+        // Parse JSON from response
+        let diff;
+        try {
+          // Try to extract JSON from potential markdown wrapper
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          diff = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+        } catch (parseErr) {
+          console.error(`[SyncProgress] Failed to parse Codex response:`, text.substring(0, 500));
+          return;
+        }
+
+        // Apply diff
+        let added = 0, markedDone = 0;
+
+        // Add new items
+        for (const item of (diff.new_items || [])) {
+          if (!item.title?.trim()) continue;
+          try {
+            await arisService.createWorkItem(projectId, {
+              title: item.title.trim(),
+              summary: item.summary || '',
+              status: 'in_progress',
+              milestoneId: item.milestoneId || null,
+              type: 'task',
+            });
+            added++;
+          } catch (e) {
+            console.warn(`[SyncProgress] Failed to create item "${item.title}":`, e.message);
+          }
+        }
+
+        // Mark done items
+        for (const title of (diff.done_items || [])) {
+          const match = (workItems || []).find((wi) =>
+            wi.title.toLowerCase().includes(title.toLowerCase()) || title.toLowerCase().includes(wi.title.toLowerCase())
+          );
+          if (match && match.status !== 'done') {
+            try {
+              await arisService.saveWorkItem({ ...match, status: 'done', updatedAt: new Date().toISOString() });
+              markedDone++;
+            } catch (e) {
+              console.warn(`[SyncProgress] Failed to mark done "${title}":`, e.message);
+            }
+          }
+        }
+
+        console.log(`[SyncProgress] ${project.name}: +${added} new, ${markedDone} done. Notes: ${diff.notes || 'none'}`);
+      } catch (err) {
+        console.error(`[SyncProgress] Error syncing ${projectId}:`, err.message);
+      } finally {
+        syncProgressInFlight.delete(projectId);
+      }
+    })();
+  } catch (error) {
+    syncProgressInFlight.delete(projectId);
+    console.error('[ARIS] sync-progress error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/aris/upcoming-milestones — milestones relevant for scheduling
 router.get('/upcoming-milestones', requireAuth, async (req, res) => {
   try {
