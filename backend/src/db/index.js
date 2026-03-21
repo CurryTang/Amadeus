@@ -762,6 +762,18 @@ How does this work relate to other important papers in the field? What prior wor
     ON aris_day_plans(plan_date DESC)
   `);
 
+  // ─── Migrations: Daily Tasks v2 (total_target replaces weekly_credit) ──────
+  // total_target: optional number (e.g. 10 leetcode/week, 6 papers/week). NULL = routine task.
+  // target_period: 'weekly' (default) or 'daily' — defines how total_target is measured.
+  try { await db.execute(`ALTER TABLE aris_daily_tasks ADD COLUMN total_target INTEGER DEFAULT NULL`); } catch (_) { /* already exists */ }
+  try { await db.execute(`ALTER TABLE aris_daily_tasks ADD COLUMN target_period TEXT DEFAULT 'weekly'`); } catch (_) { /* already exists */ }
+
+  // ─── Migrations: Milestones v2 (recurrence support) ────────────────────────
+  // recurrence: NULL = one-time, 'weekly' = repeats every week
+  // recurrence_day: 0-6 (Sun-Sat) for weekly milestones
+  try { await db.execute(`ALTER TABLE aris_milestones ADD COLUMN recurrence TEXT DEFAULT NULL`); } catch (_) { /* already exists */ }
+  try { await db.execute(`ALTER TABLE aris_milestones ADD COLUMN recurrence_day INTEGER DEFAULT NULL`); } catch (_) { /* already exists */ }
+
   // Migration: add proxy_jump column for SSH ProxyJump support.
   try {
     const sshCols = await db.execute(`PRAGMA table_info(ssh_servers)`);

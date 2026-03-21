@@ -608,6 +608,8 @@ export function frequencyLabel(frequencyId) {
 }
 
 export function buildDailyTaskRow(task) {
+  const totalTarget = task.totalTarget ?? null;
+  const weeklyTarget = task.weeklyTarget ?? task.weeklyCredit ?? (totalTarget || 7);
   return {
     id: task.id,
     title: normalizeString(task.title, 'Untitled'),
@@ -618,9 +620,14 @@ export function buildDailyTaskRow(task) {
     frequency: task.frequency || 'daily',
     frequencyLabel: frequencyLabel(task.frequency),
     estimatedMinutes: task.estimatedMinutes ?? 30,
-    weeklyCredit: task.weeklyCredit ?? 7,
+    weeklyCredit: weeklyTarget, // backward compat
+    weeklyTarget,
+    totalTarget,
+    targetPeriod: task.targetPeriod || 'weekly',
+    isRoutine: totalTarget == null,
     completedThisWeek: task.completedThisWeek ?? 0,
     remaining: task.remaining ?? 0,
+    dailyQuota: task.dailyQuota ?? 0,
     isOnTrack: task.isOnTrack ?? false,
     isActive: task.isActive !== false,
     priority: task.priority ?? 0,

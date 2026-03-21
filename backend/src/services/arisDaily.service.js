@@ -34,6 +34,20 @@ function startOfWeek(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
+function endOfWeek(dateStr) {
+  const ws = startOfWeek(dateStr);
+  const d = new Date(ws + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 6);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysRemainingInWeek(dateStr) {
+  const we = endOfWeek(dateStr);
+  const today = new Date(dateStr + 'T00:00:00Z');
+  const end = new Date(we + 'T00:00:00Z');
+  return Math.max(1, Math.round((end - today) / 86400000) + 1); // including today
+}
+
 function normalizeDailyTask(row) {
   if (!row) return null;
   return {
@@ -44,7 +58,10 @@ function normalizeDailyTask(row) {
     frequency: row.frequency || 'daily',
     weekday: row.weekday ?? null,
     estimatedMinutes: row.estimated_minutes ?? 30,
-    weeklyCredit: row.weekly_credit ?? 7,
+    // Legacy: weekly_credit still in DB, but we expose totalTarget
+    weeklyCredit: row.weekly_credit ?? (row.total_target || 7),
+    totalTarget: row.total_target ?? null, // null = routine task (no target)
+    targetPeriod: row.target_period || 'weekly',
     priority: row.priority ?? 0,
     isActive: row.is_active === 1 || row.is_active === true,
     createdAt: row.created_at,
@@ -81,6 +98,22 @@ function normalizeDayPlan(row) {
   };
 }
 
+function normalizeMilestone(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name || '',
+    description: row.description || '',
+    dueAt: row.due_at || null,
+    status: row.status || 'planned',
+    recurrence: row.recurrence || null, // null | 'weekly'
+    recurrenceDay: row.recurrence_day ?? null, // 0=Sun, 6=Sat
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 function createArisDailyService() {
@@ -101,7 +134,7 @@ function createArisDailyService() {
     return normalizeDailyTask(result.rows?.[0]);
   }
 
-  async function createDailyTask({ title, description, category, frequency, weekday, estimatedMinutes, weeklyCredit, priority }) {
+  async function createDailyTask({ title, description, category, frequency, weekday, estimatedMinutes, weeklyCredit, totalTarget, targetPeriod, priority }) {
     if (!title?.trim()) throw new Error('Title is required');
     if (frequency && !DAILY_TASK_FREQUENCIES.includes(frequency)) {
       throw new Error(`Invalid frequency: ${frequency}. Must be one of: ${DAILY_TASK_FREQUENCIES.join(', ')}`);
@@ -109,17 +142,17 @@ function createArisDailyService() {
     const db = getDb();
     const id = uid();
     const now = nowIso();
-    // Calculate default weekly credit based on frequency
-    let credit = weeklyCredit;
-    if (credit == null) {
-      if (frequency === 'daily') credit = 7;
-      else if (frequency === 'weekly') credit = 1;
-      else credit = 1; // one_time
+    // Backward compat: if weeklyCredit provided but totalTarget not, use weeklyCredit as totalTarget
+    let target = totalTarget ?? null;
+    if (target == null && weeklyCredit != null && weeklyCredit !== 7 && weeklyCredit !== 1) {
+      target = weeklyCredit;
     }
+    // For weekly_credit column (legacy), compute from totalTarget or default
+    const credit = target ?? (frequency === 'daily' ? 7 : 1);
     await db.execute({
-      sql: `INSERT INTO aris_daily_tasks (id, title, description, category, frequency, weekday, estimated_minutes, weekly_credit, priority, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      args: [id, title.trim(), description || '', category || 'general', frequency || 'daily', weekday ?? null, estimatedMinutes ?? 30, credit, priority ?? 0, now, now],
+      sql: `INSERT INTO aris_daily_tasks (id, title, description, category, frequency, weekday, estimated_minutes, weekly_credit, total_target, target_period, priority, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      args: [id, title.trim(), description || '', category || 'general', frequency || 'daily', weekday ?? null, estimatedMinutes ?? 30, credit, target, targetPeriod || 'weekly', priority ?? 0, now, now],
     });
     return getDailyTask(id);
   }
@@ -131,7 +164,12 @@ function createArisDailyService() {
     const now = nowIso();
     const fields = [];
     const args = [];
-    const allowed = { title: 'title', description: 'description', category: 'category', frequency: 'frequency', weekday: 'weekday', estimatedMinutes: 'estimated_minutes', weeklyCredit: 'weekly_credit', priority: 'priority', isActive: 'is_active' };
+    const allowed = {
+      title: 'title', description: 'description', category: 'category',
+      frequency: 'frequency', weekday: 'weekday', estimatedMinutes: 'estimated_minutes',
+      weeklyCredit: 'weekly_credit', totalTarget: 'total_target', targetPeriod: 'target_period',
+      priority: 'priority', isActive: 'is_active',
+    };
     for (const [key, col] of Object.entries(allowed)) {
       if (updates[key] !== undefined) {
         let val = updates[key];
@@ -180,17 +218,14 @@ function createArisDailyService() {
   async function toggleCompletion(dailyTaskId, date) {
     const db = getDb();
     date = date || todayDate();
-    // Check if already completed today
     const existing = await db.execute({
       sql: `SELECT id FROM aris_daily_completions WHERE daily_task_id = ? AND completed_date = ?`,
       args: [dailyTaskId, date],
     });
     if (existing.rows?.length > 0) {
-      // Un-complete: remove
       await db.execute({ sql: `DELETE FROM aris_daily_completions WHERE id = ?`, args: [existing.rows[0].id] });
       return { completed: false, date };
     }
-    // Complete: add
     const id = uid();
     await db.execute({
       sql: `INSERT INTO aris_daily_completions (id, daily_task_id, completed_date, created_at) VALUES (?, ?, ?, ?)`,
@@ -199,12 +234,13 @@ function createArisDailyService() {
     return { completed: true, date };
   }
 
-  // ─── Weekly Credit Calculation ───────────────────────────────────────────
+  // ─── Weekly Progress + Daily Quota Calculation ────────────────────────────
 
   async function getWeeklyProgress(dateStr) {
-    const weekStart = startOfWeek(dateStr || todayDate());
+    dateStr = dateStr || todayDate();
+    const ws = startOfWeek(dateStr);
     const tasks = await listDailyTasks({ activeOnly: true });
-    const completions = await listCompletions({ weekStart });
+    const completions = await listCompletions({ weekStart: ws });
 
     const completionsByTask = {};
     for (const c of completions) {
@@ -212,16 +248,36 @@ function createArisDailyService() {
       completionsByTask[c.dailyTaskId].push(c);
     }
 
+    const daysLeft = daysRemainingInWeek(dateStr);
+
     return tasks.map((task) => {
       const taskCompletions = completionsByTask[task.id] || [];
       const completedCount = taskCompletions.length;
-      const credit = task.frequency === 'one_time' ? 1 : task.weeklyCredit;
+
+      // Determine the effective weekly target
+      let weeklyTarget;
+      if (task.totalTarget != null) {
+        // User-set target (e.g. "10 leetcode/week")
+        weeklyTarget = task.targetPeriod === 'daily' ? task.totalTarget * 7 : task.totalTarget;
+      } else {
+        // Routine task: frequency-based (daily=7, weekly=1, one_time=1)
+        weeklyTarget = task.frequency === 'daily' ? 7 : 1;
+      }
+
+      const remaining = Math.max(0, weeklyTarget - completedCount);
+      // Daily quota: how many should be done today to stay on track
+      const dailyQuota = remaining > 0 ? Math.ceil(remaining / daysLeft) : 0;
+
       return {
         ...task,
-        weeklyCredit: credit,
+        weeklyCredit: weeklyTarget, // backward compat
+        weeklyTarget,
+        totalTarget: task.totalTarget,
+        targetPeriod: task.targetPeriod,
         completedThisWeek: completedCount,
-        remaining: Math.max(0, credit - completedCount),
-        isOnTrack: completedCount >= credit,
+        remaining,
+        dailyQuota,
+        isOnTrack: completedCount >= weeklyTarget,
       };
     });
   }
@@ -230,7 +286,6 @@ function createArisDailyService() {
 
   async function getOngoingWorkItems() {
     const db = getDb();
-    // Fetch projects first for name lookup (avoids JOIN alias issues with mongo-compat)
     const projectsResult = await db.execute(`SELECT id, name FROM aris_projects`);
     const projectMap = {};
     for (const p of (projectsResult.rows || [])) {
@@ -270,6 +325,79 @@ function createArisDailyService() {
     }));
   }
 
+  // ─── Milestones (scheduling-relevant) ─────────────────────────────────────
+
+  async function getUpcomingMilestones(dateStr) {
+    const db = getDb();
+    dateStr = dateStr || todayDate();
+    const dayOfWeek = new Date(dateStr + 'T00:00:00Z').getUTCDay();
+
+    // Get project names
+    const projectsResult = await db.execute(`SELECT id, name FROM aris_projects`);
+    const projectMap = {};
+    for (const p of (projectsResult.rows || [])) {
+      projectMap[p.id] = p.name;
+    }
+
+    // One-time milestones with due_at in next 14 days
+    const twoWeeksOut = new Date(new Date(dateStr + 'T00:00:00Z').getTime() + 14 * 86400000).toISOString().slice(0, 10);
+    const oneTimeResult = await db.execute({
+      sql: `SELECT * FROM aris_milestones
+            WHERE status != 'completed'
+              AND recurrence IS NULL
+              AND due_at IS NOT NULL
+              AND date(due_at) >= date(?)
+              AND date(due_at) <= date(?)
+            ORDER BY due_at ASC`,
+      args: [dateStr, twoWeeksOut],
+    });
+
+    // Weekly recurring milestones
+    const recurringResult = await db.execute({
+      sql: `SELECT * FROM aris_milestones
+            WHERE status != 'completed'
+              AND recurrence = 'weekly'`,
+    });
+
+    const milestones = [];
+
+    for (const row of (oneTimeResult.rows || [])) {
+      const m = normalizeMilestone(row);
+      const daysUntil = Math.round((new Date(m.dueAt).getTime() - new Date(dateStr + 'T00:00:00Z').getTime()) / 86400000);
+      milestones.push({
+        ...m,
+        projectName: projectMap[m.projectId] || 'Unknown',
+        type: 'deadline',
+        daysUntil,
+        isToday: daysUntil === 0,
+      });
+    }
+
+    for (const row of (recurringResult.rows || [])) {
+      const m = normalizeMilestone(row);
+      const isToday = m.recurrenceDay === dayOfWeek;
+      // Calculate days until next occurrence
+      let daysUntil = (m.recurrenceDay - dayOfWeek + 7) % 7;
+      if (daysUntil === 0) daysUntil = 0; // today
+      milestones.push({
+        ...m,
+        projectName: projectMap[m.projectId] || 'Unknown',
+        type: 'recurring',
+        daysUntil,
+        isToday,
+      });
+    }
+
+    // Sort: today first, then by daysUntil
+    milestones.sort((a, b) => {
+      if (a.isToday && !b.isToday) return -1;
+      if (!a.isToday && b.isToday) return 1;
+      return a.daysUntil - b.daysUntil;
+    });
+
+    return milestones;
+  }
+
   // ─── Day Plans ───────────────────────────────────────────────────────────
 
   async function getDayPlan(date) {
@@ -299,7 +427,7 @@ function createArisDailyService() {
     return getDayPlan(date);
   }
 
-  // ─── Schedule My Day (build context for Codex MCP) ───────────────────────
+  // ─── Schedule My Day (build context) ──────────────────────────────────────
 
   async function buildDayContext(date) {
     date = date || todayDate();
@@ -307,6 +435,7 @@ function createArisDailyService() {
     const ongoingItems = await getOngoingWorkItems();
     const todayCompletions = await listCompletions({ date });
     const completedTaskIds = new Set(todayCompletions.map((c) => c.dailyTaskId));
+    const milestones = await getUpcomingMilestones(date);
 
     // Filter daily tasks that are due today
     const dayOfWeek = new Date(date + 'T00:00:00Z').getUTCDay(); // 0=Sun
@@ -318,22 +447,29 @@ function createArisDailyService() {
       return false;
     });
 
-    // Tasks that still have weekly credit remaining and aren't done today
+    // Tasks that still have remaining target and aren't done today
     const pendingDailyTasks = todayTasks.filter((t) => t.remaining > 0 && !completedTaskIds.has(t.id));
     const completedDailyTasks = todayTasks.filter((t) => completedTaskIds.has(t.id));
+
+    const daysLeft = daysRemainingInWeek(date);
 
     return {
       date,
       dayOfWeek: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek],
+      daysRemainingInWeek: daysLeft,
       pendingDailyTasks: pendingDailyTasks.map((t) => ({
         id: t.id,
         title: t.title,
         description: t.description,
         category: t.category,
         estimatedMinutes: t.estimatedMinutes,
-        weeklyCredit: t.weeklyCredit,
+        weeklyTarget: t.weeklyTarget,
+        totalTarget: t.totalTarget,
+        targetPeriod: t.targetPeriod,
         completedThisWeek: t.completedThisWeek,
         remaining: t.remaining,
+        dailyQuota: t.dailyQuota,
+        isRoutine: t.totalTarget == null, // no target = routine task
       })),
       completedDailyTasks: completedDailyTasks.map((t) => ({
         id: t.id,
@@ -351,12 +487,25 @@ function createArisDailyService() {
         dueAt: item.dueAt,
         nextBestAction: item.nextBestAction,
       })),
+      milestones: milestones.map((m) => ({
+        id: m.id,
+        name: m.name,
+        projectName: m.projectName,
+        type: m.type, // 'deadline' | 'recurring'
+        daysUntil: m.daysUntil,
+        isToday: m.isToday,
+        dueAt: m.dueAt,
+        recurrenceDay: m.recurrenceDay,
+      })),
       weeklyProgress: weeklyProgress.map((t) => ({
         title: t.title,
-        weeklyCredit: t.weeklyCredit,
+        weeklyTarget: t.weeklyTarget,
+        totalTarget: t.totalTarget,
         completedThisWeek: t.completedThisWeek,
         remaining: t.remaining,
+        dailyQuota: t.dailyQuota,
         isOnTrack: t.isOnTrack,
+        isRoutine: t.totalTarget == null,
       })),
     };
   }
@@ -373,6 +522,7 @@ function createArisDailyService() {
     toggleCompletion,
     getWeeklyProgress,
     getOngoingWorkItems,
+    getUpcomingMilestones,
     getDayPlan,
     saveDayPlan,
     buildDayContext,

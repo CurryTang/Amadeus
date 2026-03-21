@@ -323,7 +323,8 @@ export function createEmptyDailyTaskDraft() {
     frequency: 'daily',
     weekday: null,
     estimatedMinutes: 30,
-    weeklyCredit: 7,
+    totalTarget: '', // empty = routine task (no target)
+    targetPeriod: 'weekly',
     priority: 0,
   };
 }
@@ -336,12 +337,14 @@ export function dailyTaskToDraft(task) {
     frequency: task.frequency || 'daily',
     weekday: task.weekday ?? null,
     estimatedMinutes: task.estimatedMinutes ?? 30,
-    weeklyCredit: task.weeklyCredit ?? 7,
+    totalTarget: task.totalTarget != null ? String(task.totalTarget) : '',
+    targetPeriod: task.targetPeriod || 'weekly',
     priority: task.priority ?? 0,
   };
 }
 
 export function dailyTaskDraftToPayload(draft) {
+  const totalTarget = draft.totalTarget !== '' ? (parseInt(draft.totalTarget, 10) || null) : null;
   return {
     title: draft.title?.trim() || '',
     description: draft.description?.trim() || '',
@@ -349,7 +352,8 @@ export function dailyTaskDraftToPayload(draft) {
     frequency: draft.frequency || 'daily',
     weekday: draft.frequency === 'weekly' ? (draft.weekday ?? null) : null,
     estimatedMinutes: parseInt(draft.estimatedMinutes, 10) || 30,
-    weeklyCredit: parseInt(draft.weeklyCredit, 10) || (draft.frequency === 'daily' ? 7 : 1),
+    totalTarget,
+    targetPeriod: draft.targetPeriod || 'weekly',
     priority: parseInt(draft.priority, 10) || 0,
   };
 }

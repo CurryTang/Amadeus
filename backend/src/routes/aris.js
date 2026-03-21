@@ -1098,4 +1098,15 @@ router.get('/day-context', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/aris/upcoming-milestones — milestones relevant for scheduling
+router.get('/upcoming-milestones', requireAuth, async (req, res) => {
+  try {
+    const milestones = await dailyService.getUpcomingMilestones(req.query.date);
+    res.json({ milestones });
+  } catch (error) {
+    console.error('[ARIS] upcoming milestones error:', error);
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
 module.exports = router;

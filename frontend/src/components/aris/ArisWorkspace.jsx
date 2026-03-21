@@ -383,24 +383,38 @@ const CT_PANELS = { OVERVIEW: 'overview', MY_DAY: 'my_day', WORK_ITEMS: 'work_it
 function buildSchedulePrompt(context) {
   const lines = [
     `Schedule my day for ${context.dayOfWeek}, ${context.date}.`,
+    `Days remaining in week: ${context.daysRemainingInWeek}`,
     '',
     '## Pending Daily Tasks',
   ];
   for (const t of context.pendingDailyTasks) {
-    lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, ${t.completedThisWeek}/${t.weeklyCredit} this week)`);
+    const targetInfo = t.totalTarget != null
+      ? `target: ${t.completedThisWeek}/${t.weeklyTarget}/week, need ${t.dailyQuota} today`
+      : `routine: ${t.completedThisWeek}/${t.weeklyTarget}/week`;
+    lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, ${targetInfo})`);
   }
   if (context.pendingDailyTasks.length === 0) lines.push('- (none)');
+
+  if (context.milestones?.length > 0) {
+    lines.push('', '## Upcoming Milestones & Deadlines');
+    for (const m of context.milestones) {
+      const when = m.isToday ? 'TODAY' : `in ${m.daysUntil} days`;
+      lines.push(`- [${m.projectName}] ${m.name} (${m.type}, ${when})`);
+    }
+  }
+
   lines.push('', '## Ongoing Work Items Across Projects');
   for (const item of context.ongoingWorkItems) {
-    lines.push(`- [${item.projectName}] ${item.title} (${item.status}, P${item.priority}${item.nextBestAction ? ` — next: ${item.nextBestAction}` : ''})`);
+    lines.push(`- [${item.projectName}] ${item.title} (${item.status}, P${item.priority}${item.dueAt ? `, due: ${item.dueAt.slice(0, 10)}` : ''}${item.nextBestAction ? ` — next: ${item.nextBestAction}` : ''})`);
   }
   if (context.ongoingWorkItems.length === 0) lines.push('- (none)');
+
   lines.push('', '## Weekly Progress');
   for (const t of context.weeklyProgress) {
-    const status = t.isOnTrack ? 'on track' : `${t.remaining} remaining`;
-    lines.push(`- ${t.title}: ${t.completedThisWeek}/${t.weeklyCredit} (${status})`);
+    const status = t.isOnTrack ? 'on track' : `${t.remaining} remaining, ${t.dailyQuota}/day needed`;
+    lines.push(`- ${t.title}: ${t.completedThisWeek}/${t.weeklyTarget} (${status})`);
   }
-  lines.push('', 'Create a time-blocked schedule from 9am to 11pm. Decompose large work items into 30-60min focused blocks. Include breaks. Prioritize items with approaching deadlines and weekly credits that are behind.');
+  lines.push('', 'Create a time-blocked schedule from 9am to 11pm. Distribute target-based tasks according to daily quotas. Prioritize items with approaching deadlines and targets that are behind. Include breaks every ~2 hours.');
   return lines.join('\n');
 }
 
@@ -409,7 +423,6 @@ function generateDayPlanFromContext(context) {
   let timeSlot = 9; // Start at 9am
   const uid = () => Math.random().toString(36).slice(2, 10);
 
-  // Helper to format time
   const fmt = (h) => {
     const hour = Math.floor(h);
     const min = Math.round((h - hour) * 60);
@@ -418,98 +431,117 @@ function generateDayPlanFromContext(context) {
     return `${h12}:${min.toString().padStart(2, '0')} ${ampm}`;
   };
 
-  // Sort daily tasks: behind-schedule first, then by estimated time
-  const sortedDailyTasks = [...context.pendingDailyTasks].sort((a, b) => {
-    const aUrgency = a.remaining / Math.max(a.weeklyCredit, 1);
-    const bUrgency = b.remaining / Math.max(b.weeklyCredit, 1);
-    return bUrgency - aUrgency;
+  const addItem = (task, opts = {}) => {
+    items.push({
+      id: uid(), time: fmt(timeSlot),
+      title: opts.title || task.title,
+      description: opts.description || task.description || '',
+      category: opts.category || task.category || 'general',
+      estimatedMinutes: opts.estimatedMinutes || task.estimatedMinutes || 30,
+      sourceType: opts.sourceType || 'daily_task',
+      sourceId: opts.sourceId || task.id || '',
+      isDone: false,
+    });
+    timeSlot += (opts.estimatedMinutes || task.estimatedMinutes || 30) / 60;
+  };
+
+  const addBreak = (title = 'Break', minutes = 15, desc = '') => {
+    items.push({ id: uid(), time: fmt(timeSlot), title, description: desc, category: 'general', estimatedMinutes: minutes, sourceType: 'break', sourceId: '', isDone: false });
+    timeSlot += minutes / 60;
+  };
+
+  // ── Sort tasks by urgency: behind-schedule targets first, then routines ──
+  const sortedTasks = [...context.pendingDailyTasks].sort((a, b) => {
+    // Tasks with targets that are behind get highest priority
+    const aUrgent = a.totalTarget != null && a.remaining > 0 ? a.dailyQuota : 0;
+    const bUrgent = b.totalTarget != null && b.remaining > 0 ? b.dailyQuota : 0;
+    if (bUrgent !== aUrgent) return bUrgent - aUrgent;
+    return (b.remaining || 0) - (a.remaining || 0);
   });
 
-  // Morning routine tasks (exercise, reading)
+  // ── Check for deadline pressure from milestones ──
+  const urgentMilestones = (context.milestones || []).filter((m) => m.daysUntil <= 3 && !m.isToday);
+  const todayMilestones = (context.milestones || []).filter((m) => m.isToday);
+
+  // ── Morning routine (exercise, reading) ──
   const morningCategories = ['exercise', 'reading'];
-  const morningTasks = sortedDailyTasks.filter((t) => morningCategories.includes(t.category));
-  const otherDailyTasks = sortedDailyTasks.filter((t) => !morningCategories.includes(t.category));
+  const morningTasks = sortedTasks.filter((t) => morningCategories.includes(t.category));
+  const nonMorningTasks = sortedTasks.filter((t) => !morningCategories.includes(t.category));
 
+  // For target-based tasks, schedule dailyQuota repetitions
   for (const task of morningTasks) {
-    const duration = task.estimatedMinutes / 60;
-    items.push({
-      id: uid(), time: fmt(timeSlot), title: task.title, description: task.description || '',
-      category: task.category, estimatedMinutes: task.estimatedMinutes,
-      sourceType: 'daily_task', sourceId: task.id, isDone: false,
-    });
-    timeSlot += duration;
+    const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
+    for (let i = 0; i < reps && timeSlot < 11; i++) {
+      addItem(task, { title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title });
+    }
   }
 
-  // Morning break
   if (morningTasks.length > 0 && timeSlot < 10.5) {
-    items.push({ id: uid(), time: fmt(timeSlot), title: 'Break', description: '', category: 'general', estimatedMinutes: 15, sourceType: 'break', sourceId: '', isDone: false });
-    timeSlot += 0.25;
+    addBreak('Break', 15);
   }
 
-  // Work items — decompose into focused blocks
-  const workBlocks = [];
-  for (const item of context.ongoingWorkItems) {
-    // Estimate: blocked/review items get 30min check, in_progress get 60min
-    const blockMinutes = item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45;
-    workBlocks.push({
-      ...item,
-      estimatedMinutes: blockMinutes,
-      description: item.nextBestAction || `Work on: ${item.title}`,
+  // ── Today's milestones (meetings etc.) — fixed time blocks ──
+  for (const m of todayMilestones) {
+    addItem({}, {
+      title: `[${m.projectName}] ${m.name}`,
+      description: m.type === 'recurring' ? 'Weekly recurring' : 'Deadline today',
+      category: 'general',
+      estimatedMinutes: 60,
+      sourceType: 'milestone',
+      sourceId: m.id,
     });
   }
 
-  // Sort work items: high priority first, then blocked (need attention)
+  // ── Work items — prioritize items with approaching deadlines ──
+  const workBlocks = context.ongoingWorkItems.map((item) => {
+    const blockMinutes = item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45;
+    // Boost priority for items in projects with upcoming deadlines
+    const deadlineBoost = urgentMilestones.some((m) => m.projectName === item.projectName) ? 10 : 0;
+    return { ...item, estimatedMinutes: blockMinutes, description: item.nextBestAction || `Work on: ${item.title}`, deadlineBoost };
+  });
+
   workBlocks.sort((a, b) => {
+    // Items with deadline pressure first
+    if (a.deadlineBoost !== b.deadlineBoost) return b.deadlineBoost - a.deadlineBoost;
     const statusOrder = { blocked: 0, review: 1, in_progress: 2, waiting: 3, ready: 4 };
     const aDiff = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
     if (aDiff !== 0) return aDiff;
     return (b.priority ?? 0) - (a.priority ?? 0);
   });
 
-  // Schedule deep work blocks (morning-afternoon)
+  let lastBreakSlot = timeSlot;
   for (const block of workBlocks) {
-    if (timeSlot >= 18) break; // Stop scheduling work after 6pm
-    const duration = block.estimatedMinutes / 60;
-    items.push({
-      id: uid(), time: fmt(timeSlot),
+    if (timeSlot >= 18) break;
+    addItem(block, {
       title: `[${block.projectName}] ${block.title}`,
       description: block.description,
       category: 'research',
       estimatedMinutes: block.estimatedMinutes,
-      sourceType: 'work_item', sourceId: block.id, isDone: false,
+      sourceType: 'work_item',
+      sourceId: block.id,
     });
-    timeSlot += duration;
-
-    // Add break every 2 hours
-    if (timeSlot % 2 < 0.5 && timeSlot < 18) {
-      items.push({ id: uid(), time: fmt(timeSlot), title: 'Break', description: 'Rest, stretch, hydrate', category: 'general', estimatedMinutes: 15, sourceType: 'break', sourceId: '', isDone: false });
-      timeSlot += 0.25;
+    if (timeSlot - lastBreakSlot >= 2 && timeSlot < 18) {
+      addBreak('Break', 15, 'Rest, stretch, hydrate');
+      lastBreakSlot = timeSlot;
     }
   }
 
-  // Lunch break if we passed noon
+  // ── Lunch ──
   if (timeSlot >= 12 && !items.some((i) => i.title === 'Lunch')) {
-    // Insert lunch at noon-ish
-    const lunchIdx = items.findIndex((i) => {
-      const h = parseTimeToHour(i.time);
-      return h >= 12;
-    });
+    const lunchIdx = items.findIndex((i) => parseTimeToHour(i.time) >= 12);
     if (lunchIdx >= 0) {
       items.splice(lunchIdx, 0, { id: uid(), time: '12:00 PM', title: 'Lunch', description: '', category: 'general', estimatedMinutes: 60, sourceType: 'break', sourceId: '', isDone: false });
     }
   }
 
-  // Afternoon/evening: remaining daily tasks
-  if (timeSlot < 12.5) timeSlot = Math.max(timeSlot, 13); // after lunch
-  for (const task of otherDailyTasks) {
+  // ── Afternoon/evening: remaining daily tasks with quota repetitions ──
+  if (timeSlot < 13) timeSlot = 13;
+  for (const task of nonMorningTasks) {
     if (timeSlot >= 22) break;
-    const duration = task.estimatedMinutes / 60;
-    items.push({
-      id: uid(), time: fmt(timeSlot), title: task.title, description: task.description || '',
-      category: task.category, estimatedMinutes: task.estimatedMinutes,
-      sourceType: 'daily_task', sourceId: task.id, isDone: false,
-    });
-    timeSlot += duration;
+    const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
+    for (let i = 0; i < reps && timeSlot < 22; i++) {
+      addItem(task, { title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title });
+    }
   }
 
   return items;
@@ -641,6 +673,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [ongoingItems, setOngoingItems] = useState([]);
   const [loadingOngoing, setLoadingOngoing] = useState(false);
   const [weeklyProgress, setWeeklyProgress] = useState([]);
+  const [upcomingMilestones, setUpcomingMilestones] = useState([]);
   const [dayPlan, setDayPlan] = useState(null);
   const [loadingDayPlan, setLoadingDayPlan] = useState(false);
   const [schedulingDay, setSchedulingDay] = useState(false);
@@ -800,13 +833,21 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     }
   }, [apiUrl, getAuthHeaders]);
 
+  const fetchUpcomingMilestones = useCallback(async () => {
+    try {
+      const res = await axios.get(`${apiUrl}/aris/upcoming-milestones`, { headers: getAuthHeaders() });
+      setUpcomingMilestones(res.data?.milestones || []);
+    } catch (_) { /* non-critical */ }
+  }, [apiUrl, getAuthHeaders]);
+
   // Load My Day data when panel is active
   useEffect(() => {
     if (ctPanel !== CT_PANELS.MY_DAY) return;
     fetchDailyTasks();
     fetchOngoingItems();
     fetchDayPlan();
-  }, [ctPanel, fetchDailyTasks, fetchOngoingItems, fetchDayPlan]);
+    fetchUpcomingMilestones();
+  }, [ctPanel, fetchDailyTasks, fetchOngoingItems, fetchDayPlan, fetchUpcomingMilestones]);
 
   const handleToggleDailyCompletion = async (taskId) => {
     try {
@@ -2338,7 +2379,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
               <div className="ct-section-header">
                 <h3>My Day &mdash; {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
                 <div className="ct-header-actions">
-                  <button className="ct-btn ct-btn--sm" onClick={() => { fetchDailyTasks(); fetchOngoingItems(); fetchDayPlan(); }} disabled={loadingDailyTasks}>Refresh</button>
+                  <button className="ct-btn ct-btn--sm" onClick={() => { fetchDailyTasks(); fetchOngoingItems(); fetchDayPlan(); fetchUpcomingMilestones(); }} disabled={loadingDailyTasks}>Refresh</button>
                   <button className="ct-btn ct-btn--primary ct-btn--sm" onClick={handleScheduleDay} disabled={schedulingDay}>
                     {schedulingDay ? 'Scheduling...' : 'Schedule My Day'}
                   </button>
@@ -2351,12 +2392,16 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   <h4 className="myday-section-title">Weekly Progress</h4>
                   <div className="myday-progress-grid">
                     {weeklyProgress.map((task) => {
-                      const pct = task.weeklyCredit > 0 ? Math.min(100, Math.round((task.completedThisWeek / task.weeklyCredit) * 100)) : 0;
+                      const target = task.weeklyTarget || task.weeklyCredit || 7;
+                      const pct = target > 0 ? Math.min(100, Math.round((task.completedThisWeek / target) * 100)) : 0;
                       return (
                         <div key={task.title} className={`myday-progress-card${task.isOnTrack ? ' is-on-track' : ''}`}>
                           <div className="myday-progress-header">
                             <span className="myday-progress-title">{task.title}</span>
-                            <span className="myday-progress-count">{task.completedThisWeek}/{task.weeklyCredit}</span>
+                            <span className="myday-progress-count">
+                              {task.completedThisWeek}/{target}
+                              {task.totalTarget != null && task.dailyQuota > 0 && <span className="myday-daily-quota"> ({task.dailyQuota}/day)</span>}
+                            </span>
                           </div>
                           <div className="myday-progress-bar-bg">
                             <div className="myday-progress-bar-fill" style={{ width: `${pct}%` }} />
@@ -2397,7 +2442,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                           <span className="myday-task-title">{task.title}</span>
                           <span className="myday-task-meta">
                             {categoryIcon(task.category)} {task.category} &middot; ~{task.estimatedMinutes}min &middot; {task.frequency}
-                            {progress && ` · ${progress.completedThisWeek}/${progress.weeklyCredit} this week`}
+                            {progress && progress.totalTarget != null
+                              ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget} this week (${progress.dailyQuota} today)`
+                              : progress ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget} this week` : ''}
                           </span>
                         </div>
                         <div className="myday-task-actions">
@@ -2434,8 +2481,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                     <label className="myday-form-label">
                       Frequency
                       <select className="myday-form-select" value={dailyTaskDraft.frequency} onChange={(e) => {
-                        const freq = e.target.value;
-                        setDailyTaskDraft({ ...dailyTaskDraft, frequency: freq, weeklyCredit: freq === 'daily' ? 7 : 1 });
+                        setDailyTaskDraft({ ...dailyTaskDraft, frequency: e.target.value });
                       }}>
                         {DAILY_TASK_FREQUENCIES.map((f) => (
                           <option key={f.id} value={f.id}>{f.label}</option>
@@ -2458,8 +2504,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       <input type="number" className="myday-form-input" value={dailyTaskDraft.estimatedMinutes} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, estimatedMinutes: parseInt(e.target.value, 10) || 30 })} min="5" max="480" />
                     </label>
                     <label className="myday-form-label">
-                      Weekly Credit
-                      <input type="number" className="myday-form-input" value={dailyTaskDraft.weeklyCredit} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, weeklyCredit: parseInt(e.target.value, 10) || 1 })} min="1" max="14" />
+                      Weekly Target <span className="myday-form-hint">(optional)</span>
+                      <input type="number" className="myday-form-input" value={dailyTaskDraft.totalTarget} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, totalTarget: e.target.value })} min="1" max="100" placeholder="e.g. 10 (leave empty for routine)" />
                     </label>
                     <label className="myday-form-label myday-form-label--full">
                       Description
@@ -2501,6 +2547,27 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   })}
                 </div>
               </div>
+
+              {/* ── Upcoming Milestones & Deadlines ── */}
+              {upcomingMilestones.length > 0 && (
+                <div className="myday-section">
+                  <h4 className="myday-section-title">Upcoming Milestones</h4>
+                  <div className="myday-milestone-list">
+                    {upcomingMilestones.map((m) => (
+                      <div key={m.id} className={`myday-milestone-row${m.isToday ? ' is-today' : ''}${m.daysUntil <= 3 && !m.isToday ? ' is-urgent' : ''}`}>
+                        <span className="myday-milestone-icon">{m.type === 'recurring' ? '🔄' : '🎯'}</span>
+                        <div className="myday-milestone-info">
+                          <span className="myday-milestone-name">{m.name}</span>
+                          <span className="myday-milestone-meta">
+                            {m.projectName} &middot; {m.isToday ? 'Today' : m.daysUntil === 1 ? 'Tomorrow' : `in ${m.daysUntil} days`}
+                            {m.type === 'recurring' && ` · ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][m.recurrenceDay]}s`}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* ── Day Plan (Generated Schedule) ── */}
               {dayPlan && dayPlan.items && dayPlan.items.length > 0 && (
