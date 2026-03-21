@@ -13705,10 +13705,463 @@ button.vibe-skill-chip.is-active {
 
 .ct-view-content img { max-width: 100%; border-radius: 6px; }
 
+/* ─── My Day Panel ─── */
+
+.ct-my-day-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ct-my-day-panel .ct-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ct-my-day-panel .ct-section-header h3 {
+  color: #1e293b;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ct-my-day-panel .ct-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Weekly progress cards */
+.myday-weekly-progress {
+  padding: 0;
+}
+
+.myday-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 0 0 10px;
+}
+
+.myday-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.myday-progress-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.myday-progress-card.is-on-track {
+  border-color: #a7f3d0;
+  background: #f0fdf4;
+}
+
+.myday-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.myday-progress-title {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.myday-progress-count {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.myday-progress-bar-bg {
+  height: 5px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.myday-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #818cf8, #6366f1);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.myday-progress-card.is-on-track .myday-progress-bar-fill {
+  background: linear-gradient(90deg, #34d399, #10b981);
+}
+
+/* Daily tasks section */
+.myday-section {
+  padding: 0;
+}
+
+.myday-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.myday-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.myday-task-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  transition: all 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.myday-task-row:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.08);
+}
+
+.myday-task-row.is-done {
+  opacity: 0.5;
+  background: #f8fafc;
+}
+
+.myday-task-row.is-done .myday-task-title {
+  text-decoration: line-through;
+  color: #94a3b8;
+}
+
+.myday-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.myday-check:hover {
+  border-color: #818cf8;
+  background: #eef2ff;
+}
+
+.myday-check.is-checked {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+.myday-task-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.myday-task-title {
+  font-size: 13.5px;
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.myday-task-meta {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.myday-task-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.myday-task-row:hover .myday-task-actions {
+  opacity: 1;
+}
+
+/* Add/Edit form */
+.myday-form-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.myday-form-card h4 {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: #6366f1;
+  font-weight: 600;
+}
+
+.myday-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.myday-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.myday-form-label--full {
+  grid-column: 1 / -1;
+}
+
+.myday-form-input,
+.myday-form-select,
+.myday-form-textarea {
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #1e293b;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.myday-form-input:focus,
+.myday-form-select:focus,
+.myday-form-textarea:focus {
+  border-color: #818cf8;
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(129,140,248,0.1);
+}
+
+.myday-form-textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+.myday-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* Ongoing work items */
+.myday-ongoing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.myday-ongoing-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.myday-ongoing-row:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.08);
+}
+
+.ct-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ct-status-dot--completed { background: #10b981; }
+.ct-status-dot--running { background: #3b82f6; }
+.ct-status-dot--failed { background: #ef4444; }
+.ct-status-dot--queued { background: #f59e0b; }
+.ct-status-dot--info { background: #94a3b8; }
+
+.myday-ongoing-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.myday-ongoing-title {
+  font-size: 13.5px;
+  color: #1e293b;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.myday-ongoing-meta {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.myday-overdue-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  background: #fef2f2;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.myday-ongoing-priority {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Day plan / schedule */
+.myday-plan-summary {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.myday-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  padding-left: 10px;
+}
+
+.myday-schedule::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #e2e8f0;
+  border-radius: 1px;
+}
+
+.myday-schedule-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-left: 14px;
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.myday-schedule-item::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 14px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6366f1;
+  border: 2px solid #fafbfc;
+}
+
+.myday-schedule-item.is-break {
+  background: #fafbfc;
+  border-style: dashed;
+  border-color: #cbd5e1;
+}
+
+.myday-schedule-item.is-break::before {
+  background: #cbd5e1;
+}
+
+.myday-schedule-item.is-done {
+  opacity: 0.45;
+}
+
+.myday-schedule-time {
+  font-size: 12px;
+  color: #6366f1;
+  font-weight: 700;
+  flex-shrink: 0;
+  width: 76px;
+  padding-top: 1px;
+}
+
+.myday-schedule-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.myday-schedule-title {
+  font-size: 13px;
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.myday-schedule-desc {
+  font-size: 11.5px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.myday-schedule-duration {
+  font-size: 11px;
+  color: #64748b;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
   .ct-layout { grid-template-columns: 1fr; }
   .ct-sidebar { display: none; }
   .ct-wi-split { grid-template-columns: 1fr; }
   .ct-field-row { grid-template-columns: 1fr; }
+  .myday-progress-grid { grid-template-columns: 1fr 1fr; }
+  .myday-form-grid { grid-template-columns: 1fr; }
 }

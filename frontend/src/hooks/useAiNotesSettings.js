@@ -240,7 +240,18 @@ export function useAiNotesSettings() {
 
   const exportToVault = useCallback(
     async (title, notesContent) => {
-      if (!vaultHandle) throw new Error('No vault connected');
+      if (!vaultHandle) throw new Error('No vault connected. Open Settings and connect your Obsidian vault.');
+      // Re-verify permission in case it was revoked mid-session
+      try {
+        const perm = await vaultHandle.queryPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') {
+          const requested = await vaultHandle.requestPermission({ mode: 'readwrite' });
+          if (requested !== 'granted') throw new Error('Vault permission denied. Reconnect your vault in Settings.');
+        }
+      } catch (permErr) {
+        if (permErr.message.includes('permission') || permErr.message.includes('Permission')) throw permErr;
+        throw new Error('Vault access lost. Reconnect your vault in Settings.');
+      }
       const safeName = title
         .replace(/[\\/:*?"<>|]/g, ' ')
         .replace(/\s+/g, ' ')

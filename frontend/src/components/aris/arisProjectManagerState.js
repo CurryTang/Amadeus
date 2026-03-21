@@ -312,3 +312,49 @@ export function validateProjectSettingsDraft(draft = {}) {
 
   return '';
 }
+
+// ─── Daily Task Drafts ───────────────────────────────────────────────────────
+
+export function createEmptyDailyTaskDraft() {
+  return {
+    title: '',
+    description: '',
+    category: 'general',
+    frequency: 'daily',
+    weekday: null,
+    estimatedMinutes: 30,
+    weeklyCredit: 7,
+    priority: 0,
+  };
+}
+
+export function dailyTaskToDraft(task) {
+  return {
+    title: task.title || '',
+    description: task.description || '',
+    category: task.category || 'general',
+    frequency: task.frequency || 'daily',
+    weekday: task.weekday ?? null,
+    estimatedMinutes: task.estimatedMinutes ?? 30,
+    weeklyCredit: task.weeklyCredit ?? 7,
+    priority: task.priority ?? 0,
+  };
+}
+
+export function dailyTaskDraftToPayload(draft) {
+  return {
+    title: draft.title?.trim() || '',
+    description: draft.description?.trim() || '',
+    category: draft.category || 'general',
+    frequency: draft.frequency || 'daily',
+    weekday: draft.frequency === 'weekly' ? (draft.weekday ?? null) : null,
+    estimatedMinutes: parseInt(draft.estimatedMinutes, 10) || 30,
+    weeklyCredit: parseInt(draft.weeklyCredit, 10) || (draft.frequency === 'daily' ? 7 : 1),
+    priority: parseInt(draft.priority, 10) || 0,
+  };
+}
+
+export function validateDailyTaskDraft(draft) {
+  if (!draft.title?.trim()) return 'Title is required';
+  return '';
+}

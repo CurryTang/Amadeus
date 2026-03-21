@@ -217,7 +217,7 @@ class ReaderService {
    * @returns {Promise<{text: string, provider?: string, model?: string}>}
    */
   async readWithAI(filePath, prompt, options = {}) {
-    const requestedProvider = options.provider || config.reader?.defaultProvider || 'gemini-cli';
+    const requestedProvider = options.provider || config.reader?.defaultProvider || 'codex-cli';
     
     console.log(`[Reader] Requested provider: ${requestedProvider}`);
 
@@ -239,8 +239,8 @@ class ReaderService {
       }
     }
 
-    // Fallback order: gemini-cli -> google-api -> claude-code
-    const fallbackOrder = ['gemini-cli', 'google-api', 'codex-cli', 'claude-code'];
+    // Fallback order: codex-cli -> claude-code -> gemini-cli -> google-api
+    const fallbackOrder = ['codex-cli', 'claude-code', 'gemini-cli', 'google-api'];
     
     for (const providerId of fallbackOrder) {
       if (providerId === requestedProvider) continue; // Already tried
@@ -289,7 +289,7 @@ class ReaderService {
 
     console.log(`[Reader] Mathpix conversion complete, markdown length: ${markdown.length} chars`);
 
-    const requestedProvider = options.provider || config.reader?.defaultProvider || 'gemini-cli';
+    const requestedProvider = options.provider || config.reader?.defaultProvider || 'codex-cli';
     
     // Try the requested provider first for markdown processing
     if (PROVIDERS[requestedProvider]) {

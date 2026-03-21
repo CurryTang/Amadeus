@@ -12,6 +12,8 @@ import {
 } from '../../hooks/useClientWorkspaceRegistry.js';
 import {
   ARIS_QUICK_ACTIONS,
+  DAILY_TASK_CATEGORIES,
+  DAILY_TASK_FREQUENCIES,
   buildArisControlTowerCard,
   buildArisProjectRow,
   buildArisProjectSummaryRow,
@@ -21,12 +23,20 @@ import {
   buildArisWakeupRow,
   buildArisWorkItemRow,
   buildArisWorkspaceContext,
+  buildDailyTaskRow,
+  buildOngoingWorkItemRow,
+  buildDayPlanItem,
+  categoryIcon,
 } from './arisWorkspacePresentation.js';
 import {
   createEmptyRunLaunchDraft,
   createEmptyProjectSettingsDraft,
   createEmptyRemoteEndpointDraft,
   createEmptyWorkItemDraft,
+  createEmptyDailyTaskDraft,
+  dailyTaskToDraft,
+  dailyTaskDraftToPayload,
+  validateDailyTaskDraft,
   projectToSettingsDraft,
   runLaunchDraftToPayload,
   settingsDraftToPayload,
@@ -366,7 +376,156 @@ const FOLLOW_UP_ACTIONS = [
 ];
 
 // Unified control tower — no more separate tabs
-const CT_PANELS = { OVERVIEW: 'overview', WORK_ITEMS: 'work_items', RUNS: 'runs', LAUNCHER: 'launcher' };
+const CT_PANELS = { OVERVIEW: 'overview', MY_DAY: 'my_day', WORK_ITEMS: 'work_items', RUNS: 'runs', LAUNCHER: 'launcher' };
+
+// ─── Day Scheduling Helpers ──────────────────────────────────────────────────
+
+function buildSchedulePrompt(context) {
+  const lines = [
+    `Schedule my day for ${context.dayOfWeek}, ${context.date}.`,
+    '',
+    '## Pending Daily Tasks',
+  ];
+  for (const t of context.pendingDailyTasks) {
+    lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, ${t.completedThisWeek}/${t.weeklyCredit} this week)`);
+  }
+  if (context.pendingDailyTasks.length === 0) lines.push('- (none)');
+  lines.push('', '## Ongoing Work Items Across Projects');
+  for (const item of context.ongoingWorkItems) {
+    lines.push(`- [${item.projectName}] ${item.title} (${item.status}, P${item.priority}${item.nextBestAction ? ` — next: ${item.nextBestAction}` : ''})`);
+  }
+  if (context.ongoingWorkItems.length === 0) lines.push('- (none)');
+  lines.push('', '## Weekly Progress');
+  for (const t of context.weeklyProgress) {
+    const status = t.isOnTrack ? 'on track' : `${t.remaining} remaining`;
+    lines.push(`- ${t.title}: ${t.completedThisWeek}/${t.weeklyCredit} (${status})`);
+  }
+  lines.push('', 'Create a time-blocked schedule from 9am to 11pm. Decompose large work items into 30-60min focused blocks. Include breaks. Prioritize items with approaching deadlines and weekly credits that are behind.');
+  return lines.join('\n');
+}
+
+function generateDayPlanFromContext(context) {
+  const items = [];
+  let timeSlot = 9; // Start at 9am
+  const uid = () => Math.random().toString(36).slice(2, 10);
+
+  // Helper to format time
+  const fmt = (h) => {
+    const hour = Math.floor(h);
+    const min = Math.round((h - hour) * 60);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const h12 = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    return `${h12}:${min.toString().padStart(2, '0')} ${ampm}`;
+  };
+
+  // Sort daily tasks: behind-schedule first, then by estimated time
+  const sortedDailyTasks = [...context.pendingDailyTasks].sort((a, b) => {
+    const aUrgency = a.remaining / Math.max(a.weeklyCredit, 1);
+    const bUrgency = b.remaining / Math.max(b.weeklyCredit, 1);
+    return bUrgency - aUrgency;
+  });
+
+  // Morning routine tasks (exercise, reading)
+  const morningCategories = ['exercise', 'reading'];
+  const morningTasks = sortedDailyTasks.filter((t) => morningCategories.includes(t.category));
+  const otherDailyTasks = sortedDailyTasks.filter((t) => !morningCategories.includes(t.category));
+
+  for (const task of morningTasks) {
+    const duration = task.estimatedMinutes / 60;
+    items.push({
+      id: uid(), time: fmt(timeSlot), title: task.title, description: task.description || '',
+      category: task.category, estimatedMinutes: task.estimatedMinutes,
+      sourceType: 'daily_task', sourceId: task.id, isDone: false,
+    });
+    timeSlot += duration;
+  }
+
+  // Morning break
+  if (morningTasks.length > 0 && timeSlot < 10.5) {
+    items.push({ id: uid(), time: fmt(timeSlot), title: 'Break', description: '', category: 'general', estimatedMinutes: 15, sourceType: 'break', sourceId: '', isDone: false });
+    timeSlot += 0.25;
+  }
+
+  // Work items — decompose into focused blocks
+  const workBlocks = [];
+  for (const item of context.ongoingWorkItems) {
+    // Estimate: blocked/review items get 30min check, in_progress get 60min
+    const blockMinutes = item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45;
+    workBlocks.push({
+      ...item,
+      estimatedMinutes: blockMinutes,
+      description: item.nextBestAction || `Work on: ${item.title}`,
+    });
+  }
+
+  // Sort work items: high priority first, then blocked (need attention)
+  workBlocks.sort((a, b) => {
+    const statusOrder = { blocked: 0, review: 1, in_progress: 2, waiting: 3, ready: 4 };
+    const aDiff = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
+    if (aDiff !== 0) return aDiff;
+    return (b.priority ?? 0) - (a.priority ?? 0);
+  });
+
+  // Schedule deep work blocks (morning-afternoon)
+  for (const block of workBlocks) {
+    if (timeSlot >= 18) break; // Stop scheduling work after 6pm
+    const duration = block.estimatedMinutes / 60;
+    items.push({
+      id: uid(), time: fmt(timeSlot),
+      title: `[${block.projectName}] ${block.title}`,
+      description: block.description,
+      category: 'research',
+      estimatedMinutes: block.estimatedMinutes,
+      sourceType: 'work_item', sourceId: block.id, isDone: false,
+    });
+    timeSlot += duration;
+
+    // Add break every 2 hours
+    if (timeSlot % 2 < 0.5 && timeSlot < 18) {
+      items.push({ id: uid(), time: fmt(timeSlot), title: 'Break', description: 'Rest, stretch, hydrate', category: 'general', estimatedMinutes: 15, sourceType: 'break', sourceId: '', isDone: false });
+      timeSlot += 0.25;
+    }
+  }
+
+  // Lunch break if we passed noon
+  if (timeSlot >= 12 && !items.some((i) => i.title === 'Lunch')) {
+    // Insert lunch at noon-ish
+    const lunchIdx = items.findIndex((i) => {
+      const h = parseTimeToHour(i.time);
+      return h >= 12;
+    });
+    if (lunchIdx >= 0) {
+      items.splice(lunchIdx, 0, { id: uid(), time: '12:00 PM', title: 'Lunch', description: '', category: 'general', estimatedMinutes: 60, sourceType: 'break', sourceId: '', isDone: false });
+    }
+  }
+
+  // Afternoon/evening: remaining daily tasks
+  if (timeSlot < 12.5) timeSlot = Math.max(timeSlot, 13); // after lunch
+  for (const task of otherDailyTasks) {
+    if (timeSlot >= 22) break;
+    const duration = task.estimatedMinutes / 60;
+    items.push({
+      id: uid(), time: fmt(timeSlot), title: task.title, description: task.description || '',
+      category: task.category, estimatedMinutes: task.estimatedMinutes,
+      sourceType: 'daily_task', sourceId: task.id, isDone: false,
+    });
+    timeSlot += duration;
+  }
+
+  return items;
+}
+
+function parseTimeToHour(timeStr) {
+  if (!timeStr) return 0;
+  const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!match) return 0;
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  const ampm = match[3].toUpperCase();
+  if (ampm === 'PM' && h < 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return h + m / 60;
+}
 
 function toDateTimeLocalValue(value) {
   if (!value) return '';
@@ -383,7 +542,7 @@ function fromDateTimeLocalValue(value) {
 }
 
 export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
-  const [ctPanel, _setCtPanel] = useState(CT_PANELS.OVERVIEW);
+  const [ctPanel, _setCtPanel] = useState(CT_PANELS.MY_DAY);
   const ctPanelHistory = useRef([]);
   const setCtPanel = useCallback((next) => {
     _setCtPanel((prev) => {
@@ -474,6 +633,21 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [selectedPlanNode, setSelectedPlanNode] = useState(null);
   const [rejectingNode, setRejectingNode] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+
+  // ─── My Day state ──────────────────────────────────────────────────────
+  const [dailyTasks, setDailyTasks] = useState([]);
+  const [loadingDailyTasks, setLoadingDailyTasks] = useState(false);
+  const [dailyCompletions, setDailyCompletions] = useState([]);
+  const [ongoingItems, setOngoingItems] = useState([]);
+  const [loadingOngoing, setLoadingOngoing] = useState(false);
+  const [weeklyProgress, setWeeklyProgress] = useState([]);
+  const [dayPlan, setDayPlan] = useState(null);
+  const [loadingDayPlan, setLoadingDayPlan] = useState(false);
+  const [schedulingDay, setSchedulingDay] = useState(false);
+  const [showAddDailyTask, setShowAddDailyTask] = useState(false);
+  const [dailyTaskDraft, setDailyTaskDraft] = useState(createEmptyDailyTaskDraft());
+  const [savingDailyTask, setSavingDailyTask] = useState(false);
+  const [editingDailyTaskId, setEditingDailyTaskId] = useState(null);
 
   const [showImportPapers, setShowImportPapers] = useState(false);
   const [importTag, setImportTag] = useState('');
@@ -587,6 +761,115 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     const interval = setInterval(fetchLocalSessions, 15000);
     return () => clearInterval(interval);
   }, [ctPanel, fetchLocalSessions]);
+
+  // ─── My Day data fetchers ────────────────────────────────────────────────
+
+  const fetchDailyTasks = useCallback(async () => {
+    setLoadingDailyTasks(true);
+    try {
+      const [tasksRes, progressRes, completionsRes] = await Promise.all([
+        axios.get(`${apiUrl}/aris/daily-tasks`, { headers: getAuthHeaders() }),
+        axios.get(`${apiUrl}/aris/weekly-progress`, { headers: getAuthHeaders() }),
+        axios.get(`${apiUrl}/aris/daily-completions?date=${new Date().toISOString().slice(0, 10)}`, { headers: getAuthHeaders() }),
+      ]);
+      setDailyTasks(tasksRes.data?.tasks || []);
+      setWeeklyProgress(progressRes.data?.progress || []);
+      setDailyCompletions(completionsRes.data?.completions || []);
+    } finally {
+      setLoadingDailyTasks(false);
+    }
+  }, [apiUrl, getAuthHeaders]);
+
+  const fetchOngoingItems = useCallback(async () => {
+    setLoadingOngoing(true);
+    try {
+      const res = await axios.get(`${apiUrl}/aris/ongoing-work-items`, { headers: getAuthHeaders() });
+      setOngoingItems(res.data?.items || []);
+    } finally {
+      setLoadingOngoing(false);
+    }
+  }, [apiUrl, getAuthHeaders]);
+
+  const fetchDayPlan = useCallback(async () => {
+    setLoadingDayPlan(true);
+    try {
+      const res = await axios.get(`${apiUrl}/aris/day-plan`, { headers: getAuthHeaders() });
+      setDayPlan(res.data?.plan || null);
+    } finally {
+      setLoadingDayPlan(false);
+    }
+  }, [apiUrl, getAuthHeaders]);
+
+  // Load My Day data when panel is active
+  useEffect(() => {
+    if (ctPanel !== CT_PANELS.MY_DAY) return;
+    fetchDailyTasks();
+    fetchOngoingItems();
+    fetchDayPlan();
+  }, [ctPanel, fetchDailyTasks, fetchOngoingItems, fetchDayPlan]);
+
+  const handleToggleDailyCompletion = async (taskId) => {
+    try {
+      await axios.post(`${apiUrl}/aris/daily-tasks/${taskId}/toggle`, {}, { headers: getAuthHeaders() });
+      await fetchDailyTasks();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to toggle completion');
+    }
+  };
+
+  const handleSaveDailyTask = async () => {
+    const validationError = validateDailyTaskDraft(dailyTaskDraft);
+    if (validationError) { setError(validationError); return; }
+    setSavingDailyTask(true);
+    try {
+      const payload = dailyTaskDraftToPayload(dailyTaskDraft);
+      if (editingDailyTaskId) {
+        await axios.patch(`${apiUrl}/aris/daily-tasks/${editingDailyTaskId}`, payload, { headers: getAuthHeaders() });
+      } else {
+        await axios.post(`${apiUrl}/aris/daily-tasks`, payload, { headers: getAuthHeaders() });
+      }
+      setShowAddDailyTask(false);
+      setEditingDailyTaskId(null);
+      setDailyTaskDraft(createEmptyDailyTaskDraft());
+      await fetchDailyTasks();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to save daily task');
+    } finally {
+      setSavingDailyTask(false);
+    }
+  };
+
+  const handleDeleteDailyTask = async (taskId) => {
+    try {
+      await axios.delete(`${apiUrl}/aris/daily-tasks/${taskId}`, { headers: getAuthHeaders() });
+      await fetchDailyTasks();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to delete daily task');
+    }
+  };
+
+  const handleScheduleDay = async () => {
+    setSchedulingDay(true);
+    try {
+      const contextRes = await axios.get(`${apiUrl}/aris/day-context`, { headers: getAuthHeaders() });
+      const context = contextRes.data?.context;
+      if (!context) throw new Error('Failed to build day context');
+
+      // Build a scheduling prompt for the Codex MCP
+      const prompt = buildSchedulePrompt(context);
+
+      // Call the day-plan endpoint — the backend can optionally forward to Codex
+      // For now, we generate a structured plan from the context client-side
+      const items = generateDayPlanFromContext(context);
+      const summary = `${items.length} items scheduled for ${context.dayOfWeek}`;
+      const res = await axios.post(`${apiUrl}/aris/day-plan`, { items, summary }, { headers: getAuthHeaders() });
+      setDayPlan(res.data?.plan || null);
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || 'Failed to schedule day');
+    } finally {
+      setSchedulingDay(false);
+    }
+  };
 
   const expandedPhaseIdRef = useRef(expandedPhaseId);
   expandedPhaseIdRef.current = expandedPhaseId;
@@ -1728,6 +2011,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
           {/* Quick navigation */}
           <div className="ct-sidebar-nav">
             <button className={`ct-nav-item${ctPanel === CT_PANELS.OVERVIEW ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.OVERVIEW)}>Overview</button>
+            <button className={`ct-nav-item${ctPanel === CT_PANELS.MY_DAY ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.MY_DAY)}>My Day</button>
             <button className={`ct-nav-item${ctPanel === CT_PANELS.WORK_ITEMS ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.WORK_ITEMS)}>Work Items</button>
             <button className={`ct-nav-item${ctPanel === CT_PANELS.RUNS ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.RUNS)}>Runs</button>
             <button className={`ct-nav-item${ctPanel === CT_PANELS.LAUNCHER ? ' is-active' : ''}`} onClick={() => setCtPanel(CT_PANELS.LAUNCHER)}>Launcher</button>
@@ -2045,6 +2329,207 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* MY DAY PANEL */}
+          {ctPanel === CT_PANELS.MY_DAY && (
+            <div className="ct-my-day-panel">
+              <div className="ct-section-header">
+                <h3>My Day &mdash; {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
+                <div className="ct-header-actions">
+                  <button className="ct-btn ct-btn--sm" onClick={() => { fetchDailyTasks(); fetchOngoingItems(); fetchDayPlan(); }} disabled={loadingDailyTasks}>Refresh</button>
+                  <button className="ct-btn ct-btn--primary ct-btn--sm" onClick={handleScheduleDay} disabled={schedulingDay}>
+                    {schedulingDay ? 'Scheduling...' : 'Schedule My Day'}
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Weekly Progress Summary ── */}
+              {weeklyProgress.length > 0 && (
+                <div className="myday-weekly-progress">
+                  <h4 className="myday-section-title">Weekly Progress</h4>
+                  <div className="myday-progress-grid">
+                    {weeklyProgress.map((task) => {
+                      const pct = task.weeklyCredit > 0 ? Math.min(100, Math.round((task.completedThisWeek / task.weeklyCredit) * 100)) : 0;
+                      return (
+                        <div key={task.title} className={`myday-progress-card${task.isOnTrack ? ' is-on-track' : ''}`}>
+                          <div className="myday-progress-header">
+                            <span className="myday-progress-title">{task.title}</span>
+                            <span className="myday-progress-count">{task.completedThisWeek}/{task.weeklyCredit}</span>
+                          </div>
+                          <div className="myday-progress-bar-bg">
+                            <div className="myday-progress-bar-fill" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Daily Tasks ── */}
+              <div className="myday-section">
+                <div className="myday-section-header">
+                  <h4 className="myday-section-title">Daily Tasks</h4>
+                  <button className="ct-btn ct-btn--sm" onClick={() => { setShowAddDailyTask(true); setEditingDailyTaskId(null); setDailyTaskDraft(createEmptyDailyTaskDraft()); }}>+ Add Task</button>
+                </div>
+
+                {loadingDailyTasks && <div className="ct-empty-hint">Loading...</div>}
+
+                {!loadingDailyTasks && dailyTasks.length === 0 && (
+                  <div className="ct-empty-hint">No daily tasks yet. Add tasks like reading papers, exercise, or leetcode practice.</div>
+                )}
+
+                <div className="myday-task-list">
+                  {dailyTasks.map((task) => {
+                    const todayCompleted = dailyCompletions.some((c) => c.dailyTaskId === task.id);
+                    const progress = weeklyProgress.find((p) => p.title === task.title);
+                    return (
+                      <div key={task.id} className={`myday-task-row${todayCompleted ? ' is-done' : ''}`}>
+                        <button
+                          type="button"
+                          className={`myday-check${todayCompleted ? ' is-checked' : ''}`}
+                          onClick={() => handleToggleDailyCompletion(task.id)}
+                          title={todayCompleted ? 'Mark incomplete' : 'Mark complete'}
+                        />
+                        <div className="myday-task-info">
+                          <span className="myday-task-title">{task.title}</span>
+                          <span className="myday-task-meta">
+                            {categoryIcon(task.category)} {task.category} &middot; ~{task.estimatedMinutes}min &middot; {task.frequency}
+                            {progress && ` · ${progress.completedThisWeek}/${progress.weeklyCredit} this week`}
+                          </span>
+                        </div>
+                        <div className="myday-task-actions">
+                          <button className="ct-btn-ghost ct-btn-ghost--sm" title="Edit" onClick={() => {
+                            setEditingDailyTaskId(task.id);
+                            setDailyTaskDraft(dailyTaskToDraft(task));
+                            setShowAddDailyTask(true);
+                          }}>Edit</button>
+                          <button className="ct-btn-ghost ct-btn-ghost--sm ct-btn-ghost--danger" title="Delete" onClick={() => handleDeleteDailyTask(task.id)}>&times;</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Add/Edit Daily Task Form ── */}
+              {showAddDailyTask && (
+                <div className="myday-form-card">
+                  <h4>{editingDailyTaskId ? 'Edit Task' : 'New Daily Task'}</h4>
+                  <div className="myday-form-grid">
+                    <label className="myday-form-label">
+                      Title
+                      <input type="text" className="myday-form-input" value={dailyTaskDraft.title} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, title: e.target.value })} placeholder="e.g. Read 2 papers" />
+                    </label>
+                    <label className="myday-form-label">
+                      Category
+                      <select className="myday-form-select" value={dailyTaskDraft.category} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, category: e.target.value })}>
+                        {DAILY_TASK_CATEGORIES.map((cat) => (
+                          <option key={cat.id} value={cat.id}>{cat.icon} {cat.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="myday-form-label">
+                      Frequency
+                      <select className="myday-form-select" value={dailyTaskDraft.frequency} onChange={(e) => {
+                        const freq = e.target.value;
+                        setDailyTaskDraft({ ...dailyTaskDraft, frequency: freq, weeklyCredit: freq === 'daily' ? 7 : 1 });
+                      }}>
+                        {DAILY_TASK_FREQUENCIES.map((f) => (
+                          <option key={f.id} value={f.id}>{f.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {dailyTaskDraft.frequency === 'weekly' && (
+                      <label className="myday-form-label">
+                        Day of Week
+                        <select className="myday-form-select" value={dailyTaskDraft.weekday ?? ''} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, weekday: e.target.value === '' ? null : parseInt(e.target.value, 10) })}>
+                          <option value="">Any day</option>
+                          {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d, i) => (
+                            <option key={d} value={i}>{d}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label className="myday-form-label">
+                      Est. Minutes
+                      <input type="number" className="myday-form-input" value={dailyTaskDraft.estimatedMinutes} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, estimatedMinutes: parseInt(e.target.value, 10) || 30 })} min="5" max="480" />
+                    </label>
+                    <label className="myday-form-label">
+                      Weekly Credit
+                      <input type="number" className="myday-form-input" value={dailyTaskDraft.weeklyCredit} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, weeklyCredit: parseInt(e.target.value, 10) || 1 })} min="1" max="14" />
+                    </label>
+                    <label className="myday-form-label myday-form-label--full">
+                      Description
+                      <textarea className="myday-form-textarea" value={dailyTaskDraft.description} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, description: e.target.value })} placeholder="Optional notes..." rows={2} />
+                    </label>
+                  </div>
+                  <div className="myday-form-actions">
+                    <button className="ct-btn ct-btn--sm" onClick={() => { setShowAddDailyTask(false); setEditingDailyTaskId(null); }}>Cancel</button>
+                    <button className="ct-btn ct-btn--primary ct-btn--sm" onClick={handleSaveDailyTask} disabled={savingDailyTask}>
+                      {savingDailyTask ? 'Saving...' : editingDailyTaskId ? 'Update' : 'Create'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Ongoing Work Items (Cross-Project) ── */}
+              <div className="myday-section">
+                <h4 className="myday-section-title">Ongoing Work Items</h4>
+                {loadingOngoing && <div className="ct-empty-hint">Loading...</div>}
+                {!loadingOngoing && ongoingItems.length === 0 && (
+                  <div className="ct-empty-hint">No ongoing work items across projects.</div>
+                )}
+                <div className="myday-ongoing-list">
+                  {ongoingItems.map((item) => {
+                    const row = buildOngoingWorkItemRow(item);
+                    return (
+                      <div key={item.id} className="myday-ongoing-row" onClick={() => { setSelectedProjectId(item.projectId); setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}>
+                        <span className={`ct-status-dot ct-status-dot--${row.statusColor}`} />
+                        <div className="myday-ongoing-info">
+                          <span className="myday-ongoing-title">{row.title}</span>
+                          <span className="myday-ongoing-meta">
+                            {row.projectName} &middot; {row.typeLabel} &middot; {row.statusLabel}
+                            {row.isOverdue && <span className="myday-overdue-badge">overdue</span>}
+                          </span>
+                        </div>
+                        <span className="myday-ongoing-priority">P{row.priority}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Day Plan (Generated Schedule) ── */}
+              {dayPlan && dayPlan.items && dayPlan.items.length > 0 && (
+                <div className="myday-section">
+                  <div className="myday-section-header">
+                    <h4 className="myday-section-title">Today&apos;s Schedule</h4>
+                    <span className="myday-plan-summary">{dayPlan.summary}</span>
+                  </div>
+                  <div className="myday-schedule">
+                    {dayPlan.items.map((item, idx) => {
+                      const planItem = buildDayPlanItem(item);
+                      return (
+                        <div key={planItem.id || idx} className={`myday-schedule-item${planItem.sourceType === 'break' ? ' is-break' : ''}${planItem.isDone ? ' is-done' : ''}`}>
+                          <div className="myday-schedule-time">{planItem.time}</div>
+                          <div className="myday-schedule-content">
+                            <span className="myday-schedule-title">
+                              {planItem.categoryIcon} {planItem.title}
+                            </span>
+                            {planItem.description && <span className="myday-schedule-desc">{planItem.description}</span>}
+                          </div>
+                          <span className="myday-schedule-duration">{planItem.estimatedMinutes}min</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {loadingDayPlan && <div className="ct-empty-hint">Loading day plan...</div>}
             </div>
           )}
 

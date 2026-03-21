@@ -598,9 +598,9 @@ router.post('/skills/resolve', requireAuth, async (req, res) => {
         fetchUrl = `https://raw.githubusercontent.com/${ghMatch[1]}/${ghMatch[2]}`;
       }
 
-      const axios = require('axios');
-      const response = await axios.get(fetchUrl, { timeout: 15000, responseType: 'text' });
-      const content = String(response.data || '');
+      const response = await fetch(fetchUrl, { signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const content = await response.text();
       if (!content.trim()) {
         return res.status(422).json({ error: 'Empty content at URL' });
       }

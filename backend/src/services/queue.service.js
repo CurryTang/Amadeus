@@ -106,7 +106,7 @@ class QueueService {
       readerMode: item.reader_mode || 'vanilla',
       codeUrl: item.code_url,
       hasCode: item.has_code === 1,
-      analysisProvider: item.analysis_provider || 'gemini-cli',
+      analysisProvider: item.analysis_provider || 'codex-cli',
       analysisModel: item.analysis_model || null,
       thinkingBudget: item.thinking_budget || 0,
       refinementRounds: item.refinement_rounds_json ? JSON.parse(item.refinement_rounds_json) : null,
