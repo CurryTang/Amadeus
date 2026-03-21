@@ -1,14 +1,21 @@
 const bcrypt = require('bcryptjs');
 const config = require('../config');
+const mongoCompat = require('./mongo-compat');
 
 let db = null;
 
 async function initDatabase() {
-  const { createClient } = require('@libsql/client');
-  db = createClient({
-    url: config.turso.url,
-    authToken: config.turso.authToken,
-  });
+  // Connect to MongoDB Atlas
+  const mongoUri = config.database?.mongodbUri || process.env.MONGODB_URI;
+  const mongoDbName = config.database?.mongodbDbName || process.env.MONGO_DB_NAME || 'autoresearcher';
+  if (!mongoUri) throw new Error('MONGODB_URI is not configured');
+
+  await mongoCompat.connect(mongoUri, mongoDbName);
+
+  // Create a Turso-compatible db interface that translates SQL → MongoDB
+  db = {
+    execute: (input) => mongoCompat.execute(input),
+  };
 
   // Create documents table
   await db.execute(`
