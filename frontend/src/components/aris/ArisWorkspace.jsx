@@ -1819,7 +1819,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
               })()}
 
               {/* Active Claude Code Sessions — top 5 recent within 1 week */}
-              {localSessions.length > 0 && (() => {
+              {selectedProjectId && (() => {
                 const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
                 const recent = localSessions
                   .filter((s) => !s.startedAt || new Date(s.startedAt).getTime() > oneWeekAgo)
@@ -1830,7 +1830,12 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                     return new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime();
                   })
                   .slice(0, 5);
-                if (recent.length === 0) return null;
+                if (recent.length === 0 && localSessions.length === 0) return (
+                  <div className="ct-sessions">
+                    <div className="ct-section-header"><h4>Claude Code Sessions</h4></div>
+                    <div className="ct-empty ct-empty--sm">No active sessions detected. Monitor pushes every 30s.</div>
+                  </div>
+                );
                 const activeCount = recent.filter((s) => s.isActive).length;
                 return (
                   <div className="ct-sessions">
