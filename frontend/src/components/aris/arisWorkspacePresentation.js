@@ -626,6 +626,7 @@ export function buildDailyTaskRow(task) {
     targetPeriod: task.targetPeriod || 'weekly',
     isRoutine: totalTarget == null,
     completedThisWeek: task.completedThisWeek ?? 0,
+    completedAllTime: task.completedAllTime ?? undefined,
     remaining: task.remaining ?? 0,
     dailyQuota: task.dailyQuota ?? 0,
     isOnTrack: task.isOnTrack ?? false,

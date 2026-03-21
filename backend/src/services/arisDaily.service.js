@@ -262,33 +262,58 @@ function createArisDailyService() {
     dateStr = dateStr || todayDate();
     const ws = startOfWeek(dateStr);
     const tasks = await listDailyTasks({ activeOnly: true });
-    const completions = await listCompletions({ weekStart: ws });
+    const weekCompletions = await listCompletions({ weekStart: ws });
 
-    const completionsByTask = {};
-    for (const c of completions) {
-      if (!completionsByTask[c.dailyTaskId]) completionsByTask[c.dailyTaskId] = [];
-      completionsByTask[c.dailyTaskId].push(c);
+    const weekCompletionsByTask = {};
+    for (const c of weekCompletions) {
+      if (!weekCompletionsByTask[c.dailyTaskId]) weekCompletionsByTask[c.dailyTaskId] = [];
+      weekCompletionsByTask[c.dailyTaskId].push(c);
+    }
+
+    // For 'total' target period tasks, fetch ALL completions
+    const totalTargetTaskIds = tasks
+      .filter((t) => t.totalTarget != null && t.targetPeriod === 'total')
+      .map((t) => t.id);
+    const allCompletionsByTask = {};
+    if (totalTargetTaskIds.length > 0) {
+      const allCompletions = await listCompletions({});
+      for (const c of allCompletions) {
+        if (totalTargetTaskIds.includes(c.dailyTaskId)) {
+          if (!allCompletionsByTask[c.dailyTaskId]) allCompletionsByTask[c.dailyTaskId] = [];
+          allCompletionsByTask[c.dailyTaskId].push(c);
+        }
+      }
     }
 
     const daysLeft = daysRemainingInWeek(dateStr);
 
     return tasks.map((task) => {
-      const taskCompletions = completionsByTask[task.id] || [];
-      const completedCount = taskCompletions.length;
+      const isTotal = task.totalTarget != null && task.targetPeriod === 'total';
 
-      // Determine the effective weekly target
+      // For 'total' period, count all-time completions; otherwise count this week's
+      const completedCount = isTotal
+        ? (allCompletionsByTask[task.id] || []).length
+        : (weekCompletionsByTask[task.id] || []).length;
+
+      // Determine the effective target
       let weeklyTarget;
       if (task.totalTarget != null) {
-        // User-set target (e.g. "10 leetcode/week")
-        weeklyTarget = task.targetPeriod === 'daily' ? task.totalTarget * 7 : task.totalTarget;
+        if (task.targetPeriod === 'total') {
+          // Overall target — no weekly cycle
+          weeklyTarget = task.totalTarget;
+        } else if (task.targetPeriod === 'daily') {
+          weeklyTarget = task.totalTarget * 7;
+        } else {
+          weeklyTarget = task.totalTarget;
+        }
       } else {
         // Routine task: frequency-based (daily=7, weekly=1, one_time=1)
         weeklyTarget = task.frequency === 'daily' ? 7 : 1;
       }
 
       const remaining = Math.max(0, weeklyTarget - completedCount);
-      // Daily quota: how many should be done today to stay on track
-      const dailyQuota = remaining > 0 ? Math.ceil(remaining / daysLeft) : 0;
+      // Daily quota: for 'total' period no daily quota pressure; otherwise spread over remaining days
+      const dailyQuota = isTotal ? 0 : (remaining > 0 ? Math.ceil(remaining / daysLeft) : 0);
 
       return {
         ...task,
@@ -296,7 +321,8 @@ function createArisDailyService() {
         weeklyTarget,
         totalTarget: task.totalTarget,
         targetPeriod: task.targetPeriod,
-        completedThisWeek: completedCount,
+        completedThisWeek: isTotal ? completedCount : completedCount, // for 'total': this is all-time count
+        completedAllTime: isTotal ? completedCount : undefined,
         remaining,
         dailyQuota,
         isOnTrack: completedCount >= weeklyTarget,
@@ -483,9 +509,11 @@ function createArisDailyService() {
         totalTarget: t.totalTarget,
         targetPeriod: t.targetPeriod,
         completedThisWeek: t.completedThisWeek,
+        completedAllTime: t.completedAllTime,
         remaining: t.remaining,
         dailyQuota: t.dailyQuota,
         isRoutine: t.totalTarget == null, // no target = routine task
+        priority: t.priority,
       })),
       completedDailyTasks: completedDailyTasks.map((t) => ({
         id: t.id,
@@ -517,7 +545,9 @@ function createArisDailyService() {
         title: t.title,
         weeklyTarget: t.weeklyTarget,
         totalTarget: t.totalTarget,
+        targetPeriod: t.targetPeriod,
         completedThisWeek: t.completedThisWeek,
+        completedAllTime: t.completedAllTime,
         remaining: t.remaining,
         dailyQuota: t.dailyQuota,
         isOnTrack: t.isOnTrack,

@@ -385,13 +385,32 @@ function buildSchedulePrompt(context) {
     `Schedule my day for ${context.dayOfWeek}, ${context.date}.`,
     `Days remaining in week: ${context.daysRemainingInWeek}`,
     '',
+    '## Priority & Importance Rules',
+    '',
+    'Use these rules to decide how to allocate time and what to prioritize:',
+    '',
+    '1. **Research is the highest-priority category.** It is the core of the user\'s work. Always allocate the most and best time blocks (peak focus hours) to research tasks.',
+    '2. **Deadline proximity escalates priority.** Tasks or work items with deadlines within 3 days should be treated as urgent. Deadlines today are critical — schedule them first.',
+    '3. **Behind-schedule targets are urgent.** If a weekly/daily target is behind pace (dailyQuota > 1), boost its priority proportionally.',
+    '4. **Total-target tasks are low daily pressure.** Tasks with targetPeriod="total" have no weekly cycle — fit them in when there\'s slack time, but don\'t neglect them entirely.',
+    '5. **Work items with explicit nextBestAction are actionable** — prefer scheduling these over vague items.',
+    '6. **Exercise and breaks are non-negotiable.** Always include exercise if it\'s a daily task, and breaks every ~2 hours. Physical health sustains research productivity.',
+    '7. **Deprioritize tasks that are already on-track** for the week — redistribute that time to behind-schedule items.',
+    '8. **AI-actor work items can run in parallel** — note them but don\'t block human time for them.',
+    '9. **Priority field (P0-P9) is a tiebreaker** — higher number = higher priority, but the rules above take precedence.',
+    '',
     '## Pending Daily Tasks',
   ];
   for (const t of context.pendingDailyTasks) {
-    const targetInfo = t.totalTarget != null
-      ? `target: ${t.completedThisWeek}/${t.weeklyTarget}/week, need ${t.dailyQuota} today`
-      : `routine: ${t.completedThisWeek}/${t.weeklyTarget}/week`;
-    lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, ${targetInfo})`);
+    let targetInfo;
+    if (t.totalTarget != null && t.targetPeriod === 'total') {
+      targetInfo = `total target: ${t.completedAllTime ?? t.completedThisWeek}/${t.totalTarget} overall, ${t.remaining} remaining`;
+    } else if (t.totalTarget != null) {
+      targetInfo = `target: ${t.completedThisWeek}/${t.weeklyTarget}/week, need ${t.dailyQuota} today`;
+    } else {
+      targetInfo = `routine: ${t.completedThisWeek}/${t.weeklyTarget}/week`;
+    }
+    lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, P${t.priority ?? 0}, ${targetInfo})`);
   }
   if (context.pendingDailyTasks.length === 0) lines.push('- (none)');
 
@@ -411,10 +430,15 @@ function buildSchedulePrompt(context) {
 
   lines.push('', '## Weekly Progress');
   for (const t of context.weeklyProgress) {
-    const status = t.isOnTrack ? 'on track' : `${t.remaining} remaining, ${t.dailyQuota}/day needed`;
-    lines.push(`- ${t.title}: ${t.completedThisWeek}/${t.weeklyTarget} (${status})`);
+    if (t.targetPeriod === 'total') {
+      const status = t.isOnTrack ? 'completed' : `${t.completedAllTime ?? t.completedThisWeek}/${t.weeklyTarget} done, ${t.remaining} remaining`;
+      lines.push(`- ${t.title}: ${status} (total target)`);
+    } else {
+      const status = t.isOnTrack ? 'on track' : `${t.remaining} remaining, ${t.dailyQuota}/day needed`;
+      lines.push(`- ${t.title}: ${t.completedThisWeek}/${t.weeklyTarget} (${status})`);
+    }
   }
-  lines.push('', 'Create a time-blocked schedule from 9am to 11pm. Distribute target-based tasks according to daily quotas. Prioritize items with approaching deadlines and targets that are behind. Include breaks every ~2 hours.');
+  lines.push('', 'Create a time-blocked schedule from 9am to 11pm. Apply the priority rules above to determine ordering. Distribute target-based tasks according to daily quotas. Include breaks every ~2 hours.');
   return lines.join('\n');
 }
 
@@ -2498,15 +2522,17 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   <h4 className="myday-section-title">Weekly Progress</h4>
                   <div className="myday-progress-grid">
                     {weeklyProgress.map((task) => {
+                      const isTotal = task.targetPeriod === 'total';
                       const target = task.weeklyTarget || task.weeklyCredit || 7;
-                      const pct = target > 0 ? Math.min(100, Math.round((task.completedThisWeek / target) * 100)) : 0;
+                      const completed = isTotal ? (task.completedAllTime ?? task.completedThisWeek) : task.completedThisWeek;
+                      const pct = target > 0 ? Math.min(100, Math.round((completed / target) * 100)) : 0;
                       return (
                         <div key={task.title} className={`myday-progress-card${task.isOnTrack ? ' is-on-track' : ''}`}>
                           <div className="myday-progress-header">
-                            <span className="myday-progress-title">{task.title}</span>
+                            <span className="myday-progress-title">{task.title}{isTotal ? ' (total)' : ''}</span>
                             <span className="myday-progress-count">
-                              {task.completedThisWeek}/{target}
-                              {task.totalTarget != null && task.dailyQuota > 0 && <span className="myday-daily-quota"> ({task.dailyQuota}/day)</span>}
+                              {completed}/{target}
+                              {!isTotal && task.totalTarget != null && task.dailyQuota > 0 && <span className="myday-daily-quota"> ({task.dailyQuota}/day)</span>}
                             </span>
                           </div>
                           <div className="myday-progress-bar-bg">
@@ -2568,8 +2594,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                           <span className="myday-task-title">{task.title}</span>
                           <span className="myday-task-meta">
                             {categoryIcon(task.category)} {task.category} &middot; ~{task.estimatedMinutes}min &middot; {task.frequency}
-                            {progress && hasTarget
-                              ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget} total (${progress.dailyQuota} today)`
+                            {progress && hasTarget && task.targetPeriod === 'total'
+                              ? ` · ${progress.completedAllTime ?? progress.completedThisWeek}/${progress.weeklyTarget} total`
+                              : progress && hasTarget
+                              ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget}/week (${progress.dailyQuota} today)`
                               : progress ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget} this week` : ''}
                           </span>
                         </div>
@@ -2630,9 +2658,19 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       <input type="number" className="myday-form-input" value={dailyTaskDraft.estimatedMinutes} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, estimatedMinutes: parseInt(e.target.value, 10) || 30 })} min="5" max="480" />
                     </label>
                     <label className="myday-form-label">
-                      Weekly Target <span className="myday-form-hint">(optional)</span>
-                      <input type="number" className="myday-form-input" value={dailyTaskDraft.totalTarget} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, totalTarget: e.target.value })} min="1" max="100" placeholder="e.g. 10 (leave empty for routine)" />
+                      Target Count <span className="myday-form-hint">(optional)</span>
+                      <input type="number" className="myday-form-input" value={dailyTaskDraft.totalTarget} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, totalTarget: e.target.value })} min="1" max="999" placeholder="e.g. 10 (leave empty for routine)" />
                     </label>
+                    {dailyTaskDraft.totalTarget && (
+                      <label className="myday-form-label">
+                        Target Period
+                        <select className="myday-form-input" value={dailyTaskDraft.targetPeriod} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, targetPeriod: e.target.value })}>
+                          <option value="weekly">Per Week</option>
+                          <option value="daily">Per Day</option>
+                          <option value="total">Total (all-time)</option>
+                        </select>
+                      </label>
+                    )}
                     <label className="myday-form-label myday-form-label--full">
                       Description
                       <textarea className="myday-form-textarea" value={dailyTaskDraft.description} onChange={(e) => setDailyTaskDraft({ ...dailyTaskDraft, description: e.target.value })} placeholder="Optional notes..." rows={2} />
