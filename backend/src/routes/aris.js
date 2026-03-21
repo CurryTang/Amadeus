@@ -1107,7 +1107,8 @@ router.post('/projects/:projectId/sync-progress', requireAuth, async (req, res) 
     return res.json({ status: 'already_running', message: 'Sync already in progress for this project' });
   }
   try {
-    const project = await arisService.getProjectById(projectId);
+    const projects = await arisService.listProjects();
+    const project = (projects || []).find((p) => p.id === projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const localPath = project.localFullPath || project.localProjectPath;
@@ -1121,11 +1122,20 @@ router.post('/projects/:projectId/sync-progress', requireAuth, async (req, res) 
       try {
         const fs = require('fs');
         const path = require('path');
-        const docsDir = path.join(localPath, 'docs');
-        if (!fs.existsSync(docsDir)) {
-          console.log(`[SyncProgress] No docs/ folder at ${docsDir}`);
+        const os = require('os');
+        // Try multiple possible docs locations
+        const candidates = [
+          path.join(localPath, 'docs'),
+          // papermachine: try project name under research dir
+          path.join('/egr/research-dselab/chenzh85', project.localProjectPath || project.name, 'docs'),
+          path.join(os.homedir(), project.localProjectPath || project.name, 'docs'),
+        ];
+        const docsDir = candidates.find((d) => fs.existsSync(d));
+        if (!docsDir) {
+          console.log(`[SyncProgress] No docs/ folder found. Tried: ${candidates.join(', ')}`);
           return;
         }
+        console.log(`[SyncProgress] Using docs from: ${docsDir}`);
 
         // Collect doc content (plans, recent files)
         const collectDocs = (dir, prefix = '') => {
@@ -1151,7 +1161,7 @@ router.post('/projects/:projectId/sync-progress', requireAuth, async (req, res) 
         }
 
         // Get existing work items and milestones
-        const workItems = await arisService.listProjectWorkItems(projectId);
+        const workItems = await invokeArisMethod('listProjectWorkItems', [projectId]);
         const milestones = await arisService.listMilestones(projectId);
 
         const existingItemsSummary = (workItems || []).map((wi) => `- [${wi.status}] ${wi.title}`).join('\n');
@@ -1208,13 +1218,13 @@ Available milestone IDs: ${(milestones || []).map((m) => `${m.id} (${m.name})`).
         for (const item of (diff.new_items || [])) {
           if (!item.title?.trim()) continue;
           try {
-            await arisService.createWorkItem(projectId, {
+            await invokeArisMethod('createWorkItem', [projectId, {
               title: item.title.trim(),
               summary: item.summary || '',
               status: 'in_progress',
               milestoneId: item.milestoneId || null,
               type: 'task',
-            });
+            }]);
             added++;
           } catch (e) {
             console.warn(`[SyncProgress] Failed to create item "${item.title}":`, e.message);
@@ -1228,7 +1238,7 @@ Available milestone IDs: ${(milestones || []).map((m) => `${m.id} (${m.name})`).
           );
           if (match && match.status !== 'done') {
             try {
-              await arisService.saveWorkItem({ ...match, status: 'done', updatedAt: new Date().toISOString() });
+              await invokeArisMethod('updateWorkItem', [match.id, { status: 'done' }]);
               markedDone++;
             } catch (e) {
               console.warn(`[SyncProgress] Failed to mark done "${title}":`, e.message);
