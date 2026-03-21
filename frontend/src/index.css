@@ -13340,8 +13340,21 @@ button.vibe-skill-chip.is-active {
   color: #94a3b8;
 }
 
-/* ─── Active Sessions ─── */
+/* ─── Session Cards ─── */
 .ct-sessions { margin-bottom: 20px; }
+
+.ct-active-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: #dcfce7;
+  color: #16a34a;
+  margin-left: 6px;
+  vertical-align: middle;
+}
 
 .ct-session-list {
   display: flex;
@@ -13349,69 +13362,91 @@ button.vibe-skill-chip.is-active {
   gap: 6px;
 }
 
-.ct-session-group {
+.ct-session-card {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
   padding: 10px 14px;
+  transition: all 0.15s;
 }
 
-.ct-session-group.is-current {
-  border-color: #93c5fd;
-  background: #f0f9ff;
-}
+.ct-session-card.is-current { border-color: #93c5fd; background: #f0f9ff; }
 
-.ct-session-project {
+.ct-session-card.is-active { border-left: 3px solid #22c55e; }
+
+.ct-session-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
 }
 
+@keyframes ct-pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+.ct-session-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #94a3b8;
+  flex-shrink: 0;
+}
+
+.ct-session-indicator.is-running {
+  background: #22c55e;
+  animation: ct-pulse-ring 2s ease-in-out infinite;
+}
+
 .ct-session-project-name {
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: #1e293b;
   flex: 1;
 }
 
-.ct-session-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  border-radius: 10px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  background: #3b82f6;
-  color: #fff;
-  padding: 0 5px;
-}
-
-.ct-session-details {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding-left: 16px;
-}
-
-.ct-session-row {
-  display: flex;
-  gap: 10px;
-  font-size: 0.75rem;
+.ct-session-model-badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: #f1f5f9;
   color: #64748b;
 }
 
-.ct-session-model {
-  font-weight: 600;
-  color: #475569;
-  min-width: 50px;
+.ct-session-model-badge--sonnet { background: #fef3c7; color: #92400e; }
+.ct-session-model-badge--opus { background: #e0e7ff; color: #3730a3; }
+
+.ct-session-info {
+  display: flex;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  padding-left: 16px;
 }
 
-.ct-session-elapsed { color: #94a3b8; }
-.ct-session-mem { color: #94a3b8; }
 .ct-session-cpu { color: #f59e0b; font-weight: 600; }
+
+.ct-session-status {
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+.ct-session-status.is-active {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.ct-session-overflow {
+  text-align: center;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  padding: 6px;
+}
 
 /* ─── Back button & header row ─── */
 .ct-header-left {

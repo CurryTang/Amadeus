@@ -1791,47 +1791,51 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 );
               })()}
 
-              {/* Active Claude Code Sessions */}
-              {localSessions.length > 0 && (
-                <div className="ct-sessions">
-                  <div className="ct-section-header">
-                    <h4>Active Sessions</h4>
-                    <span className="ct-section-meta">
-                      {localSessionsUpdatedAt ? `Updated ${new Date(localSessionsUpdatedAt).toLocaleTimeString()}` : ''}
-                    </span>
-                  </div>
-                  <div className="ct-session-list">
-                    {(() => {
-                      // Group sessions by project
-                      const byProject = {};
-                      localSessions.forEach((s) => {
-                        const key = s.projectName || s.cwd || 'Unknown';
-                        if (!byProject[key]) byProject[key] = { name: key, projectId: s.projectId, sessions: [] };
-                        byProject[key].sessions.push(s);
-                      });
-                      return Object.values(byProject).map((group) => (
-                        <div key={group.name} className={`ct-session-group${group.projectId === selectedProjectId ? ' is-current' : ''}`}>
-                          <div className="ct-session-project">
-                            <span className={`ct-status-dot ct-status-dot--running`} />
-                            <span className="ct-session-project-name">{group.name}</span>
-                            <span className="ct-session-count">{group.sessions.length}</span>
+              {/* Active Claude Code Sessions — top 5 recent within 1 week */}
+              {localSessions.length > 0 && (() => {
+                const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+                const recent = localSessions
+                  .filter((s) => !s.startedAt || new Date(s.startedAt).getTime() > oneWeekAgo)
+                  .sort((a, b) => {
+                    // Active sessions first, then by start time (newest first)
+                    if (a.isActive && !b.isActive) return -1;
+                    if (!a.isActive && b.isActive) return 1;
+                    return new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime();
+                  })
+                  .slice(0, 5);
+                if (recent.length === 0) return null;
+                const activeCount = recent.filter((s) => s.isActive).length;
+                return (
+                  <div className="ct-sessions">
+                    <div className="ct-section-header">
+                      <h4>Claude Code Sessions {activeCount > 0 && <span className="ct-active-badge">{activeCount} active</span>}</h4>
+                      <span className="ct-section-meta">
+                        {localSessionsUpdatedAt ? new Date(localSessionsUpdatedAt).toLocaleTimeString() : ''}
+                      </span>
+                    </div>
+                    <div className="ct-session-list">
+                      {recent.map((s) => (
+                        <div key={s.pid} className={`ct-session-card${s.isActive ? ' is-active' : ''}${s.projectId === selectedProjectId ? ' is-current' : ''}`}>
+                          <div className="ct-session-header">
+                            <span className={`ct-session-indicator${s.isActive ? ' is-running' : ''}`} />
+                            <span className="ct-session-project-name">{s.projectName || s.cwd?.split('/').pop() || 'Unknown'}</span>
+                            <span className={`ct-session-model-badge ct-session-model-badge--${s.model}`}>{s.model}</span>
                           </div>
-                          <div className="ct-session-details">
-                            {group.sessions.map((s) => (
-                              <div key={s.pid} className="ct-session-row">
-                                <span className="ct-session-model">{s.model}</span>
-                                <span className="ct-session-elapsed">{s.elapsed}</span>
-                                <span className="ct-session-mem">{s.memMb}MB</span>
-                                {s.cpu > 1 && <span className="ct-session-cpu">{s.cpu}%</span>}
-                              </div>
-                            ))}
+                          <div className="ct-session-info">
+                            <span title="Started">{s.startedAt ? new Date(s.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : s.elapsed}</span>
+                            <span title="Memory">{s.memMb}MB</span>
+                            {s.cpu > 0.5 && <span className="ct-session-cpu" title="CPU">{s.cpu}%</span>}
+                            <span className={`ct-session-status${s.isActive ? ' is-active' : ''}`}>{s.isActive ? 'Running' : 'Idle'}</span>
                           </div>
                         </div>
-                      ));
-                    })()}
+                      ))}
+                    </div>
+                    {localSessions.length > 5 && (
+                      <div className="ct-session-overflow">{localSessions.length - 5} more sessions</div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Research Phases */}
               {selectedProjectId && (
