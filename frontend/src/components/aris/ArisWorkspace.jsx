@@ -1830,7 +1830,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                     return new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime();
                   })
                   .slice(0, 5);
-                if (recent.length === 0 && localSessions.length === 0) return (
+                if (recent.length === 0) return (
                   <div className="ct-sessions">
                     <div className="ct-section-header"><h4>Claude Code Sessions</h4></div>
                     <div className="ct-empty ct-empty--sm">No active sessions detected. Monitor pushes every 30s.</div>
@@ -1854,7 +1854,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                             <span className={`ct-session-model-badge ct-session-model-badge--${s.model}`}>{s.model}</span>
                             <span className={`ct-session-status${s.isActive ? ' is-active' : ''}`}>{s.isActive ? 'Running' : 'Idle'}</span>
                           </div>
-                          {s.sessionName && <div className="ct-session-name">{s.sessionName}</div>}
+                          <div className="ct-session-name">{s.sessionName || (s.startedAt ? `Session · ${new Date(s.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'Unnamed session')}</div>
                           <div className="ct-session-info">
                             <span title="Started">{s.startedAt ? new Date(s.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : s.elapsed}</span>
                             <span title="Memory">{s.memMb}MB</span>

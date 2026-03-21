@@ -908,6 +908,39 @@ router.post('/projects/:projectId/import-papers', requireAuth, async (req, res) 
 
 // In-memory store for session snapshots (ephemeral — resets on restart)
 let localSessionSnapshot = { sessions: [], updatedAt: null };
+// Cache AI-generated session summaries by matched JSONL filename
+const sessionSummaryCache = new Map();
+
+// Generate a short AI summary for a session using OpenAI gpt-4o-mini
+async function generateSessionSummary(rawContext, matchedFile) {
+  if (!rawContext || sessionSummaryCache.has(matchedFile)) {
+    return sessionSummaryCache.get(matchedFile) || '';
+  }
+  const apiKey = process.env.OPENAI_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return '';
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        max_tokens: 30,
+        messages: [
+          { role: 'system', content: 'Summarize this Claude Code conversation in 5-8 words. Be specific about the task. Return ONLY the summary, no quotes.' },
+          { role: 'user', content: rawContext },
+        ],
+      }),
+    });
+    if (!resp.ok) return '';
+    const data = await resp.json();
+    const summary = (data.choices?.[0]?.message?.content || '').trim();
+    if (summary) sessionSummaryCache.set(matchedFile, summary);
+    return summary;
+  } catch (e) {
+    console.warn('[ARIS] session summary generation failed:', e.message);
+    return '';
+  }
+}
 
 // POST /api/aris/local-sessions — push a snapshot of running Claude Code sessions
 // Called periodically by a local monitor script on the user's Mac
@@ -916,18 +949,25 @@ router.post('/local-sessions', requireAuth, async (req, res) => {
     const { sessions = [] } = req.body || {};
     // Match sessions to ARIS projects by cwd -> localFullPath
     const projects = await arisService.listProjects();
-    const enriched = sessions.map((s) => {
+    const enriched = await Promise.all(sessions.map(async (s) => {
       const cwdLower = (s.cwd || '').toLowerCase();
       const project = projects.find((p) => {
         const fp = (p.localFullPath || p.localProjectPath || '').toLowerCase();
         return fp && cwdLower && (cwdLower === fp || cwdLower.startsWith(fp + '/'));
       });
+      // AI-generate session name if missing but rawContext available
+      let sessionName = s.sessionName || '';
+      if (!sessionName && s.rawContext && s._matchedFile) {
+        sessionName = await generateSessionSummary(s.rawContext, s._matchedFile);
+      }
       return {
         ...s,
+        sessionName,
+        rawContext: undefined, // don't store raw context in snapshot
         projectId: project?.id || null,
         projectName: project?.name || null,
       };
-    });
+    }));
     localSessionSnapshot = { sessions: enriched, updatedAt: new Date().toISOString() };
     res.json({ ok: true, count: enriched.length });
   } catch (error) {

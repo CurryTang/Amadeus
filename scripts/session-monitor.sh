@@ -52,6 +52,7 @@ for (const line of psOut.split('\n')) {
   // Extract session prompt from most recent conversation JSONL
   let sessionName = '';
   let matchedFileName = '';
+  let rawContext = '';
   try {
     const claudeProjects = path.join(os.homedir(), '.claude/projects');
     // Convert cwd to claude project dir name: /Users/czk/foo -> -Users-czk-foo
@@ -79,18 +80,32 @@ for (const line of psOut.split('\n')) {
         matchedFileName = targetFile.name;
         const content = fs.readFileSync(path.join(projDir, targetFile.name), 'utf8');
         const lines = content.trim().split('\n');
+        const contextParts = []; // collect conversation context for AI summary fallback
         for (const l of lines) {
           try {
             const j = JSON.parse(l);
-            if (j.type === 'user') {
+            if (j.type === 'user' || j.type === 'assistant') {
               const c = j.message?.content || '';
               const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x=>x.type==='text').map(x=>x.text).join(' ') : '';
-              if (text && text.length > 5 && !text.startsWith('<ide_') && !text.startsWith('<system') && !text.startsWith('<task-') && !text.startsWith('<command') && !text.startsWith('Base directory') && !text.startsWith('<local-command')) {
+              if (!text || text.length < 5) continue;
+              // Skip system/meta messages
+              if (text.startsWith('<ide_') || text.startsWith('<system') || text.startsWith('<task-')
+                || text.startsWith('<command') || text.startsWith('Base directory') || text.startsWith('<local-command')
+                || text.startsWith('[Request interrupted') || text.startsWith('This session is being continued')) continue;
+              // First good user message becomes sessionName
+              if (!sessionName && j.type === 'user') {
                 sessionName = text.substring(0, 100).replace(/[\\n\\r]+/g, ' ').replace(/\"/g, '');
-                break;
+              }
+              // Collect context for AI summarization (first ~500 chars total)
+              if (contextParts.join('').length < 500) {
+                contextParts.push((j.type === 'user' ? 'User: ' : 'Assistant: ') + text.substring(0, 200));
               }
             }
           } catch(_) {}
+        }
+        // If no sessionName found, attach rawContext for backend AI summarization
+        if (!sessionName && contextParts.length > 0) {
+          rawContext = contextParts.join('\\n').substring(0, 600).replace(/\"/g, '');
         }
       }
     }
@@ -98,6 +113,7 @@ for (const line of psOut.split('\n')) {
 
   const entry = { pid: parseInt(pid), cpu: parseFloat(cpu), memMb, elapsed, model, cwd, startedAt, isActive, sessionName };
   if (matchedFileName) entry._matchedFile = matchedFileName;
+  if (rawContext) entry.rawContext = rawContext;
   sessions.push(entry);
 }
 
