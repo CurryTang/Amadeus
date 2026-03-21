@@ -38,7 +38,15 @@ app.set('trust proxy', 1);
 // CORS must be before helmet/rate-limiting so preflight OPTIONS gets proper headers
 app.use(
   cors({
-    origin: config.cors.origin,
+    origin: (origin, cb) => {
+      // Allow requests with no origin (curl, server-to-server)
+      if (!origin) return cb(null, true);
+      // Allow the configured web origin
+      if (origin === config.cors.origin) return cb(null, true);
+      // Allow Chrome extension origins
+      if (origin.startsWith('chrome-extension://')) return cb(null, true);
+      cb(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
