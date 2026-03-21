@@ -10,6 +10,7 @@ const { initDatabase } = require('./db');
 
 // Import reader services (for scheduler integration)
 const schedulerService = require('./services/scheduler.service');
+const dailyPaperService = require('./services/daily-paper.service');
 const readerService = require('./services/reader.service');
 const pdfService = require('./services/pdf.service');
 const codeAnalysisService = require('./services/code-analysis.service');
@@ -183,6 +184,10 @@ async function startServer() {
       // Start AI edit processor
       aiEditService.startProcessor();
       console.log('AI edit processor started');
+
+      // Start daily paper scheduler
+      dailyPaperService.startScheduler();
+      console.log('Daily paper scheduler started');
     } else {
       console.log('Document reader is disabled');
     }

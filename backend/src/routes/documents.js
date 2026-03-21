@@ -62,6 +62,49 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/documents/obsidian-pending — docs with notes ready but not exported to Obsidian
+router.get('/obsidian-pending', requireAuth, async (req, res) => {
+  try {
+    const { getDb } = require('../db');
+    const db = getDb();
+    const result = await db.execute({
+      sql: `SELECT id, title, notes_s3_key, processing_status, obsidian_exported
+            FROM documents
+            WHERE processing_status = 'completed'
+              AND notes_s3_key IS NOT NULL
+              AND (obsidian_exported = 0 OR obsidian_exported IS NULL)
+            ORDER BY updated_at DESC`,
+    });
+    const docs = (result.rows || []).map((row) => ({
+      id: row.id,
+      title: row.title,
+      notesS3Key: row.notes_s3_key,
+      processingStatus: row.processing_status,
+    }));
+    res.json({ documents: docs });
+  } catch (error) {
+    console.error('Error fetching obsidian-pending:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/documents/:id/obsidian-exported — mark as exported
+router.post('/:id/obsidian-exported', requireAuth, async (req, res) => {
+  try {
+    const { getDb } = require('../db');
+    const db = getDb();
+    const docId = parseInt(req.params.id, 10) || req.params.id;
+    await db.execute({
+      sql: `UPDATE documents SET obsidian_exported = 1, obsidian_exported_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      args: [docId],
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error marking obsidian-exported:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/documents/:id - Get single document
 router.get('/:id', async (req, res) => {
   try {
