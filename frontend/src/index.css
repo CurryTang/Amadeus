@@ -13431,14 +13431,25 @@ button.vibe-skill-chip.is-active {
 
 .ct-session-cpu { color: #f59e0b; font-weight: 600; }
 
+.ct-session-name {
+  font-size: 0.78rem;
+  color: #64748b;
+  padding: 2px 0 4px 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: italic;
+}
+
 .ct-session-status {
-  font-weight: 500;
+  font-size: 0.7rem;
+  font-weight: 600;
   color: #94a3b8;
+  margin-left: auto;
 }
 
 .ct-session-status.is-active {
   color: #16a34a;
-  font-weight: 600;
 }
 
 .ct-session-overflow {

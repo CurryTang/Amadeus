@@ -1820,12 +1820,13 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                             <span className={`ct-session-indicator${s.isActive ? ' is-running' : ''}`} />
                             <span className="ct-session-project-name">{s.projectName || s.cwd?.split('/').pop() || 'Unknown'}</span>
                             <span className={`ct-session-model-badge ct-session-model-badge--${s.model}`}>{s.model}</span>
+                            <span className={`ct-session-status${s.isActive ? ' is-active' : ''}`}>{s.isActive ? 'Running' : 'Idle'}</span>
                           </div>
+                          {s.sessionName && <div className="ct-session-name">{s.sessionName}</div>}
                           <div className="ct-session-info">
                             <span title="Started">{s.startedAt ? new Date(s.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : s.elapsed}</span>
                             <span title="Memory">{s.memMb}MB</span>
                             {s.cpu > 0.5 && <span className="ct-session-cpu" title="CPU">{s.cpu}%</span>}
-                            <span className={`ct-session-status${s.isActive ? ' is-active' : ''}`}>{s.isActive ? 'Running' : 'Idle'}</span>
                           </div>
                         </div>
                       ))}

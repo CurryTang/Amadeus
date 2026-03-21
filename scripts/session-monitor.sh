@@ -5,41 +5,107 @@
 ARIS_API="${ARIS_API:-https://auto-reader.duckdns.org/api}"
 ARIS_TOKEN="${ARIS_TOKEN:-***REDACTED_ADMIN_TOKEN***}"
 
-# Collect running Claude Code sessions with reliable CWD detection
-SESSIONS=$(/bin/ps -eo pid,pcpu,rss,lstart,etime,command | grep "claude.*--output-format" | grep -v grep | while read -r pid cpu rss dow mon day time year elapsed rest; do
-  model=$(echo "$rest" | sed -n 's/.*--model \([^ ]*\).*/\1/p')
-  [ -z "$model" ] && model="default"
+# Use node to collect sessions with prompt extraction
+SESSIONS=$(node -e "
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
-  # Reliable CWD via lsof -d cwd
-  cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | grep "^n" | head -1 | sed 's/^n//')
-  [ -z "$cwd" ] && cwd="unknown"
+// Get running Claude processes
+const psOut = execSync('/bin/ps -eo pid,pcpu,rss,lstart,etime,command', { encoding: 'utf8' });
+const sessions = [];
+const oneWeek = 7 * 24 * 3600 * 1000;
+const now = Date.now();
 
-  mem_mb=$((rss / 1024))
+for (const line of psOut.split('\n')) {
+  if (!line.includes('--output-format') || line.includes('grep')) continue;
 
-  # Parse start time from lstart (e.g., "Thu Mar 20 12:19:00 2026")
-  start_ts=$(date -j -f "%a %b %d %T %Y" "$dow $mon $day $time $year" "+%s" 2>/dev/null || echo "0")
-  now_ts=$(date "+%s")
-  age_hours=$(( (now_ts - start_ts) / 3600 ))
+  const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+(\d+)\s+(\w+ \w+ \d+ [\d:]+ \d+)\s+([\d\-:]+)\s+(.+)$/);
+  if (!m) continue;
 
-  # Skip sessions older than 7 days
-  [ "$age_hours" -gt 168 ] && continue
+  const [, pid, cpu, rss, lstart, elapsed, cmd] = m;
+  const modelMatch = cmd.match(/--model\s+(\S+)/);
+  const model = modelMatch ? modelMatch[1] : 'default';
+  const memMb = Math.round(parseInt(rss) / 1024);
 
-  # Determine if actively running (CPU > 0.5% = active)
-  is_active="false"
-  cpu_int=$(echo "$cpu" | awk '{printf "%d", $1}')
-  [ "$cpu_int" -ge 1 ] && is_active="true"
+  // Parse start time
+  let startedAt = '';
+  try {
+    const d = new Date(lstart);
+    if (!isNaN(d.getTime())) {
+      if (now - d.getTime() > oneWeek) continue; // skip > 7 days
+      startedAt = d.toISOString();
+    }
+  } catch(_) {}
 
-  start_iso=$(date -j -f "%a %b %d %T %Y" "$dow $mon $day $time $year" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null || echo "")
+  // Get CWD
+  let cwd = 'unknown';
+  try {
+    const lsofOut = execSync('lsof -a -p ' + pid + ' -d cwd -Fn 2>/dev/null', { encoding: 'utf8' });
+    const cwdMatch = lsofOut.match(/\nn(.+)/);
+    if (cwdMatch) cwd = cwdMatch[1];
+  } catch(_) {}
 
-  printf '{"pid":%s,"cpu":%s,"memMb":%s,"elapsed":"%s","model":"%s","cwd":"%s","startedAt":"%s","isActive":%s},' \
-    "$pid" "$cpu" "$mem_mb" "$elapsed" "$model" "$cwd" "$start_iso" "$is_active"
-done)
+  const isActive = parseFloat(cpu) >= 1;
 
-# Remove trailing comma, wrap in array
-SESSIONS="[${SESSIONS%,}]"
+  // Extract session prompt from most recent conversation JSONL
+  let sessionName = '';
+  let matchedFileName = '';
+  try {
+    const claudeProjects = path.join(os.homedir(), '.claude/projects');
+    // Convert cwd to claude project dir name: /Users/czk/foo -> -Users-czk-foo
+    const dirName = cwd.replace(/\//g, '-');
+    const projDir = path.join(claudeProjects, dirName);
+    if (fs.existsSync(projDir)) {
+      const jsonlFiles = fs.readdirSync(projDir)
+        .filter(f => f.endsWith('.jsonl'))
+        .map(f => ({ name: f, mtime: fs.statSync(path.join(projDir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+
+      // Match PID to JSONL by finding the file whose mtime is closest to (and after) session start
+      const startMs = startedAt ? new Date(startedAt).getTime() : 0;
+      // Find files that were active around the session start time
+      const usedFiles = sessions.map(s => s._matchedFile).filter(Boolean);
+      let targetFile = null;
+      if (startMs) {
+        targetFile = jsonlFiles.find(f => Math.abs(f.mtime - startMs) < 24*3600*1000 && !usedFiles.includes(f.name))
+          || jsonlFiles.find(f => !usedFiles.includes(f.name))
+          || jsonlFiles[0];
+      } else {
+        targetFile = jsonlFiles.find(f => !usedFiles.includes(f.name)) || jsonlFiles[0];
+      }
+      if (targetFile) {
+        matchedFileName = targetFile.name;
+        const content = fs.readFileSync(path.join(projDir, targetFile.name), 'utf8');
+        const lines = content.trim().split('\n');
+        for (const l of lines) {
+          try {
+            const j = JSON.parse(l);
+            if (j.type === 'user') {
+              const c = j.message?.content || '';
+              const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x=>x.type==='text').map(x=>x.text).join(' ') : '';
+              if (text && text.length > 5 && !text.startsWith('<ide_') && !text.startsWith('<system') && !text.startsWith('<task-') && !text.startsWith('<command') && !text.startsWith('Base directory') && !text.startsWith('<local-command')) {
+                sessionName = text.substring(0, 100).replace(/[\\n\\r]+/g, ' ').replace(/\"/g, '');
+                break;
+              }
+            }
+          } catch(_) {}
+        }
+      }
+    }
+  } catch(_) {}
+
+  const entry = { pid: parseInt(pid), cpu: parseFloat(cpu), memMb, elapsed, model, cwd, startedAt, isActive, sessionName };
+  if (matchedFileName) entry._matchedFile = matchedFileName;
+  sessions.push(entry);
+}
+
+console.log(JSON.stringify(sessions));
+" 2>/dev/null)
 
 # Push to ARIS API
 /usr/bin/curl -s -X POST "${ARIS_API}/aris/local-sessions" \
   -H "Authorization: Bearer ${ARIS_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d "{\"sessions\":${SESSIONS}}" >/dev/null 2>&1
+  -d "{\"sessions\":${SESSIONS:-[]}}" >/dev/null 2>&1
