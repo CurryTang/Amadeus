@@ -547,7 +547,14 @@ function parseConditions(clause, args, startIdx) {
     if (cmpMatch) {
       const col = resolveCol(cmpMatch[1]);
       const op = cmpMatch[2];
-      const val = trimmed.includes('?') ? args[argIdx++] : trimmed.split(op)[1]?.trim().replace(/^'|'$/g, '');
+      let val;
+      if (trimmed.includes('?')) {
+        val = args[argIdx++];
+      } else {
+        const raw = trimmed.split(op).slice(1).join(op).trim().replace(/^'|'$/g, '');
+        // Coerce numeric literals: "0" -> 0, "1" -> 1, etc.
+        val = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+      }
 
       switch (op) {
         case '=': filter[col] = val; break;
