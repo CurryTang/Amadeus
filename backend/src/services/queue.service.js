@@ -62,24 +62,43 @@ class QueueService {
       return null;
     }
 
-    // Get the highest priority, oldest document from queue (respecting scheduled_at for retries)
-    const result = await db.execute(`
-      SELECT pq.id, pq.document_id, pq.retry_count, pq.max_retries, pq.refinement_rounds_json,
-             d.title, d.s3_key, d.file_size, d.mime_type,
-             d.reader_mode, d.code_url, d.has_code, d.analysis_provider, d.analysis_model, d.thinking_budget
-      FROM processing_queue pq
-      JOIN documents d ON pq.document_id = d.id
-      WHERE d.processing_status = 'queued'
-        AND pq.scheduled_at <= CURRENT_TIMESTAMP
-      ORDER BY pq.priority DESC, pq.scheduled_at ASC
-      LIMIT 1
-    `);
+    // Two-step dequeue: first find queue entry, then fetch document.
+    // Avoids JOIN which has issues with mongo-compat WHERE clause routing.
+    const queueResult = await db.execute({
+      sql: `SELECT id, document_id, retry_count, max_retries, refinement_rounds_json
+            FROM processing_queue
+            WHERE scheduled_at <= CURRENT_TIMESTAMP
+            ORDER BY priority DESC, scheduled_at ASC
+            LIMIT 10`,
+      args: [],
+    });
 
-    if (result.rows.length === 0) {
+    if (queueResult.rows.length === 0) {
       return null;
     }
 
-    const item = result.rows[0];
+    // Find first queue entry whose document is in 'queued' status
+    let item = null;
+    let queueEntry = null;
+    for (const qRow of queueResult.rows) {
+      const docResult = await db.execute({
+        sql: `SELECT id, title, s3_key, file_size, mime_type,
+               reader_mode, code_url, has_code, analysis_provider, analysis_model, thinking_budget,
+               processing_status
+               FROM documents WHERE id = ?`,
+        args: [qRow.document_id],
+      });
+      const doc = docResult.rows?.[0];
+      if (doc && doc.processing_status === 'queued') {
+        item = { ...qRow, ...doc };
+        queueEntry = qRow;
+        break;
+      }
+    }
+
+    if (!item) {
+      return null;
+    }
 
     // Mark as processing
     await db.execute({
