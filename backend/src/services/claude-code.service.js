@@ -32,9 +32,6 @@ function runClaudeHeadless(prompt, options = {}) {
   const thinkingBudget = options.thinkingBudget || 0;
 
   const args = ['--print', '--model', model, '--dangerously-skip-permissions'];
-  if (thinkingBudget > 0) {
-    args.push('--think');
-  }
 
   const env = { ...process.env };
   if (config.claudeCli?.apiKey) {
