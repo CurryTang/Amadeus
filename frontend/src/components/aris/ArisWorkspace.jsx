@@ -430,6 +430,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const [editingPhaseName, setEditingPhaseName] = useState('');
   const [addingPhase, setAddingPhase] = useState(false);
   const [newPhaseName, setNewPhaseName] = useState('');
+  const [quickNote, setQuickNote] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedTargetId, setSelectedTargetId] = useState('');
@@ -636,6 +638,31 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       if (expandedPhaseId === milestoneId) setExpandedPhaseId(null);
       await fetchMilestones(selectedProjectId);
     } catch (err) { setError(err.response?.data?.error || 'Failed to delete phase'); }
+  };
+
+  const handleSaveQuickNote = async () => {
+    const text = quickNote.trim();
+    if (!text || !selectedProjectId || savingNote) return;
+    setSavingNote(true);
+    try {
+      // First line becomes title, rest is content
+      const lines = text.split('\n');
+      const title = lines[0].substring(0, 100);
+      const content = lines.length > 1 ? lines.slice(1).join('\n').trim() : '';
+      await axios.post(`${apiUrl}/aris/projects/${selectedProjectId}/work-items`, {
+        title,
+        contextMd: content,
+        type: 'note',
+        status: 'done',
+      }, { headers: getAuthHeaders() });
+      setQuickNote('');
+      // Optimistic: refresh in background
+      fetchProjectWorkItems(selectedProjectId).catch(() => {});
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to save note');
+    } finally {
+      setSavingNote(false);
+    }
   };
 
   const handleCreateFollowUp = (parentItem) => {
@@ -1948,6 +1975,49 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Quick Notes */}
+              {selectedProjectId && (
+                <div className="ct-quick-notes">
+                  <h4>Quick Notes</h4>
+                  <div className="ct-note-input-row">
+                    <textarea
+                      className="ct-note-input"
+                      rows={2}
+                      placeholder="Jot something down... (first line = title, Ctrl+Enter to save)"
+                      value={quickNote}
+                      onChange={(e) => setQuickNote(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSaveQuickNote(); } }}
+                    />
+                    <button className="ct-btn ct-btn--primary ct-btn--sm" onClick={handleSaveQuickNote} disabled={savingNote || !quickNote.trim()}>
+                      {savingNote ? '...' : 'Save'}
+                    </button>
+                  </div>
+                  {(() => {
+                    const notes = workItemRows.filter((w) => {
+                      const wi = workItems.find((x) => x.id === w.id);
+                      return wi?.type === 'note';
+                    }).slice(0, 5);
+                    if (notes.length === 0) return null;
+                    return (
+                      <div className="ct-note-list">
+                        {notes.map((n) => {
+                          const wi = workItems.find((x) => x.id === n.id);
+                          return (
+                            <div key={n.id} className="ct-note-item">
+                              <button type="button" className="ct-note-title" onClick={() => { setSelectedWorkItemId(n.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}>
+                                {n.title}
+                              </button>
+                              <span className="ct-note-time">{wi?.createdAt ? new Date(wi.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</span>
+                              <button className="ct-btn-ghost ct-btn-ghost--danger ct-btn-ghost--sm" onClick={() => handleDeleteWorkItem(n.id)}>&times;</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 

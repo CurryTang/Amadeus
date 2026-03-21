@@ -13459,6 +13459,67 @@ button.vibe-skill-chip.is-active {
   padding: 6px;
 }
 
+/* ─── Quick Notes ─── */
+.ct-quick-notes { margin-bottom: 20px; }
+.ct-quick-notes h4 { font-size: 0.85rem; font-weight: 600; color: #475569; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+.ct-note-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.ct-note-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #334155;
+  background: #fff;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.ct-note-input:focus { border-color: #3b82f6; }
+.ct-note-input::placeholder { color: #cbd5e1; }
+
+.ct-note-list { display: flex; flex-direction: column; gap: 2px; }
+
+.ct-note-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid #f8fafc;
+}
+
+.ct-note-item:last-child { border-bottom: none; }
+
+.ct-note-title {
+  flex: 1;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 0.82rem;
+  color: #334155;
+  cursor: pointer;
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-note-title:hover { color: #2563eb; }
+
+.ct-note-time { font-size: 0.72rem; color: #94a3b8; flex-shrink: 0; }
+
+.ct-note-item .ct-btn-ghost--danger { opacity: 0; }
+.ct-note-item:hover .ct-btn-ghost--danger { opacity: 1; }
+
 /* ─── Back button & header row ─── */
 .ct-header-left {
   display: flex;
