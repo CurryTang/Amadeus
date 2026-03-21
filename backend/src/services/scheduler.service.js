@@ -135,6 +135,7 @@ class SchedulerService {
     }
 
     try {
+      console.log('[Scheduler] processNextInQueue tick');
       const concurrency = config.reader?.concurrency || 2;
       const items = [];
 
