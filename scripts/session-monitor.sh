@@ -3,7 +3,7 @@
 # Cron: runs every 30s automatically
 
 ARIS_API="${ARIS_API:-https://auto-reader.duckdns.org/api}"
-ARIS_TOKEN="${ARIS_TOKEN:-***REDACTED_ADMIN_TOKEN***}"
+ARIS_TOKEN="${ARIS_TOKEN:?Set ARIS_TOKEN env var}"
 
 # Use node to collect sessions with prompt extraction
 SESSIONS=$(node -e "

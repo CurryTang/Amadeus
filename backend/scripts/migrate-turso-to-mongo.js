@@ -7,10 +7,15 @@
 const { createClient } = require('@libsql/client');
 const { MongoClient } = require('mongodb');
 
-const TURSO_URL = process.env.TURSO_DATABASE_URL || 'libsql://auto-reader-chenzh85.aws-us-east-2.turso.io';
-const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || '***REDACTED_TURSO_TOKEN***';
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb+srv://bot:***REDACTED***@autogml.6oytx0r.mongodb.net/autoresearcher?retryWrites=true&w=majority&appName=AutoGML';
+const TURSO_URL = process.env.TURSO_DATABASE_URL;
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN;
+const MONGO_URI = process.env.MONGODB_URI;
 const MONGO_DB = process.env.MONGO_DB_NAME || 'autoresearcher';
+
+if (!TURSO_URL || !TURSO_TOKEN || !MONGO_URI) {
+  console.error('Required env vars: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, MONGODB_URI');
+  process.exit(1);
+}
 
 // Tables with INTEGER PRIMARY KEY AUTOINCREMENT (need _id = id)
 const AUTO_ID_TABLES = new Set([
