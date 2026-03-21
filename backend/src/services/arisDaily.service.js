@@ -314,25 +314,16 @@ function createArisDailyService() {
       projectMap[p.id] = p.name;
     }
 
+    // Only two states matter: ongoing (everything not done/canceled) and done
     const result = await db.execute({
       sql: `SELECT * FROM aris_work_items
-            WHERE status IN ('in_progress', 'ready', 'review', 'blocked', 'waiting')
+            WHERE status NOT IN ('done', 'canceled')
               AND archived_at IS NULL
             ORDER BY
-              CASE status
-                WHEN 'blocked' THEN 0
-                WHEN 'review' THEN 1
-                WHEN 'in_progress' THEN 2
-                WHEN 'waiting' THEN 3
-                WHEN 'ready' THEN 4
-                ELSE 5
-              END,
               COALESCE(priority, 0) DESC,
               datetime(COALESCE(updated_at, created_at)) DESC`,
     });
-    const validStatuses = new Set(['in_progress', 'ready', 'review', 'blocked', 'waiting']);
     return (result.rows || [])
-      .filter((row) => validStatuses.has(row.status)) // JS safety filter
       .map((row) => ({
         id: row.id,
         projectId: row.project_id,

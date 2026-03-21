@@ -80,6 +80,9 @@ async function initDatabase() {
     { name: 'analysis_model', definition: 'TEXT DEFAULT NULL' },
     // Extended thinking budget in tokens (0 = disabled)
     { name: 'thinking_budget', definition: 'INTEGER DEFAULT 0' },
+    // Obsidian sync tracking
+    { name: 'obsidian_exported', definition: 'INTEGER DEFAULT 0' },
+    { name: 'obsidian_exported_at', definition: 'DATETIME' },
   ];
 
   for (const col of processingColumns) {
@@ -773,6 +776,48 @@ How does this work relate to other important papers in the field? What prior wor
   // recurrence_day: 0-6 (Sun-Sat) for weekly milestones
   try { await db.execute(`ALTER TABLE aris_milestones ADD COLUMN recurrence TEXT DEFAULT NULL`); } catch (_) { /* already exists */ }
   try { await db.execute(`ALTER TABLE aris_milestones ADD COLUMN recurrence_day INTEGER DEFAULT NULL`); } catch (_) { /* already exists */ }
+
+  // ─── Migration: Simplify work item statuses to ongoing/done ─────────────
+  // Convert all non-done/canceled statuses to in_progress
+  await db.execute(`UPDATE aris_work_items SET status = 'in_progress' WHERE status NOT IN ('done', 'canceled', 'in_progress')`);
+
+  // ─── Daily Paper Mode ─────────────────────────────────────────────────────
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS daily_paper_config (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      k INTEGER DEFAULT 5,
+      enabled INTEGER DEFAULT 0,
+      schedule_hour INTEGER DEFAULT 8,
+      auto_export INTEGER DEFAULT 1,
+      provider TEXT DEFAULT 'claude-code',
+      model TEXT DEFAULT 'claude-opus-4-6',
+      updated_at DATETIME
+    )
+  `);
+
+  // Seed default config if not exists
+  const existingConfig = await db.execute(`SELECT id FROM daily_paper_config WHERE id = 'default' LIMIT 1`);
+  if (existingConfig.rows.length === 0) {
+    await db.execute(`INSERT INTO daily_paper_config (id, updated_at) VALUES ('default', CURRENT_TIMESTAMP)`);
+  }
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS daily_paper_selections (
+      id TEXT PRIMARY KEY,
+      selection_date TEXT NOT NULL,
+      document_ids TEXT NOT NULL DEFAULT '[]',
+      config_k INTEGER DEFAULT 5,
+      status TEXT DEFAULT 'pending',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_daily_paper_selections_date
+    ON daily_paper_selections(selection_date DESC)
+  `);
 
   // Migration: add proxy_jump column for SSH ProxyJump support.
   try {
