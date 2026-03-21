@@ -814,9 +814,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     } catch (_) { /* non-critical */ }
   }, [apiUrl, getAuthHeaders]);
 
-  // Auto-poll sessions every 15s when overview is active
+  // Auto-poll sessions every 15s when overview or my-day panel is active
   useEffect(() => {
-    if (ctPanel !== CT_PANELS.OVERVIEW) return;
+    if (ctPanel !== CT_PANELS.OVERVIEW && ctPanel !== CT_PANELS.MY_DAY) return;
     fetchLocalSessions();
     const interval = setInterval(fetchLocalSessions, 15000);
     return () => clearInterval(interval);
@@ -2218,57 +2218,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 );
               })()}
 
-              {/* Active Claude Code Sessions — top 5 recent within 1 week */}
-              {selectedProjectId && (() => {
-                const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-                const recent = localSessions
-                  .filter((s) => !s.startedAt || new Date(s.startedAt).getTime() > oneWeekAgo)
-                  .sort((a, b) => {
-                    // Active sessions first, then by start time (newest first)
-                    if (a.isActive && !b.isActive) return -1;
-                    if (!a.isActive && b.isActive) return 1;
-                    return new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime();
-                  })
-                  .slice(0, 5);
-                if (recent.length === 0) return (
-                  <div className="ct-sessions">
-                    <div className="ct-section-header"><h4>Claude Code Sessions</h4></div>
-                    <div className="ct-empty ct-empty--sm">No active sessions detected. Monitor pushes every 30s.</div>
-                  </div>
-                );
-                const activeCount = recent.filter((s) => s.isActive).length;
-                return (
-                  <div className="ct-sessions">
-                    <div className="ct-section-header">
-                      <h4>Claude Code Sessions {activeCount > 0 && <span className="ct-active-badge">{activeCount} active</span>}</h4>
-                      <span className="ct-section-meta">
-                        {localSessionsUpdatedAt ? new Date(localSessionsUpdatedAt).toLocaleTimeString() : ''}
-                      </span>
-                    </div>
-                    <div className="ct-session-list">
-                      {recent.map((s) => (
-                        <div key={s.pid} className={`ct-session-card${s.isActive ? ' is-active' : ''}${s.projectId === selectedProjectId ? ' is-current' : ''}`}>
-                          <div className="ct-session-header">
-                            <span className={`ct-session-indicator${s.isActive ? ' is-running' : ''}`} />
-                            <span className="ct-session-project-name">{s.projectName || s.cwd?.split('/').pop() || 'Unknown'}</span>
-                            <span className={`ct-session-model-badge ct-session-model-badge--${s.model}`}>{s.model}</span>
-                            <span className={`ct-session-status${s.isActive ? ' is-active' : ''}`}>{s.isActive ? 'Running' : 'Idle'}</span>
-                          </div>
-                          <div className="ct-session-name">{s.sessionName || (s.startedAt ? `Session · ${new Date(s.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'Unnamed session')}</div>
-                          <div className="ct-session-info">
-                            <span title="Started">{s.startedAt ? new Date(s.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : s.elapsed}</span>
-                            <span title="Memory">{s.memMb}MB</span>
-                            {s.cpu > 0.5 && <span className="ct-session-cpu" title="CPU">{s.cpu}%</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {localSessions.length > 5 && (
-                      <div className="ct-session-overflow">{localSessions.length - 5} more sessions</div>
-                    )}
-                  </div>
-                );
-              })()}
+              {/* Claude Code Sessions moved to My Day panel */}
 
               {/* Deadlines & Milestones */}
               {selectedProjectId && (() => {
@@ -2545,6 +2495,68 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 </div>
               )}
 
+              {/* ── Claude Code Sessions (all projects) ── */}
+              {(() => {
+                const sorted = [...localSessions].sort((a, b) => {
+                  if (a.isActive && !b.isActive) return -1;
+                  if (!a.isActive && b.isActive) return 1;
+                  const aTime = a.lastActiveAt || a.startedAt || '';
+                  const bTime = b.lastActiveAt || b.startedAt || '';
+                  return new Date(bTime || 0).getTime() - new Date(aTime || 0).getTime();
+                });
+                const activeCount = sorted.filter((s) => s.isActive).length;
+                const formatRelative = (iso) => {
+                  if (!iso) return '';
+                  const diff = Date.now() - new Date(iso).getTime();
+                  if (diff < 60000) return 'just now';
+                  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+                  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+                  return `${Math.floor(diff / 86400000)}d ago`;
+                };
+                const dirLabel = (cwd) => {
+                  if (!cwd || cwd === 'unknown') return 'Unknown';
+                  const parts = cwd.split('/');
+                  return parts.slice(-2).join('/');
+                };
+                return (
+                  <div className="myday-section myday-sessions">
+                    <div className="myday-section-header">
+                      <h4 className="myday-section-title">
+                        Claude Code Sessions
+                        {activeCount > 0 && <span className="ct-active-badge">{activeCount} active</span>}
+                      </h4>
+                      <span className="myday-sessions-meta">
+                        {sorted.length} session{sorted.length !== 1 ? 's' : ''}
+                        {localSessionsUpdatedAt ? ` · ${formatRelative(localSessionsUpdatedAt)}` : ''}
+                      </span>
+                    </div>
+                    {sorted.length === 0 ? (
+                      <div className="ct-empty ct-empty--sm">No sessions detected. Monitor pushes every 30s.</div>
+                    ) : (
+                      <div className="myday-session-list">
+                        {sorted.map((s) => (
+                          <div key={s.pid} className={`myday-session-row${s.isActive ? ' is-active' : ''}`}>
+                            <span className={`ct-session-indicator${s.isActive ? ' is-running' : ''}`} />
+                            <div className="myday-session-info">
+                              <div className="myday-session-top">
+                                <span className="myday-session-dir" title={s.cwd}>{dirLabel(s.cwd)}</span>
+                                {s.projectName && <span className="myday-session-project">{s.projectName}</span>}
+                                <span className={`ct-session-model-badge ct-session-model-badge--${s.model}`}>{s.model}</span>
+                                <span className={`myday-session-status${s.isActive ? ' is-active' : ''}`}>{s.isActive ? 'Running' : 'Idle'}</span>
+                              </div>
+                              <div className="myday-session-bottom">
+                                <span className="myday-session-name">{s.sessionName || 'Unnamed session'}</span>
+                                <span className="myday-session-time">{formatRelative(s.lastActiveAt || s.startedAt)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* ── Daily Tasks ── */}
               <div className="myday-section">
                 <div className="myday-section-header">
@@ -2745,7 +2757,7 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                     <h4 className="myday-section-title">Today&apos;s Schedule</h4>
                     <span className="myday-plan-summary">{dayPlan.summary}</span>
                   </div>
-                  <div className="myday-schedule">
+                  <div className="myday-schedule myday-schedule--scrollable">
                     {dayPlan.items.map((item, idx) => {
                       const planItem = buildDayPlanItem(item);
                       return (

@@ -47,12 +47,12 @@ for (const line of psOut.split('\n')) {
     if (cwdMatch) cwd = cwdMatch[1];
   } catch(_) {}
 
-  const isActive = parseFloat(cpu) >= 1;
-
   // Extract session prompt from most recent conversation JSONL
   let sessionName = '';
   let matchedFileName = '';
   let rawContext = '';
+  let lastActiveAt = null;
+  let isActive = false;
   try {
     const claudeProjects = path.join(os.homedir(), '.claude/projects');
     // Convert cwd to claude project dir name: /Users/czk/foo -> -Users-czk-foo
@@ -66,7 +66,6 @@ for (const line of psOut.split('\n')) {
 
       // Match PID to JSONL by finding the file whose mtime is closest to (and after) session start
       const startMs = startedAt ? new Date(startedAt).getTime() : 0;
-      // Find files that were active around the session start time
       const usedFiles = sessions.map(s => s._matchedFile).filter(Boolean);
       let targetFile = null;
       if (startMs) {
@@ -78,9 +77,13 @@ for (const line of psOut.split('\n')) {
       }
       if (targetFile) {
         matchedFileName = targetFile.name;
+        lastActiveAt = new Date(targetFile.mtime).toISOString();
+        // isActive: JSONL was modified in last 2 minutes OR cpu >= 1%
+        isActive = (now - targetFile.mtime < 2 * 60 * 1000) || parseFloat(cpu) >= 1;
+
         const content = fs.readFileSync(path.join(projDir, targetFile.name), 'utf8');
         const lines = content.trim().split('\n');
-        const contextParts = []; // collect conversation context for AI summary fallback
+        const contextParts = [];
         for (const l of lines) {
           try {
             const j = JSON.parse(l);
@@ -88,22 +91,18 @@ for (const line of psOut.split('\n')) {
               const c = j.message?.content || '';
               const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter(x=>x.type==='text').map(x=>x.text).join(' ') : '';
               if (!text || text.length < 5) continue;
-              // Skip system/meta messages
               if (text.startsWith('<ide_') || text.startsWith('<system') || text.startsWith('<task-')
                 || text.startsWith('<command') || text.startsWith('Base directory') || text.startsWith('<local-command')
                 || text.startsWith('[Request interrupted') || text.startsWith('This session is being continued')) continue;
-              // First good user message becomes sessionName
               if (!sessionName && j.type === 'user') {
                 sessionName = text.substring(0, 100).replace(/[\\n\\r]+/g, ' ').replace(/\"/g, '');
               }
-              // Collect context for AI summarization (first ~500 chars total)
               if (contextParts.join('').length < 500) {
                 contextParts.push((j.type === 'user' ? 'User: ' : 'Assistant: ') + text.substring(0, 200));
               }
             }
           } catch(_) {}
         }
-        // If no sessionName found, attach rawContext for backend AI summarization
         if (!sessionName && contextParts.length > 0) {
           rawContext = contextParts.join('\\n').substring(0, 600).replace(/\"/g, '');
         }
@@ -111,7 +110,10 @@ for (const line of psOut.split('\n')) {
     }
   } catch(_) {}
 
-  const entry = { pid: parseInt(pid), cpu: parseFloat(cpu), memMb, elapsed, model, cwd, startedAt, isActive, sessionName };
+  // Fallback: if no JSONL matched, use CPU as activity indicator
+  if (!matchedFileName) isActive = parseFloat(cpu) >= 1;
+
+  const entry = { pid: parseInt(pid), cpu: parseFloat(cpu), memMb, elapsed, model, cwd, startedAt, isActive, lastActiveAt, sessionName };
   if (matchedFileName) entry._matchedFile = matchedFileName;
   if (rawContext) entry.rawContext = rawContext;
   sessions.push(entry);
