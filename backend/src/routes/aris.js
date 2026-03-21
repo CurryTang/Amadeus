@@ -1020,7 +1020,7 @@ router.delete('/daily-tasks/:taskId', requireAuth, async (req, res) => {
 // POST /api/aris/daily-tasks/:taskId/toggle — toggle completion for a date
 router.post('/daily-tasks/:taskId/toggle', requireAuth, async (req, res) => {
   try {
-    const result = await dailyService.toggleCompletion(req.params.taskId, req.body.date);
+    const result = await dailyService.toggleCompletion(req.params.taskId, req.body.date, req.body.count);
     res.json(result);
   } catch (error) {
     console.error('[ARIS] toggle completion error:', error);

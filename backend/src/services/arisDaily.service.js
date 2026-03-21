@@ -215,15 +215,37 @@ function createArisDailyService() {
     return (result.rows || []).map(normalizeCompletion).filter(Boolean);
   }
 
-  async function toggleCompletion(dailyTaskId, date) {
+  async function toggleCompletion(dailyTaskId, date, count) {
     const db = getDb();
     date = date || todayDate();
     const existing = await db.execute({
       sql: `SELECT id FROM aris_daily_completions WHERE daily_task_id = ? AND completed_date = ?`,
       args: [dailyTaskId, date],
     });
+
+    // If count is provided (target-based task), add multiple completions or remove today's
+    if (count != null && count > 0) {
+      // Remove any existing completions for today first
+      for (const row of (existing.rows || [])) {
+        await db.execute({ sql: `DELETE FROM aris_daily_completions WHERE id = ?`, args: [row.id] });
+      }
+      // Add 'count' completions for today
+      for (let i = 0; i < count; i++) {
+        const id = uid();
+        await db.execute({
+          sql: `INSERT INTO aris_daily_completions (id, daily_task_id, completed_date, created_at) VALUES (?, ?, ?, ?)`,
+          args: [id, dailyTaskId, date, nowIso()],
+        });
+      }
+      return { completed: true, date, count };
+    }
+
+    // Simple toggle (routine tasks)
     if (existing.rows?.length > 0) {
-      await db.execute({ sql: `DELETE FROM aris_daily_completions WHERE id = ?`, args: [existing.rows[0].id] });
+      // Remove all completions for today
+      for (const row of (existing.rows || [])) {
+        await db.execute({ sql: `DELETE FROM aris_daily_completions WHERE id = ?`, args: [row.id] });
+      }
       return { completed: false, date };
     }
     const id = uid();
@@ -308,21 +330,24 @@ function createArisDailyService() {
               COALESCE(priority, 0) DESC,
               datetime(COALESCE(updated_at, created_at)) DESC`,
     });
-    return (result.rows || []).map((row) => ({
-      id: row.id,
-      projectId: row.project_id,
-      projectName: projectMap[row.project_id] || 'Unknown Project',
-      title: row.title,
-      summary: row.summary || '',
-      type: row.type || 'task',
-      status: row.status,
-      priority: row.priority ?? 0,
-      actorType: row.actor_type || 'human',
-      dueAt: row.due_at || null,
-      estimatedMinutes: row.estimated_minutes ?? null,
-      nextBestAction: row.next_best_action || '',
-      updatedAt: row.updated_at,
-    }));
+    const validStatuses = new Set(['in_progress', 'ready', 'review', 'blocked', 'waiting']);
+    return (result.rows || [])
+      .filter((row) => validStatuses.has(row.status)) // JS safety filter
+      .map((row) => ({
+        id: row.id,
+        projectId: row.project_id,
+        projectName: projectMap[row.project_id] || 'Unknown Project',
+        title: row.title,
+        summary: row.summary || '',
+        type: row.type || 'task',
+        status: row.status,
+        priority: row.priority ?? 0,
+        actorType: row.actor_type || 'human',
+        dueAt: row.due_at || null,
+        estimatedMinutes: row.estimated_minutes ?? null,
+        nextBestAction: row.next_best_action || '',
+        updatedAt: row.updated_at,
+      }));
   }
 
   // ─── Milestones (scheduling-relevant) ─────────────────────────────────────

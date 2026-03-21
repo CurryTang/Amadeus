@@ -849,9 +849,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
     fetchUpcomingMilestones();
   }, [ctPanel, fetchDailyTasks, fetchOngoingItems, fetchDayPlan, fetchUpcomingMilestones]);
 
-  const handleToggleDailyCompletion = async (taskId) => {
+  const handleToggleDailyCompletion = async (taskId, count) => {
     try {
-      await axios.post(`${apiUrl}/aris/daily-tasks/${taskId}/toggle`, {}, { headers: getAuthHeaders() });
+      await axios.post(`${apiUrl}/aris/daily-tasks/${taskId}/toggle`, count != null ? { count } : {}, { headers: getAuthHeaders() });
       await fetchDailyTasks();
     } catch (err) {
       setError(err?.response?.data?.error || 'Failed to toggle completion');
@@ -2428,22 +2428,42 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
 
                 <div className="myday-task-list">
                   {dailyTasks.map((task) => {
-                    const todayCompleted = dailyCompletions.some((c) => c.dailyTaskId === task.id);
+                    const todayCount = dailyCompletions.filter((c) => c.dailyTaskId === task.id).length;
+                    const todayCompleted = todayCount > 0;
                     const progress = weeklyProgress.find((p) => p.title === task.title);
+                    const hasTarget = task.totalTarget != null;
                     return (
                       <div key={task.id} className={`myday-task-row${todayCompleted ? ' is-done' : ''}`}>
-                        <button
-                          type="button"
-                          className={`myday-check${todayCompleted ? ' is-checked' : ''}`}
-                          onClick={() => handleToggleDailyCompletion(task.id)}
-                          title={todayCompleted ? 'Mark incomplete' : 'Mark complete'}
-                        />
+                        {hasTarget ? (
+                          <div className="myday-count-input">
+                            <input
+                              type="number"
+                              className="myday-count-field"
+                              min="0"
+                              max={task.totalTarget || 99}
+                              defaultValue={todayCount}
+                              onBlur={(e) => {
+                                const val = parseInt(e.target.value, 10) || 0;
+                                if (val !== todayCount) handleToggleDailyCompletion(task.id, val);
+                              }}
+                              onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                              title="How many did you complete today?"
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className={`myday-check${todayCompleted ? ' is-checked' : ''}`}
+                            onClick={() => handleToggleDailyCompletion(task.id)}
+                            title={todayCompleted ? 'Mark incomplete' : 'Mark complete'}
+                          />
+                        )}
                         <div className="myday-task-info">
                           <span className="myday-task-title">{task.title}</span>
                           <span className="myday-task-meta">
                             {categoryIcon(task.category)} {task.category} &middot; ~{task.estimatedMinutes}min &middot; {task.frequency}
-                            {progress && progress.totalTarget != null
-                              ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget} this week (${progress.dailyQuota} today)`
+                            {progress && hasTarget
+                              ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget} total (${progress.dailyQuota} today)`
                               : progress ? ` · ${progress.completedThisWeek}/${progress.weeklyTarget} this week` : ''}
                           </span>
                         </div>

@@ -14051,6 +14051,36 @@ button.vibe-skill-chip.is-active {
   flex-shrink: 0;
 }
 
+/* Count input for target-based tasks */
+.myday-count-input {
+  flex-shrink: 0;
+}
+
+.myday-count-field {
+  width: 40px;
+  height: 28px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  background: #fff;
+  padding: 0;
+}
+
+.myday-count-field:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.myday-task-row.is-done .myday-count-field {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
 /* Milestones */
 .myday-milestone-list {
   display: flex;
