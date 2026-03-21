@@ -215,9 +215,11 @@ async function getDocuments(filters = {}, pagination = {}, sortOptions = {}, opt
  */
 async function getDocumentById(id) {
   const db = getDb();
+  // Coerce ID to number — MongoDB stores auto-increment IDs as integers
+  const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
   const result = await db.execute({
     sql: 'SELECT * FROM documents WHERE id = ?',
-    args: [id],
+    args: [Number.isNaN(numericId) ? id : numericId],
   });
 
   return rowToDocument(result.rows[0]);
