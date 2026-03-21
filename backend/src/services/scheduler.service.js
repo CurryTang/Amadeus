@@ -152,6 +152,11 @@ class SchedulerService {
       }
 
       if (items.length === 0) {
+        // Debug: log why queue appears empty
+        const queueStatus = await queueService.getQueueStatus();
+        if (queueStatus.queueLength > 0) {
+          console.log(`[Scheduler] Queue has ${queueStatus.queueLength} items but dequeue returned empty (canProcess=${queueStatus.canProcess}, processedThisHour=${queueStatus.processedThisHour})`);
+        }
         return { processed: false, reason: 'queue_empty_or_rate_limited' };
       }
 
