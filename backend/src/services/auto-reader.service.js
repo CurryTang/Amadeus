@@ -1595,14 +1595,8 @@ Input --> Module A --> Module B --> Output
       }
 
       const finalNotes = await fs.readFile(notesFilePath, 'utf-8');
-      const notesS3Key = await s3Service.uploadNotes(documentId, finalNotes);
-
-      const db = getDb();
-      await db.execute({
-        sql: `UPDATE documents SET notes_s3_key = ?, processing_status = 'completed',
-              processing_completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        args: [notesS3Key, documentId],
-      });
+      const notesS3Key = await this.uploadNotesToS3(finalNotes, documentId, title, 'paper_notes');
+      console.log(`[AutoReaderCustom] Notes uploaded to S3: ${notesS3Key}`);
 
       return { notesS3Key, pageCount: pdfInfo.pageCount };
     } catch (error) {
