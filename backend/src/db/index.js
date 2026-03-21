@@ -1248,14 +1248,14 @@ How does this work relate to other important papers in the field? What prior wor
     ON agent_sessions(ssh_server_id, updated_at DESC)
   `);
 
-  // Migration: reset stuck queued/pending papers to idle (on-demand generation)
+  // Migration: reset papers stuck in 'processing' state (stale from crashed workers).
+  // Do NOT reset 'queued' papers — those are intentionally waiting to be processed.
   const stuck = await db.execute(`
-    SELECT COUNT(*) as count FROM documents WHERE processing_status IN ('queued', 'pending')
+    SELECT COUNT(*) as count FROM documents WHERE processing_status = 'processing'
   `);
   if (stuck.rows[0].count > 0) {
-    await db.execute(`UPDATE documents SET processing_status = 'idle' WHERE processing_status IN ('queued', 'pending')`);
-    await db.execute(`DELETE FROM processing_queue`);
-    console.log(`[Migration] Reset ${stuck.rows[0].count} stuck queued/pending papers to idle`);
+    await db.execute(`UPDATE documents SET processing_status = 'idle' WHERE processing_status = 'processing'`);
+    console.log(`[Migration] Reset ${stuck.rows[0].count} stuck processing papers to idle`);
   }
 
   console.log('Database initialized');
