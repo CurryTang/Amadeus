@@ -587,11 +587,12 @@ router.patch('/:id/read', requireAuth, async (req, res) => {
   try {
     const { getDb } = require('../db');
     const db = getDb();
+    const docId = parseInt(req.params.id, 10);
 
     // Get current read status
     const current = await db.execute({
       sql: 'SELECT id, is_read FROM documents WHERE id = ?',
-      args: [req.params.id],
+      args: [docId],
     });
 
     if (current.rows.length === 0) {
@@ -604,7 +605,7 @@ router.patch('/:id/read', requireAuth, async (req, res) => {
 
     await db.execute({
       sql: 'UPDATE documents SET is_read = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      args: [newIsRead, req.params.id],
+      args: [newIsRead, docId],
     });
 
     res.json({

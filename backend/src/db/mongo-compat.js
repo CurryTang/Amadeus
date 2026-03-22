@@ -568,9 +568,10 @@ function parseConditions(clause, args, startIdx) {
     }
   }
 
-  // Remap 'id' to '_id' for primary key queries
+  // Remap 'id' to '_id' for primary key queries, coercing string IDs to numbers
   if (filter.id !== undefined && typeof filter.id !== 'object') {
-    filter._id = filter.id;
+    const numId = typeof filter.id === 'string' ? parseInt(filter.id, 10) : filter.id;
+    filter._id = Number.isNaN(numId) ? filter.id : numId;
     delete filter.id;
   }
 
