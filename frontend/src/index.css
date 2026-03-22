@@ -14085,26 +14085,29 @@ button.vibe-skill-chip.is-active {
 /* Ongoing work items */
 .myday-ongoing-list {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .myday-ongoing-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 5px 10px;
   background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  max-width: 100%;
 }
 
 .myday-ongoing-row:hover {
   border-color: #c7d2fe;
-  box-shadow: 0 2px 8px rgba(99,102,241,0.08);
+  background: #f8faff;
 }
 
 .ct-status-dot {
@@ -14121,15 +14124,14 @@ button.vibe-skill-chip.is-active {
 .ct-status-dot--info { background: #94a3b8; }
 
 .myday-ongoing-info {
-  flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 4px;
 }
 
 .myday-ongoing-title {
-  font-size: 13.5px;
+  font-size: 12.5px;
   color: #1e293b;
   font-weight: 500;
   overflow: hidden;
@@ -14138,8 +14140,9 @@ button.vibe-skill-chip.is-active {
 }
 
 .myday-ongoing-meta {
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: #94a3b8;
+  white-space: nowrap;
 }
 
 .myday-overdue-badge {
@@ -14443,6 +14446,34 @@ button.vibe-skill-chip.is-active {
 
 .myday-schedule-item.is-done {
   opacity: 0.45;
+}
+
+.myday-schedule-item.is-done .myday-schedule-title {
+  text-decoration: line-through;
+  color: #94a3b8;
+}
+
+.myday-schedule-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  padding: 0;
+  margin-top: 1px;
+}
+
+.myday-schedule-check:hover {
+  border-color: #818cf8;
+  background: #eef2ff;
+}
+
+.myday-schedule-check.is-checked {
+  background: #6366f1;
+  border-color: #6366f1;
 }
 
 .myday-schedule-time {

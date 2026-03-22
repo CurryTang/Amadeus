@@ -937,26 +937,27 @@ router.post('/local-sessions', requireAuth, async (req, res) => {
   try {
     const { sessions = [] } = req.body || {};
     // Match sessions to ARIS projects by cwd -> localFullPath
-    const projects = await arisService.listProjects();
-    const enriched = await Promise.all(sessions.map(async (s) => {
-      const cwdLower = (s.cwd || '').toLowerCase();
-      const project = projects.find((p) => {
-        const fp = (p.localFullPath || p.localProjectPath || '').toLowerCase();
-        return fp && cwdLower && (cwdLower === fp || cwdLower.startsWith(fp + '/'));
-      });
-      // AI-generate session name if missing but rawContext available
-      let sessionName = s.sessionName || '';
-      if (!sessionName && s.rawContext && s._matchedFile) {
-        sessionName = await generateSessionSummary(s.rawContext, s._matchedFile);
+    let projects = [];
+    try { projects = await arisService.listProjects(); } catch (_) {}
+    const enriched = [];
+    for (const s of sessions) {
+      try {
+        const cwdLower = (s.cwd || '').toLowerCase();
+        const project = projects.find((p) => {
+          const fp = (p.localFullPath || p.localProjectPath || '').toLowerCase();
+          return fp && cwdLower && (cwdLower === fp || cwdLower.startsWith(fp + '/'));
+        });
+        enriched.push({
+          ...s,
+          sessionName: s.sessionName || '',
+          rawContext: undefined,
+          projectId: project?.id || null,
+          projectName: project?.name || null,
+        });
+      } catch (_) {
+        // Skip malformed session entries
       }
-      return {
-        ...s,
-        sessionName,
-        rawContext: undefined, // don't store raw context in snapshot
-        projectId: project?.id || null,
-        projectName: project?.name || null,
-      };
-    }));
+    }
     localSessionSnapshot = { sessions: enriched, updatedAt: new Date().toISOString() };
     res.json({ ok: true, count: enriched.length });
   } catch (error) {

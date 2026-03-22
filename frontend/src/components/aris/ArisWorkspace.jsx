@@ -474,37 +474,78 @@ function generateDayPlanFromContext(context) {
     timeSlot += minutes / 60;
   };
 
-  // ── Sort tasks by urgency: behind-schedule targets first, then routines ──
-  const sortedTasks = [...context.pendingDailyTasks].sort((a, b) => {
-    // Tasks with targets that are behind get highest priority
-    const aUrgent = a.totalTarget != null && a.remaining > 0 ? a.dailyQuota : 0;
-    const bUrgent = b.totalTarget != null && b.remaining > 0 ? b.dailyQuota : 0;
-    if (bUrgent !== aUrgent) return bUrgent - aUrgent;
-    return (b.remaining || 0) - (a.remaining || 0);
-  });
+  // ── Classify daily tasks ──
+  const morningCategories = ['exercise', 'reading'];
+  const researchCategories = ['research', 'coding', 'writing'];
+  const morningTasks = [];
+  const researchDailyTasks = [];
+  const otherDailyTasks = [];
+
+  for (const t of context.pendingDailyTasks) {
+    if (morningCategories.includes(t.category)) morningTasks.push(t);
+    else if (researchCategories.includes(t.category)) researchDailyTasks.push(t);
+    else otherDailyTasks.push(t);
+  }
 
   // ── Check for deadline pressure from milestones ──
   const urgentMilestones = (context.milestones || []).filter((m) => m.daysUntil <= 3 && !m.isToday);
   const todayMilestones = (context.milestones || []).filter((m) => m.isToday);
 
-  // ── Morning routine (exercise, reading) ──
-  const morningCategories = ['exercise', 'reading'];
-  const morningTasks = sortedTasks.filter((t) => morningCategories.includes(t.category));
-  const nonMorningTasks = sortedTasks.filter((t) => !morningCategories.includes(t.category));
+  // ── Build work item blocks ──
+  const workBlocks = context.ongoingWorkItems
+    .filter((item) => item.actorType !== 'ai') // skip AI-only items
+    .map((item) => {
+      const blockMinutes = item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45;
+      const deadlineBoost = urgentMilestones.some((m) => m.projectName === item.projectName) ? 10 : 0;
+      return { ...item, estimatedMinutes: blockMinutes, description: item.nextBestAction || `Work on: ${item.title}`, deadlineBoost };
+    });
 
-  // For target-based tasks, schedule dailyQuota repetitions
+  workBlocks.sort((a, b) => {
+    if (a.deadlineBoost !== b.deadlineBoost) return b.deadlineBoost - a.deadlineBoost;
+    const statusOrder = { blocked: 0, review: 1, in_progress: 2, waiting: 3, ready: 4 };
+    const aDiff = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
+    if (aDiff !== 0) return aDiff;
+    return (b.priority ?? 0) - (a.priority ?? 0);
+  });
+
+  // ── Merge research daily tasks + work items into a unified research queue ──
+  // Research daily tasks expand into reps, then interleave with work items
+  const researchQueue = [];
+  for (const task of researchDailyTasks) {
+    const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
+    for (let i = 0; i < reps; i++) {
+      researchQueue.push({
+        type: 'daily_task', task,
+        title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title,
+        estimatedMinutes: task.estimatedMinutes || 30,
+        urgency: task.totalTarget != null && task.remaining > 0 ? task.dailyQuota : 0,
+      });
+    }
+  }
+  for (const block of workBlocks) {
+    researchQueue.push({
+      type: 'work_item', task: block,
+      title: `[${block.projectName}] ${block.title}`,
+      description: block.description,
+      estimatedMinutes: block.estimatedMinutes,
+      urgency: block.deadlineBoost + (block.priority ?? 0),
+    });
+  }
+  // Sort: highest urgency first
+  researchQueue.sort((a, b) => (b.urgency || 0) - (a.urgency || 0));
+
+  // ── 1. Morning routine (exercise, reading) — 9am to ~10:30am ──
   for (const task of morningTasks) {
     const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
     for (let i = 0; i < reps && timeSlot < 11; i++) {
       addItem(task, { title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title });
     }
   }
-
   if (morningTasks.length > 0 && timeSlot < 10.5) {
     addBreak('Break', 15);
   }
 
-  // ── Today's milestones (meetings etc.) — fixed time blocks ──
+  // ── 2. Today's milestones (meetings etc.) ──
   for (const m of todayMilestones) {
     addItem({}, {
       title: `[${m.projectName}] ${m.name}`,
@@ -516,41 +557,29 @@ function generateDayPlanFromContext(context) {
     });
   }
 
-  // ── Work items — prioritize items with approaching deadlines ──
-  const workBlocks = context.ongoingWorkItems.map((item) => {
-    const blockMinutes = item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45;
-    // Boost priority for items in projects with upcoming deadlines
-    const deadlineBoost = urgentMilestones.some((m) => m.projectName === item.projectName) ? 10 : 0;
-    return { ...item, estimatedMinutes: blockMinutes, description: item.nextBestAction || `Work on: ${item.title}`, deadlineBoost };
-  });
-
-  workBlocks.sort((a, b) => {
-    // Items with deadline pressure first
-    if (a.deadlineBoost !== b.deadlineBoost) return b.deadlineBoost - a.deadlineBoost;
-    const statusOrder = { blocked: 0, review: 1, in_progress: 2, waiting: 3, ready: 4 };
-    const aDiff = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
-    if (aDiff !== 0) return aDiff;
-    return (b.priority ?? 0) - (a.priority ?? 0);
-  });
-
+  // ── 3. Research block — interleaved daily tasks + work items ──
   let lastBreakSlot = timeSlot;
-  for (const block of workBlocks) {
+  for (const entry of researchQueue) {
     if (timeSlot >= 18) break;
-    addItem(block, {
-      title: `[${block.projectName}] ${block.title}`,
-      description: block.description,
-      category: 'research',
-      estimatedMinutes: block.estimatedMinutes,
-      sourceType: 'work_item',
-      sourceId: block.id,
-    });
+    if (entry.type === 'daily_task') {
+      addItem(entry.task, { title: entry.title });
+    } else {
+      addItem(entry.task, {
+        title: entry.title,
+        description: entry.description,
+        category: 'research',
+        estimatedMinutes: entry.estimatedMinutes,
+        sourceType: 'work_item',
+        sourceId: entry.task.id,
+      });
+    }
     if (timeSlot - lastBreakSlot >= 2 && timeSlot < 18) {
       addBreak('Break', 15, 'Rest, stretch, hydrate');
       lastBreakSlot = timeSlot;
     }
   }
 
-  // ── Lunch ──
+  // ── 4. Lunch ──
   if (timeSlot >= 12 && !items.some((i) => i.title === 'Lunch')) {
     const lunchIdx = items.findIndex((i) => parseTimeToHour(i.time) >= 12);
     if (lunchIdx >= 0) {
@@ -558,13 +587,32 @@ function generateDayPlanFromContext(context) {
     }
   }
 
-  // ── Afternoon/evening: remaining daily tasks with quota repetitions ──
+  // ── 5. Afternoon/evening: other daily tasks (learning, general, etc.) ──
   if (timeSlot < 13) timeSlot = 13;
-  for (const task of nonMorningTasks) {
+  for (const task of otherDailyTasks) {
     if (timeSlot >= 22) break;
     const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
     for (let i = 0; i < reps && timeSlot < 22; i++) {
       addItem(task, { title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title });
+    }
+  }
+
+  // ── 6. Overflow research items that didn't fit before 6pm ──
+  for (const entry of researchQueue) {
+    if (timeSlot >= 22) break;
+    // Check if already scheduled
+    if (items.some((i) => i.sourceId === (entry.task.id || ''))) continue;
+    if (entry.type === 'daily_task') {
+      addItem(entry.task, { title: entry.title });
+    } else {
+      addItem(entry.task, {
+        title: entry.title,
+        description: entry.description,
+        category: 'research',
+        estimatedMinutes: entry.estimatedMinutes,
+        sourceType: 'work_item',
+        sourceId: entry.task.id,
+      });
     }
   }
 
@@ -2495,9 +2543,10 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 </div>
               )}
 
-              {/* ── Claude Code Sessions (all projects) ── */}
+              {/* ── Claude Code Sessions (project-linked only) ── */}
               {(() => {
-                const sorted = [...localSessions].sort((a, b) => {
+                const projectSessions = localSessions.filter((s) => s.projectId);
+                const sorted = [...projectSessions].sort((a, b) => {
                   if (a.isActive && !b.isActive) return -1;
                   if (!a.isActive && b.isActive) return 1;
                   const aTime = a.lastActiveAt || a.startedAt || '';
@@ -2513,11 +2562,6 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
                   return `${Math.floor(diff / 86400000)}d ago`;
                 };
-                const dirLabel = (cwd) => {
-                  if (!cwd || cwd === 'unknown') return 'Unknown';
-                  const parts = cwd.split('/');
-                  return parts.slice(-2).join('/');
-                };
                 return (
                   <div className="myday-section myday-sessions">
                     <div className="myday-section-header">
@@ -2531,22 +2575,20 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                       </span>
                     </div>
                     {sorted.length === 0 ? (
-                      <div className="ct-empty ct-empty--sm">No sessions detected. Monitor pushes every 30s.</div>
+                      <div className="ct-empty ct-empty--sm">No project-linked sessions detected.</div>
                     ) : (
                       <div className="myday-session-list">
-                        {sorted.map((s) => (
-                          <div key={s.pid} className={`myday-session-row${s.isActive ? ' is-active' : ''}`}>
+                        {sorted.map((s, i) => (
+                          <div key={s.sessionFile || i} className={`myday-session-row${s.isActive ? ' is-active' : ''}`}>
                             <span className={`ct-session-indicator${s.isActive ? ' is-running' : ''}`} />
                             <div className="myday-session-info">
                               <div className="myday-session-top">
-                                <span className="myday-session-dir" title={s.cwd}>{dirLabel(s.cwd)}</span>
-                                {s.projectName && <span className="myday-session-project">{s.projectName}</span>}
-                                <span className={`ct-session-model-badge ct-session-model-badge--${s.model}`}>{s.model}</span>
+                                <span className="myday-session-project">{s.projectName}</span>
                                 <span className={`myday-session-status${s.isActive ? ' is-active' : ''}`}>{s.isActive ? 'Running' : 'Idle'}</span>
+                                <span className="myday-session-time">{formatRelative(s.lastActiveAt || s.startedAt)}</span>
                               </div>
                               <div className="myday-session-bottom">
                                 <span className="myday-session-name">{s.sessionName || 'Unnamed session'}</span>
-                                <span className="myday-session-time">{formatRelative(s.lastActiveAt || s.startedAt)}</span>
                               </div>
                             </div>
                           </div>
@@ -2708,21 +2750,11 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   {ongoingItems.map((item) => {
                     const row = buildOngoingWorkItemRow(item);
                     return (
-                      <div key={item.id} className="myday-ongoing-row">
+                      <div key={item.id} className="myday-ongoing-row" onClick={() => { setSelectedProjectId(item.projectId); setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}>
                         <span className={`ct-status-dot ct-status-dot--${row.statusColor}`} />
-                        <div className="myday-ongoing-info" onClick={() => { setSelectedProjectId(item.projectId); setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }} style={{ cursor: 'pointer' }}>
-                          <span className="myday-ongoing-title">{row.title}</span>
-                          <span className="myday-ongoing-meta">
-                            {row.projectName} &middot; {row.statusLabel}
-                            {item.status === 'waiting' && ' (agent/experiment running)'}
-                            {row.isOverdue && <span className="myday-overdue-badge">overdue</span>}
-                          </span>
-                        </div>
-                        <div className="myday-item-actions">
-                          <button className="myday-action-btn myday-action-btn--done-today" title="Done for today" onClick={(e) => { e.stopPropagation(); handleWorkItemAction(item.id, 'done_today'); }}>Today</button>
-                          <button className="myday-action-btn myday-action-btn--waiting" title="Waiting (agent/experiment running)" onClick={(e) => { e.stopPropagation(); handleWorkItemAction(item.id, 'waiting'); }}>Wait</button>
-                          <button className="myday-action-btn myday-action-btn--all-done" title="All finished" onClick={(e) => { e.stopPropagation(); handleWorkItemAction(item.id, 'all_done'); }}>Done</button>
-                        </div>
+                        <span className="myday-ongoing-title">{row.title}</span>
+                        <span className="myday-ongoing-meta">{row.projectName}</span>
+                        {row.isOverdue && <span className="myday-overdue-badge">overdue</span>}
                       </div>
                     );
                   })}
@@ -2760,8 +2792,49 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   <div className="myday-schedule myday-schedule--scrollable">
                     {dayPlan.items.map((item, idx) => {
                       const planItem = buildDayPlanItem(item);
+                      const isActionable = planItem.sourceType === 'daily_task' || planItem.sourceType === 'work_item';
                       return (
                         <div key={planItem.id || idx} className={`myday-schedule-item${planItem.sourceType === 'break' ? ' is-break' : ''}${planItem.isDone ? ' is-done' : ''}`}>
+                          {isActionable && (
+                            <button
+                              type="button"
+                              className={`myday-schedule-check${planItem.isDone ? ' is-checked' : ''}`}
+                              title={planItem.isDone ? 'Mark incomplete' : 'Mark done'}
+                              onClick={() => {
+                                const newDone = !item.isDone;
+                                // Optimistic: update local state instantly
+                                const updatedItems = dayPlan.items.map((it, i) =>
+                                  i === idx ? { ...it, isDone: newDone } : it
+                                );
+                                setDayPlan((prev) => prev ? { ...prev, items: updatedItems } : prev);
+                                // Fire API calls in background (no await)
+                                const persist = async () => {
+                                  try {
+                                    const saves = [
+                                      axios.post(`${apiUrl}/aris/day-plan`, { date: dayPlan.planDate, items: updatedItems, summary: dayPlan.summary }, { headers: getAuthHeaders() }),
+                                    ];
+                                    if (planItem.sourceType === 'daily_task' && planItem.sourceId) {
+                                      saves.push(axios.post(`${apiUrl}/aris/daily-tasks/${planItem.sourceId}/toggle`, {}, { headers: getAuthHeaders() }));
+                                    } else if (planItem.sourceType === 'work_item' && planItem.sourceId) {
+                                      saves.push(axios.patch(`${apiUrl}/aris/work-items/${planItem.sourceId}`, { status: newDone ? 'done' : 'in_progress' }, { headers: getAuthHeaders() }));
+                                    }
+                                    await Promise.all(saves);
+                                    fetchDailyTasks(); // refresh sidebar counts
+                                    fetchOngoingItems();
+                                  } catch (err) {
+                                    // Revert on failure
+                                    setDayPlan((prev) => {
+                                      if (!prev) return prev;
+                                      const reverted = prev.items.map((it, i) => i === idx ? { ...it, isDone: !newDone } : it);
+                                      return { ...prev, items: reverted };
+                                    });
+                                    setError(err?.response?.data?.error || 'Failed to update');
+                                  }
+                                };
+                                persist();
+                              }}
+                            />
+                          )}
                           <div className="myday-schedule-time">{planItem.time}</div>
                           <div className="myday-schedule-content">
                             <span className="myday-schedule-title">
