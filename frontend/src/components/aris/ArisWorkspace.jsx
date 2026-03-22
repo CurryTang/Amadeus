@@ -382,63 +382,88 @@ const CT_PANELS = { OVERVIEW: 'overview', MY_DAY: 'my_day', WORK_ITEMS: 'work_it
 
 function buildSchedulePrompt(context) {
   const lines = [
-    `Schedule my day for ${context.dayOfWeek}, ${context.date}.`,
-    `Days remaining in week: ${context.daysRemainingInWeek}`,
+    `Schedule my day: ${context.dayOfWeek}, ${context.date}.`,
     '',
-    '## Priority & Importance Rules',
-    '',
-    'Use these rules to decide how to allocate time and what to prioritize:',
-    '',
-    '1. **Research is the highest-priority category.** It is the core of the user\'s work. Always allocate the most and best time blocks (peak focus hours) to research tasks.',
-    '2. **Deadline proximity escalates priority.** Tasks or work items with deadlines within 3 days should be treated as urgent. Deadlines today are critical — schedule them first.',
-    '3. **Behind-schedule targets are urgent.** If a weekly/daily target is behind pace (dailyQuota > 1), boost its priority proportionally.',
-    '4. **Total-target tasks are low daily pressure.** Tasks with targetPeriod="total" have no weekly cycle — fit them in when there\'s slack time, but don\'t neglect them entirely.',
-    '5. **Work items with explicit nextBestAction are actionable** — prefer scheduling these over vague items.',
-    '6. **Exercise and breaks are non-negotiable.** Always include exercise if it\'s a daily task, and breaks every ~2 hours. Physical health sustains research productivity.',
-    '7. **Deprioritize tasks that are already on-track** for the week — redistribute that time to behind-schedule items.',
-    '8. **AI-actor work items can run in parallel** — note them but don\'t block human time for them.',
-    '9. **Priority field (P0-P9) is a tiebreaker** — higher number = higher priority, but the rules above take precedence.',
-    '',
-    '## Pending Daily Tasks',
   ];
-  for (const t of context.pendingDailyTasks) {
-    let targetInfo;
-    if (t.totalTarget != null && t.targetPeriod === 'total') {
-      targetInfo = `total target: ${t.completedAllTime ?? t.completedThisWeek}/${t.totalTarget} overall, ${t.remaining} remaining`;
-    } else if (t.totalTarget != null) {
-      targetInfo = `target: ${t.completedThisWeek}/${t.weeklyTarget}/week, need ${t.dailyQuota} today`;
-    } else {
-      targetInfo = `routine: ${t.completedThisWeek}/${t.weeklyTarget}/week`;
-    }
-    lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, P${t.priority ?? 0}, ${targetInfo})`);
-  }
-  if (context.pendingDailyTasks.length === 0) lines.push('- (none)');
 
+  // Group work items by project
+  const humanWorkItems = (context.ongoingWorkItems || []).filter((w) => w.actorType !== 'ai');
+  const byProject = {};
+  for (const item of humanWorkItems) {
+    const proj = item.projectName || 'Other';
+    if (!byProject[proj]) byProject[proj] = [];
+    byProject[proj].push(item);
+  }
+  const projectNames = Object.keys(byProject);
+
+  // Critical rules — emphasize multi-project coverage
+  lines.push('# CRITICAL RULES');
+  lines.push('1. Project work items MUST occupy at least 60% of the scheduled time.');
+  lines.push('2. Daily routine tasks are SECONDARY — fit them around project work, cap each at 2-3 reps max.');
+  if (projectNames.length > 1) {
+    lines.push(`3. You MUST schedule work items from ALL ${projectNames.length} projects: ${projectNames.join(', ')}. Pick at least 2 items from each project.`);
+  }
+  lines.push('4. A schedule with only routine tasks is WRONG.');
+  lines.push('');
+
+  // Work items grouped by project
+  if (projectNames.length > 0) {
+    for (const proj of projectNames) {
+      const projItems = byProject[proj];
+      lines.push(`# Project: ${proj} (${projItems.length} items — schedule at least 2)`);
+      for (const item of projItems) {
+        const parts = [`[${proj}] ${item.title}`, `status: ${item.status}`, `P${item.priority}`];
+        if (item.dueAt) parts.push(`due: ${item.dueAt.slice(0, 10)}`);
+        if (item.nextBestAction) parts.push(`next action: ${item.nextBestAction}`);
+        lines.push(`- ${parts.join(' | ')}`);
+      }
+      lines.push('');
+    }
+  } else {
+    lines.push('# Project Work Items', '- (none)', '');
+  }
+
+  // Milestones
   if (context.milestones?.length > 0) {
-    lines.push('', '## Upcoming Milestones & Deadlines');
+    lines.push('# Upcoming Milestones');
     for (const m of context.milestones) {
       const when = m.isToday ? 'TODAY' : `in ${m.daysUntil} days`;
       lines.push(`- [${m.projectName}] ${m.name} (${m.type}, ${when})`);
     }
+    lines.push('');
   }
 
-  lines.push('', '## Ongoing Work Items Across Projects');
-  for (const item of context.ongoingWorkItems) {
-    lines.push(`- [${item.projectName}] ${item.title} (${item.status}, P${item.priority}${item.dueAt ? `, due: ${item.dueAt.slice(0, 10)}` : ''}${item.nextBestAction ? ` — next: ${item.nextBestAction}` : ''})`);
-  }
-  if (context.ongoingWorkItems.length === 0) lines.push('- (none)');
-
-  lines.push('', '## Weekly Progress');
-  for (const t of context.weeklyProgress) {
-    if (t.targetPeriod === 'total') {
-      const status = t.isOnTrack ? 'completed' : `${t.completedAllTime ?? t.completedThisWeek}/${t.weeklyTarget} done, ${t.remaining} remaining`;
-      lines.push(`- ${t.title}: ${status} (total target)`);
+  // Daily tasks — secondary
+  lines.push('# Daily Tasks (secondary — fill remaining time, max 2-3 reps each)');
+  for (const t of context.pendingDailyTasks) {
+    let targetInfo;
+    if (t.totalTarget != null && t.targetPeriod === 'total') {
+      targetInfo = `overall: ${t.completedAllTime ?? t.completedThisWeek}/${t.totalTarget}, ${t.remaining} left`;
+    } else if (t.totalTarget != null) {
+      targetInfo = `${t.completedThisWeek}/${t.weeklyTarget}/week, need ${t.dailyQuota} today`;
     } else {
-      const status = t.isOnTrack ? 'on track' : `${t.remaining} remaining, ${t.dailyQuota}/day needed`;
-      lines.push(`- ${t.title}: ${t.completedThisWeek}/${t.weeklyTarget} (${status})`);
+      targetInfo = `routine: ${t.completedThisWeek}/${t.weeklyTarget}/week`;
     }
+    lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, ${targetInfo})`);
   }
-  lines.push('', 'Create a time-blocked schedule from 9am to 11pm. Apply the priority rules above to determine ordering. Distribute target-based tasks according to daily quotas. Include breaks every ~2 hours.');
+
+  lines.push('',
+    '# Output Format',
+    'Return ONLY a time-blocked schedule, one line per block:',
+    '9:00 AM | [ProjectName] Task title (60min) | brief description',
+    '10:00 AM | Break (15min)',
+    '10:15 AM | Daily task title (30min)',
+    '',
+    'Rules:',
+    '- Schedule 9am to 10pm',
+    `- MUST include work items from EVERY project (${projectNames.join(', ')}), at least 2 each`,
+    '- Project work items FIRST and MOST of the day',
+    '- Daily tasks fill the gaps (cap reps: max 2-3 per task)',
+    '- Include lunch ~12pm (60min) and breaks every ~2 hours (15min)',
+    '- Use [ProjectName] prefix for work items so they are distinguishable',
+    '- Include duration in parentheses',
+    '- NO explanations, NO markdown headers — just schedule lines',
+  );
   return lines.join('\n');
 }
 
@@ -456,17 +481,18 @@ function generateDayPlanFromContext(context) {
   };
 
   const addItem = (task, opts = {}) => {
+    const mins = opts.estimatedMinutes || task.estimatedMinutes || 30;
     items.push({
       id: uid(), time: fmt(timeSlot),
       title: opts.title || task.title,
       description: opts.description || task.description || '',
       category: opts.category || task.category || 'general',
-      estimatedMinutes: opts.estimatedMinutes || task.estimatedMinutes || 30,
+      estimatedMinutes: mins,
       sourceType: opts.sourceType || 'daily_task',
       sourceId: opts.sourceId || task.id || '',
       isDone: false,
     });
-    timeSlot += (opts.estimatedMinutes || task.estimatedMinutes || 30) / 60;
+    timeSlot += mins / 60;
   };
 
   const addBreak = (title = 'Break', minutes = 15, desc = '') => {
@@ -476,14 +502,11 @@ function generateDayPlanFromContext(context) {
 
   // ── Classify daily tasks ──
   const morningCategories = ['exercise', 'reading'];
-  const researchCategories = ['research', 'coding', 'writing'];
   const morningTasks = [];
-  const researchDailyTasks = [];
   const otherDailyTasks = [];
 
   for (const t of context.pendingDailyTasks) {
     if (morningCategories.includes(t.category)) morningTasks.push(t);
-    else if (researchCategories.includes(t.category)) researchDailyTasks.push(t);
     else otherDailyTasks.push(t);
   }
 
@@ -491,61 +514,83 @@ function generateDayPlanFromContext(context) {
   const urgentMilestones = (context.milestones || []).filter((m) => m.daysUntil <= 3 && !m.isToday);
   const todayMilestones = (context.milestones || []).filter((m) => m.isToday);
 
-  // ── Build work item blocks ──
-  const workBlocks = context.ongoingWorkItems
-    .filter((item) => item.actorType !== 'ai') // skip AI-only items
-    .map((item) => {
-      const blockMinutes = item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45;
-      const deadlineBoost = urgentMilestones.some((m) => m.projectName === item.projectName) ? 10 : 0;
-      return { ...item, estimatedMinutes: blockMinutes, description: item.nextBestAction || `Work on: ${item.title}`, deadlineBoost };
-    });
+  // ── Build work item blocks (project tasks — highest priority) ──
+  // Ensure all projects are represented by interleaving items from each project
+  const humanWorkItems = context.ongoingWorkItems.filter((item) => item.actorType !== 'ai');
+  const byProject = {};
+  for (const item of humanWorkItems) {
+    const proj = item.projectName || 'Other';
+    if (!byProject[proj]) byProject[proj] = [];
+    byProject[proj].push(item);
+  }
 
-  workBlocks.sort((a, b) => {
-    if (a.deadlineBoost !== b.deadlineBoost) return b.deadlineBoost - a.deadlineBoost;
+  // Sort within each project by priority/status, then round-robin across projects
+  const sortItems = (arr) => arr.sort((a, b) => {
+    const deadlineBoostA = urgentMilestones.some((m) => m.projectName === a.projectName) ? 10 : 0;
+    const deadlineBoostB = urgentMilestones.some((m) => m.projectName === b.projectName) ? 10 : 0;
+    if (deadlineBoostA !== deadlineBoostB) return deadlineBoostB - deadlineBoostA;
     const statusOrder = { blocked: 0, review: 1, in_progress: 2, waiting: 3, ready: 4 };
-    const aDiff = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
-    if (aDiff !== 0) return aDiff;
+    const sDiff = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
+    if (sDiff !== 0) return sDiff;
     return (b.priority ?? 0) - (a.priority ?? 0);
   });
 
-  // ── Merge research daily tasks + work items into a unified research queue ──
-  // Research daily tasks expand into reps, then interleave with work items
-  const researchQueue = [];
-  for (const task of researchDailyTasks) {
-    const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
-    for (let i = 0; i < reps; i++) {
-      researchQueue.push({
-        type: 'daily_task', task,
-        title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title,
-        estimatedMinutes: task.estimatedMinutes || 30,
-        urgency: task.totalTarget != null && task.remaining > 0 ? task.dailyQuota : 0,
-      });
+  const projectQueues = Object.values(byProject).map((arr) => sortItems([...arr]));
+  const workBlocks = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const queue of projectQueues) {
+      if (queue.length > 0) {
+        const item = queue.shift();
+        const blockMinutes = item.estimatedMinutes || (item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45);
+        const deadlineBoost = urgentMilestones.some((m) => m.projectName === item.projectName) ? 10 : 0;
+        workBlocks.push({ ...item, estimatedMinutes: blockMinutes, description: item.nextBestAction || `Work on: ${item.title}`, deadlineBoost });
+        added = true;
+      }
     }
   }
-  for (const block of workBlocks) {
-    researchQueue.push({
-      type: 'work_item', task: block,
-      title: `[${block.projectName}] ${block.title}`,
-      description: block.description,
-      estimatedMinutes: block.estimatedMinutes,
-      urgency: block.deadlineBoost + (block.priority ?? 0),
-    });
+
+  // ── Budget: total available = 9am–10pm = 13h = 780min ──
+  // Work items get 60% minimum, daily tasks get the rest
+  const totalAvailMin = 13 * 60; // 780 min
+  const breakMin = 90; // ~6 breaks of 15min
+  const lunchMin = 60;
+  const usableMin = totalAvailMin - breakMin - lunchMin; // ~630 min
+  const workItemBudget = Math.floor(usableMin * 0.6); // ~378 min for project work
+  const dailyTaskBudget = usableMin - workItemBudget;  // ~252 min for daily tasks
+
+  // ── Build daily task entries (capped to budget) ──
+  const dailyTaskEntries = [];
+  let dailyTaskTotalMin = 0;
+  // Cap reps per task: max 3 reps per session to avoid single-task domination
+  const MAX_REPS_PER_TASK = 3;
+  for (const task of otherDailyTasks) {
+    const rawReps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
+    const reps = Math.min(rawReps, MAX_REPS_PER_TASK);
+    const mins = task.estimatedMinutes || 30;
+    for (let i = 0; i < reps; i++) {
+      if (dailyTaskTotalMin + mins > dailyTaskBudget) break;
+      dailyTaskEntries.push({
+        task, title: reps > 1 ? `${task.title} (${i + 1}/${rawReps})` : task.title,
+        estimatedMinutes: mins,
+      });
+      dailyTaskTotalMin += mins;
+    }
   }
-  // Sort: highest urgency first
-  researchQueue.sort((a, b) => (b.urgency || 0) - (a.urgency || 0));
 
   // ── 1. Morning routine (exercise, reading) — 9am to ~10:30am ──
   for (const task of morningTasks) {
-    const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
+    const reps = task.totalTarget != null ? Math.min(Math.max(1, task.dailyQuota), MAX_REPS_PER_TASK) : 1;
     for (let i = 0; i < reps && timeSlot < 11; i++) {
-      addItem(task, { title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title });
+      addItem(task, { title: reps > 1 ? `${task.title} (${i + 1}/${task.dailyQuota})` : task.title });
     }
   }
   if (morningTasks.length > 0 && timeSlot < 10.5) {
     addBreak('Break', 15);
   }
 
-  // ── 2. Today's milestones (meetings etc.) ──
+  // ── 2. Today's milestones (meetings, deadlines) ──
   for (const m of todayMilestones) {
     addItem({}, {
       title: `[${m.projectName}] ${m.name}`,
@@ -557,62 +602,44 @@ function generateDayPlanFromContext(context) {
     });
   }
 
-  // ── 3. Research block — interleaved daily tasks + work items ──
+  // ── 3. Project work items — the core of the day ──
   let lastBreakSlot = timeSlot;
-  for (const entry of researchQueue) {
-    if (timeSlot >= 18) break;
-    if (entry.type === 'daily_task') {
-      addItem(entry.task, { title: entry.title });
-    } else {
-      addItem(entry.task, {
-        title: entry.title,
-        description: entry.description,
-        category: 'research',
-        estimatedMinutes: entry.estimatedMinutes,
-        sourceType: 'work_item',
-        sourceId: entry.task.id,
-      });
-    }
-    if (timeSlot - lastBreakSlot >= 2 && timeSlot < 18) {
+  let workMinScheduled = 0;
+  for (const block of workBlocks) {
+    if (timeSlot >= 22) break;
+    if (workMinScheduled >= workItemBudget) break;
+    addItem(block, {
+      title: `[${block.projectName}] ${block.title}`,
+      description: block.description,
+      category: 'research',
+      estimatedMinutes: block.estimatedMinutes,
+      sourceType: 'work_item',
+      sourceId: block.id,
+    });
+    workMinScheduled += block.estimatedMinutes;
+    if (timeSlot - lastBreakSlot >= 2 && timeSlot < 22) {
       addBreak('Break', 15, 'Rest, stretch, hydrate');
       lastBreakSlot = timeSlot;
     }
   }
 
-  // ── 4. Lunch ──
-  if (timeSlot >= 12 && !items.some((i) => i.title === 'Lunch')) {
+  // ── 4. Lunch (insert near 12pm) ──
+  if (!items.some((i) => i.title === 'Lunch')) {
     const lunchIdx = items.findIndex((i) => parseTimeToHour(i.time) >= 12);
     if (lunchIdx >= 0) {
       items.splice(lunchIdx, 0, { id: uid(), time: '12:00 PM', title: 'Lunch', description: '', category: 'general', estimatedMinutes: 60, sourceType: 'break', sourceId: '', isDone: false });
+      // Shift timeSlot forward by lunch duration
+      timeSlot = Math.max(timeSlot, 13);
     }
   }
 
-  // ── 5. Afternoon/evening: other daily tasks (learning, general, etc.) ──
-  if (timeSlot < 13) timeSlot = 13;
-  for (const task of otherDailyTasks) {
+  // ── 5. Daily tasks — fill remaining time ──
+  for (const entry of dailyTaskEntries) {
     if (timeSlot >= 22) break;
-    const reps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
-    for (let i = 0; i < reps && timeSlot < 22; i++) {
-      addItem(task, { title: reps > 1 ? `${task.title} (${i + 1}/${reps})` : task.title });
-    }
-  }
-
-  // ── 6. Overflow research items that didn't fit before 6pm ──
-  for (const entry of researchQueue) {
-    if (timeSlot >= 22) break;
-    // Check if already scheduled
-    if (items.some((i) => i.sourceId === (entry.task.id || ''))) continue;
-    if (entry.type === 'daily_task') {
-      addItem(entry.task, { title: entry.title });
-    } else {
-      addItem(entry.task, {
-        title: entry.title,
-        description: entry.description,
-        category: 'research',
-        estimatedMinutes: entry.estimatedMinutes,
-        sourceType: 'work_item',
-        sourceId: entry.task.id,
-      });
+    addItem(entry.task, { title: entry.title, estimatedMinutes: entry.estimatedMinutes });
+    if (timeSlot - lastBreakSlot >= 2 && timeSlot < 22) {
+      addBreak('Break', 15);
+      lastBreakSlot = timeSlot;
     }
   }
 
@@ -971,12 +998,38 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       const context = contextRes.data?.context;
       if (!context) throw new Error('Failed to build day context');
 
-      // Build a scheduling prompt for the Codex MCP
       const prompt = buildSchedulePrompt(context);
+      let items;
 
-      // Call the day-plan endpoint — the backend can optionally forward to Codex
-      // For now, we generate a structured plan from the context client-side
-      const items = generateDayPlanFromContext(context);
+      // Try AI scheduling, fall back to deterministic
+      try {
+        const aiRes = await axios.post(`${apiUrl}/aris/day-plan/ai-schedule`, {
+          prompt,
+          model: 'gpt-5.4-codex',
+          reasoningEffort: 'high',
+        }, { headers: getAuthHeaders(), timeout: 180000 });
+        items = aiRes.data?.items;
+        if (!items || items.length === 0) throw new Error('AI returned empty schedule');
+
+        // Validate: work items from context must appear in schedule
+        const humanWorkItems = (context.ongoingWorkItems || []).filter((w) => w.actorType !== 'ai');
+        const contextProjects = [...new Set(humanWorkItems.map((w) => w.projectName))];
+        const scheduleWorkTitles = items.filter((i) => i.sourceType === 'work_item' || /\[.*\]/.test(i.title)).map((i) => i.title);
+        if (humanWorkItems.length > 0 && scheduleWorkTitles.length === 0) {
+          throw new Error('AI schedule missing project work items — falling back');
+        }
+        // Check each project is represented
+        for (const proj of contextProjects) {
+          if (!scheduleWorkTitles.some((t) => t.includes(`[${proj}]`))) {
+            throw new Error(`AI schedule missing items from project "${proj}" — falling back`);
+          }
+        }
+        console.log('[Schedule] AI generated', items.length, 'items');
+      } catch (aiErr) {
+        console.warn('[Schedule] AI scheduling failed, using deterministic fallback:', aiErr.message);
+        items = generateDayPlanFromContext(context);
+      }
+
       const summary = `${items.length} items scheduled for ${context.dayOfWeek}`;
       const res = await axios.post(`${apiUrl}/aris/day-plan`, { items, summary }, { headers: getAuthHeaders() });
       setDayPlan(res.data?.plan || null);
@@ -1076,12 +1129,20 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   const handleWorkItemAction = async (itemId, action) => {
     try {
       if (action === 'done_today') {
-        // Mark as waiting (done for today, will check back)
         await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: 'in_progress', nextBestAction: `Done for today (${new Date().toLocaleDateString()})` }, { headers: getAuthHeaders() });
       } else if (action === 'waiting') {
         await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: 'waiting' }, { headers: getAuthHeaders() });
       } else if (action === 'all_done') {
         await axios.patch(`${apiUrl}/aris/work-items/${itemId}`, { status: 'done' }, { headers: getAuthHeaders() });
+      }
+      // Mark the corresponding schedule item as done in the day plan
+      if (dayPlan?.items) {
+        const updatedItems = dayPlan.items.map((it) =>
+          it.sourceType === 'work_item' && it.sourceId === itemId ? { ...it, isDone: true } : it
+        );
+        setDayPlan((prev) => prev ? { ...prev, items: updatedItems } : prev);
+        // Persist the updated day plan
+        axios.post(`${apiUrl}/aris/day-plan`, { date: dayPlan.planDate, items: updatedItems, summary: dayPlan.summary }, { headers: getAuthHeaders() }).catch(() => {});
       }
       await fetchOngoingItems();
     } catch (err) { setError(err.response?.data?.error || 'Failed to update work item'); }
@@ -2814,7 +2875,9 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                                       axios.post(`${apiUrl}/aris/day-plan`, { date: dayPlan.planDate, items: updatedItems, summary: dayPlan.summary }, { headers: getAuthHeaders() }),
                                     ];
                                     if (planItem.sourceType === 'daily_task' && planItem.sourceId) {
-                                      saves.push(axios.post(`${apiUrl}/aris/daily-tasks/${planItem.sourceId}/toggle`, {}, { headers: getAuthHeaders() }));
+                                      // Count how many schedule items with this sourceId are checked
+                                      const doneCount = updatedItems.filter((it) => it.sourceType === 'daily_task' && it.sourceId === planItem.sourceId && it.isDone).length;
+                                      saves.push(axios.post(`${apiUrl}/aris/daily-tasks/${planItem.sourceId}/toggle`, { count: doneCount }, { headers: getAuthHeaders() }));
                                     } else if (planItem.sourceType === 'work_item' && planItem.sourceId) {
                                       saves.push(axios.patch(`${apiUrl}/aris/work-items/${planItem.sourceId}`, { status: newDone ? 'done' : 'in_progress' }, { headers: getAuthHeaders() }));
                                     }
@@ -2843,6 +2906,13 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                             {planItem.description && <span className="myday-schedule-desc">{planItem.description}</span>}
                           </div>
                           <span className="myday-schedule-duration">{planItem.estimatedMinutes}min</span>
+                          {planItem.sourceType === 'work_item' && planItem.sourceId && !planItem.isDone && (
+                            <div className="myday-schedule-actions">
+                              <button type="button" className="schedule-action-btn schedule-action-waiting" title="Waiting / blocked" onClick={() => handleWorkItemAction(planItem.sourceId, 'waiting')}>⏸</button>
+                              <button type="button" className="schedule-action-btn schedule-action-done-today" title="Done for today" onClick={() => handleWorkItemAction(planItem.sourceId, 'done_today')}>✓</button>
+                              <button type="button" className="schedule-action-btn schedule-action-all-done" title="All done" onClick={() => handleWorkItemAction(planItem.sourceId, 'all_done')}>✅</button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

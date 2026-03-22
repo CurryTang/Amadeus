@@ -26,26 +26,23 @@ function todayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Rolling 7-day window: today is always day 1.
+// Look back 6 days to count completions in the trailing 7-day window.
 function startOfWeek(dateStr) {
   const d = new Date(dateStr + 'T00:00:00Z');
-  const day = d.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1; // Monday = 0
-  d.setUTCDate(d.getUTCDate() - diff);
+  d.setUTCDate(d.getUTCDate() - 6); // 6 days back = 7-day window ending today
   return d.toISOString().slice(0, 10);
 }
 
 function endOfWeek(dateStr) {
-  const ws = startOfWeek(dateStr);
-  const d = new Date(ws + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + 6);
-  return d.toISOString().slice(0, 10);
+  // End of the rolling window is always today
+  return dateStr;
 }
 
-function daysRemainingInWeek(dateStr) {
-  const we = endOfWeek(dateStr);
-  const today = new Date(dateStr + 'T00:00:00Z');
-  const end = new Date(we + 'T00:00:00Z');
-  return Math.max(1, Math.round((end - today) / 86400000) + 1); // including today
+function daysRemainingInWeek(/* dateStr */) {
+  // Rolling window: today is day 1, so there are always 7 days ahead
+  // (the window slides forward each day)
+  return 7;
 }
 
 function normalizeDailyTask(row) {
@@ -223,8 +220,8 @@ function createArisDailyService() {
       args: [dailyTaskId, date],
     });
 
-    // If count is provided (target-based task), add multiple completions or remove today's
-    if (count != null && count > 0) {
+    // If count is provided (target-based task), set exact number of completions for today
+    if (count != null) {
       // Remove any existing completions for today first
       for (const row of (existing.rows || [])) {
         await db.execute({ sql: `DELETE FROM aris_daily_completions WHERE id = ?`, args: [row.id] });
@@ -237,7 +234,7 @@ function createArisDailyService() {
           args: [id, dailyTaskId, date, nowIso()],
         });
       }
-      return { completed: true, date, count };
+      return { completed: count > 0, date, count };
     }
 
     // Simple toggle (routine tasks)
