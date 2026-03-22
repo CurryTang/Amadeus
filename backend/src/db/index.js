@@ -765,6 +765,15 @@ How does this work relate to other important papers in the field? What prior wor
     ON aris_day_plans(plan_date DESC)
   `);
 
+  // Local session snapshots (persists across restarts)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS aris_kv (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT '{}',
+      updated_at DATETIME NOT NULL
+    )
+  `);
+
   // ─── Migrations: Daily Tasks v2 (total_target replaces weekly_credit) ──────
   // total_target: optional number (e.g. 10 leetcode/week, 6 papers/week). NULL = routine task.
   // target_period: 'weekly' (default) or 'daily' — defines how total_target is measured.

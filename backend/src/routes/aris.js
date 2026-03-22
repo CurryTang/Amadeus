@@ -908,35 +908,11 @@ router.post('/projects/:projectId/import-papers', requireAuth, async (req, res) 
 
 // ─── Local Claude Code session monitoring ─────────────────────────────────────
 
-// In-memory store for session snapshots (ephemeral — resets on restart)
-let localSessionSnapshot = { sessions: [], updatedAt: null };
-// Cache AI-generated session summaries by matched JSONL filename
-const sessionSummaryCache = new Map();
-
-// Generate a short AI summary for a session using Codex CLI (free with account)
-async function generateSessionSummary(rawContext, matchedFile) {
-  if (!rawContext || sessionSummaryCache.has(matchedFile)) {
-    return sessionSummaryCache.get(matchedFile) || '';
-  }
-  try {
-    const codexService = require('../services/codex-cli.service');
-    const prompt = `Summarize this Claude Code conversation in 5-8 words. Be specific about the task. Return ONLY the summary, no quotes, no explanation.\n\n${rawContext}`;
-    const result = await codexService.runCodex(prompt, { timeout: 30000 });
-    const summary = (result.text || '').trim().substring(0, 80);
-    if (summary) sessionSummaryCache.set(matchedFile, summary);
-    return summary;
-  } catch (e) {
-    console.warn('[ARIS] session summary generation failed:', e.message);
-    return '';
-  }
-}
-
 // POST /api/aris/local-sessions — push a snapshot of running Claude Code sessions
-// Called periodically by a local monitor script on the user's Mac
+// Persisted to DB (aris_kv) so sessions survive backend restarts.
 router.post('/local-sessions', requireAuth, async (req, res) => {
   try {
     const { sessions = [] } = req.body || {};
-    // Match sessions to ARIS projects by cwd -> localFullPath
     let projects = [];
     try { projects = await arisService.listProjects(); } catch (_) {}
     const enriched = [];
@@ -948,17 +924,24 @@ router.post('/local-sessions', requireAuth, async (req, res) => {
           return fp && cwdLower && (cwdLower === fp || cwdLower.startsWith(fp + '/'));
         });
         enriched.push({
-          ...s,
+          sessionFile: s.sessionFile || '',
           sessionName: s.sessionName || '',
-          rawContext: undefined,
+          cwd: s.cwd || '',
+          model: s.model || 'unknown',
+          isActive: !!s.isActive,
+          lastActiveAt: s.lastActiveAt || null,
           projectId: project?.id || null,
           projectName: project?.name || null,
         });
-      } catch (_) {
-        // Skip malformed session entries
-      }
+      } catch (_) { /* skip */ }
     }
-    localSessionSnapshot = { sessions: enriched, updatedAt: new Date().toISOString() };
+    const snapshot = { sessions: enriched, updatedAt: new Date().toISOString() };
+    const db = require('../db').getDb();
+    await db.execute({
+      sql: `INSERT INTO aris_kv (key, value, updated_at) VALUES ('local_sessions', ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      args: [JSON.stringify(snapshot), snapshot.updatedAt],
+    });
     res.json({ ok: true, count: enriched.length });
   } catch (error) {
     console.error('[ARIS] local-sessions push error:', error);
@@ -966,9 +949,19 @@ router.post('/local-sessions', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/aris/local-sessions — retrieve the latest snapshot
+// GET /api/aris/local-sessions — retrieve the latest snapshot from DB
 router.get('/local-sessions', requireAuth, async (req, res) => {
-  res.json(localSessionSnapshot);
+  try {
+    const db = require('../db').getDb();
+    const result = await db.execute({ sql: `SELECT value FROM aris_kv WHERE key = 'local_sessions'`, args: [] });
+    if (result.rows?.[0]?.value) {
+      res.json(JSON.parse(result.rows[0].value));
+    } else {
+      res.json({ sessions: [], updatedAt: null });
+    }
+  } catch (error) {
+    res.json({ sessions: [], updatedAt: null });
+  }
 });
 
 // ─── Daily Tasks & Day Plans ─────────────────────────────────────────────────
