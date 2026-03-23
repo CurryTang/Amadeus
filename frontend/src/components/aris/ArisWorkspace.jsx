@@ -386,8 +386,13 @@ function buildSchedulePrompt(context) {
     '',
   ];
 
-  // Group work items by project
-  const humanWorkItems = (context.ongoingWorkItems || []).filter((w) => w.actorType !== 'ai');
+  // Group work items by project — filter out "Done for today" items
+  const humanWorkItems = (context.ongoingWorkItems || []).filter((w) => {
+    if (w.actorType === 'ai') return false;
+    const nba = (w.nextBestAction || '').toLowerCase();
+    if (nba.includes('done for today') || nba.includes('done today')) return false;
+    return true;
+  });
   const byProject = {};
   for (const item of humanWorkItems) {
     const proj = item.projectName || 'Other';
@@ -396,14 +401,16 @@ function buildSchedulePrompt(context) {
   }
   const projectNames = Object.keys(byProject);
 
-  // Critical rules — emphasize multi-project coverage
+  // Critical rules
   lines.push('# CRITICAL RULES');
   lines.push('1. Project work items MUST occupy at least 60% of the scheduled time.');
-  lines.push('2. Daily routine tasks are SECONDARY — fit them around project work, cap each at 2-3 reps max.');
+  lines.push('2. INTERLEAVE daily tasks between work blocks for variety (do NOT dump all daily tasks at the end).');
+  lines.push('3. Pattern: 2 work blocks → 1 daily task → 2 work blocks → 1 daily task...');
   if (projectNames.length > 1) {
-    lines.push(`3. You MUST schedule work items from ALL ${projectNames.length} projects: ${projectNames.join(', ')}. Pick at least 2 items from each project.`);
+    lines.push(`4. You MUST schedule work items from ALL ${projectNames.length} projects: ${projectNames.join(', ')}. Pick at least 2 items from each project.`);
   }
-  lines.push('4. A schedule with only routine tasks is WRONG.');
+  lines.push('5. A schedule with only routine tasks is WRONG.');
+  lines.push('6. Cap to 5-6 focused work blocks total (quality over quantity).');
   lines.push('');
 
   // Work items grouped by project
@@ -434,7 +441,7 @@ function buildSchedulePrompt(context) {
   }
 
   // Daily tasks — secondary
-  lines.push('# Daily Tasks (secondary — fill remaining time, max 2-3 reps each)');
+  lines.push('# Daily Tasks (interleave between work blocks, max 2-3 reps each)');
   for (const t of context.pendingDailyTasks) {
     let targetInfo;
     if (t.totalTarget != null && t.targetPeriod === 'total') {
@@ -457,8 +464,8 @@ function buildSchedulePrompt(context) {
     'Rules:',
     '- Schedule 9am to 10pm',
     `- MUST include work items from EVERY project (${projectNames.join(', ')}), at least 2 each`,
-    '- Project work items FIRST and MOST of the day',
-    '- Daily tasks fill the gaps (cap reps: max 2-3 per task)',
+    '- INTERLEAVE daily tasks between work blocks (e.g. 2 work, 1 daily, 2 work, 1 daily)',
+    '- Do NOT put all daily tasks at the end of the day',
     '- Include lunch ~12pm (60min) and breaks every ~2 hours (15min)',
     '- Use [ProjectName] prefix for work items so they are distinguishable',
     '- Include duration in parentheses',
@@ -515,8 +522,15 @@ function generateDayPlanFromContext(context) {
   const todayMilestones = (context.milestones || []).filter((m) => m.isToday);
 
   // ── Build work item blocks (project tasks — highest priority) ──
-  // Ensure all projects are represented by interleaving items from each project
-  const humanWorkItems = context.ongoingWorkItems.filter((item) => item.actorType !== 'ai');
+  // Filter out items marked "Done for today" in nextBestAction
+  const todayStr = context.date || '';
+  const humanWorkItems = context.ongoingWorkItems.filter((item) => {
+    if (item.actorType === 'ai') return false;
+    // Skip items explicitly marked done for today
+    const nba = (item.nextBestAction || '').toLowerCase();
+    if (nba.includes('done for today') || nba.includes('done today')) return false;
+    return true;
+  });
   const byProject = {};
   for (const item of humanWorkItems) {
     const proj = item.projectName || 'Other';
@@ -524,15 +538,15 @@ function generateDayPlanFromContext(context) {
     byProject[proj].push(item);
   }
 
-  // Sort within each project by priority/status, then round-robin across projects
+  // Sort within each project by deadline pressure, priority, then status
   const sortItems = (arr) => arr.sort((a, b) => {
     const deadlineBoostA = urgentMilestones.some((m) => m.projectName === a.projectName) ? 10 : 0;
     const deadlineBoostB = urgentMilestones.some((m) => m.projectName === b.projectName) ? 10 : 0;
     if (deadlineBoostA !== deadlineBoostB) return deadlineBoostB - deadlineBoostA;
+    // Priority first (higher = more important)
+    if ((b.priority ?? 0) !== (a.priority ?? 0)) return (b.priority ?? 0) - (a.priority ?? 0);
     const statusOrder = { blocked: 0, review: 1, in_progress: 2, waiting: 3, ready: 4 };
-    const sDiff = (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
-    if (sDiff !== 0) return sDiff;
-    return (b.priority ?? 0) - (a.priority ?? 0);
+    return (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5);
   });
 
   const projectQueues = Object.values(byProject).map((arr) => sortItems([...arr]));
@@ -544,26 +558,26 @@ function generateDayPlanFromContext(context) {
       if (queue.length > 0) {
         const item = queue.shift();
         const blockMinutes = item.estimatedMinutes || (item.status === 'in_progress' ? 60 : item.status === 'blocked' || item.status === 'review' ? 30 : 45);
-        const deadlineBoost = urgentMilestones.some((m) => m.projectName === item.projectName) ? 10 : 0;
-        workBlocks.push({ ...item, estimatedMinutes: blockMinutes, description: item.nextBestAction || `Work on: ${item.title}`, deadlineBoost });
+        workBlocks.push({ ...item, estimatedMinutes: blockMinutes, description: item.nextBestAction || `Work on: ${item.title}` });
         added = true;
       }
     }
   }
 
   // ── Budget: total available = 9am–10pm = 13h = 780min ──
-  // Work items get 60% minimum, daily tasks get the rest
-  const totalAvailMin = 13 * 60; // 780 min
-  const breakMin = 90; // ~6 breaks of 15min
+  const totalAvailMin = 13 * 60;
+  const breakMin = 90;
   const lunchMin = 60;
   const usableMin = totalAvailMin - breakMin - lunchMin; // ~630 min
-  const workItemBudget = Math.floor(usableMin * 0.6); // ~378 min for project work
-  const dailyTaskBudget = usableMin - workItemBudget;  // ~252 min for daily tasks
+  // Limit work items to 5–6 focused blocks (more is overwhelming)
+  const MAX_WORK_BLOCKS = 6;
+  const workBlocksToSchedule = workBlocks.slice(0, MAX_WORK_BLOCKS);
+  const workItemBudget = workBlocksToSchedule.reduce((s, b) => s + b.estimatedMinutes, 0);
+  const dailyTaskBudget = usableMin - workItemBudget;
 
   // ── Build daily task entries (capped to budget) ──
   const dailyTaskEntries = [];
   let dailyTaskTotalMin = 0;
-  // Cap reps per task: max 3 reps per session to avoid single-task domination
   const MAX_REPS_PER_TASK = 3;
   for (const task of otherDailyTasks) {
     const rawReps = task.totalTarget != null ? Math.max(1, task.dailyQuota) : 1;
@@ -579,7 +593,11 @@ function generateDayPlanFromContext(context) {
     }
   }
 
-  // ── 1. Morning routine (exercise, reading) — 9am to ~10:30am ──
+  // ── INTERLEAVED SCHEDULE ──
+  // Pattern: morning routine → [work, work, daily, work, work, daily, ...] with breaks
+  // This ensures diverse time blocks instead of all-work-then-all-daily
+
+  // 1. Morning routine (exercise, reading) — 9am to ~10:30am
   for (const task of morningTasks) {
     const reps = task.totalTarget != null ? Math.min(Math.max(1, task.dailyQuota), MAX_REPS_PER_TASK) : 1;
     for (let i = 0; i < reps && timeSlot < 11; i++) {
@@ -590,7 +608,7 @@ function generateDayPlanFromContext(context) {
     addBreak('Break', 15);
   }
 
-  // ── 2. Today's milestones (meetings, deadlines) ──
+  // 2. Today's milestones (meetings, deadlines)
   for (const m of todayMilestones) {
     addItem({}, {
       title: `[${m.projectName}] ${m.name}`,
@@ -602,44 +620,50 @@ function generateDayPlanFromContext(context) {
     });
   }
 
-  // ── 3. Project work items — the core of the day ──
+  // 3. Interleave: 2 work items, then 1 daily task, repeat
+  const workQueue = [...workBlocksToSchedule];
+  const dailyQueue = [...dailyTaskEntries];
   let lastBreakSlot = timeSlot;
-  let workMinScheduled = 0;
-  for (const block of workBlocks) {
-    if (timeSlot >= 22) break;
-    if (workMinScheduled >= workItemBudget) break;
-    addItem(block, {
-      title: `[${block.projectName}] ${block.title}`,
-      description: block.description,
-      category: 'research',
-      estimatedMinutes: block.estimatedMinutes,
-      sourceType: 'work_item',
-      sourceId: block.id,
-    });
-    workMinScheduled += block.estimatedMinutes;
-    if (timeSlot - lastBreakSlot >= 2 && timeSlot < 22) {
+  let blocksSinceDaily = 0;
+
+  while ((workQueue.length > 0 || dailyQueue.length > 0) && timeSlot < 22) {
+    // Insert lunch around noon
+    if (timeSlot >= 11.75 && timeSlot < 13 && !items.some((i) => i.title === 'Lunch')) {
+      items.push({ id: uid(), time: fmt(timeSlot), title: 'Lunch', description: '', category: 'general', estimatedMinutes: 60, sourceType: 'break', sourceId: '', isDone: false });
+      timeSlot += 1;
+      lastBreakSlot = timeSlot;
+    }
+
+    // Interleave pattern: 2 work blocks, then 1 daily task
+    if (workQueue.length > 0 && (blocksSinceDaily < 2 || dailyQueue.length === 0)) {
+      const block = workQueue.shift();
+      addItem(block, {
+        title: `[${block.projectName}] ${block.title}`,
+        description: block.description,
+        category: 'research',
+        estimatedMinutes: block.estimatedMinutes,
+        sourceType: 'work_item',
+        sourceId: block.id,
+      });
+      blocksSinceDaily++;
+    } else if (dailyQueue.length > 0) {
+      const entry = dailyQueue.shift();
+      addItem(entry.task, { title: entry.title, estimatedMinutes: entry.estimatedMinutes });
+      blocksSinceDaily = 0;
+    }
+
+    // Break every ~2 hours
+    if (timeSlot - lastBreakSlot >= 2 && timeSlot < 22 && (workQueue.length > 0 || dailyQueue.length > 0)) {
       addBreak('Break', 15, 'Rest, stretch, hydrate');
       lastBreakSlot = timeSlot;
     }
   }
 
-  // ── 4. Lunch (insert near 12pm) ──
-  if (!items.some((i) => i.title === 'Lunch')) {
+  // If lunch was never inserted (very short schedule), add it
+  if (!items.some((i) => i.title === 'Lunch') && items.length > 0) {
     const lunchIdx = items.findIndex((i) => parseTimeToHour(i.time) >= 12);
     if (lunchIdx >= 0) {
       items.splice(lunchIdx, 0, { id: uid(), time: '12:00 PM', title: 'Lunch', description: '', category: 'general', estimatedMinutes: 60, sourceType: 'break', sourceId: '', isDone: false });
-      // Shift timeSlot forward by lunch duration
-      timeSlot = Math.max(timeSlot, 13);
-    }
-  }
-
-  // ── 5. Daily tasks — fill remaining time ──
-  for (const entry of dailyTaskEntries) {
-    if (timeSlot >= 22) break;
-    addItem(entry.task, { title: entry.title, estimatedMinutes: entry.estimatedMinutes });
-    if (timeSlot - lastBreakSlot >= 2 && timeSlot < 22) {
-      addBreak('Break', 15);
-      lastBreakSlot = timeSlot;
     }
   }
 
@@ -998,6 +1022,21 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       const context = contextRes.data?.context;
       if (!context) throw new Error('Failed to build day context');
 
+      // Fetch existing plan to preserve isDone state on reschedule
+      let existingItems = [];
+      try {
+        const existingRes = await axios.get(`${apiUrl}/aris/day-plan?date=${context.date}`, { headers: getAuthHeaders() });
+        existingItems = existingRes.data?.plan?.items || [];
+      } catch (_) { /* no existing plan */ }
+      // Build a map of completed items by sourceId+title for preservation
+      const doneMap = new Map();
+      for (const item of existingItems) {
+        if (item.isDone) {
+          const key = item.sourceId ? `${item.sourceType}:${item.sourceId}` : `title:${item.title}`;
+          doneMap.set(key, true);
+        }
+      }
+
       const prompt = buildSchedulePrompt(context);
       let items;
 
@@ -1018,7 +1057,6 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
         if (humanWorkItems.length > 0 && scheduleWorkTitles.length === 0) {
           throw new Error('AI schedule missing project work items — falling back');
         }
-        // Check each project is represented
         for (const proj of contextProjects) {
           if (!scheduleWorkTitles.some((t) => t.includes(`[${proj}]`))) {
             throw new Error(`AI schedule missing items from project "${proj}" — falling back`);
@@ -1028,6 +1066,16 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
       } catch (aiErr) {
         console.warn('[Schedule] AI scheduling failed, using deterministic fallback:', aiErr.message);
         items = generateDayPlanFromContext(context);
+      }
+
+      // Restore isDone state from previous schedule (reschedule preserves progress)
+      if (doneMap.size > 0) {
+        for (const item of items) {
+          const key = item.sourceId ? `${item.sourceType}:${item.sourceId}` : `title:${item.title}`;
+          if (doneMap.has(key)) {
+            item.isDone = true;
+          }
+        }
       }
 
       const summary = `${items.length} items scheduled for ${context.dayOfWeek}`;
@@ -2863,38 +2911,39 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                               title={planItem.isDone ? 'Mark incomplete' : 'Mark done'}
                               onClick={() => {
                                 const newDone = !item.isDone;
-                                // Optimistic: update local state instantly
-                                const updatedItems = dayPlan.items.map((it, i) =>
-                                  i === idx ? { ...it, isDone: newDone } : it
-                                );
-                                setDayPlan((prev) => prev ? { ...prev, items: updatedItems } : prev);
-                                // Fire API calls in background (no await)
-                                const persist = async () => {
-                                  try {
-                                    const saves = [
-                                      axios.post(`${apiUrl}/aris/day-plan`, { date: dayPlan.planDate, items: updatedItems, summary: dayPlan.summary }, { headers: getAuthHeaders() }),
-                                    ];
-                                    if (planItem.sourceType === 'daily_task' && planItem.sourceId) {
-                                      // Count how many schedule items with this sourceId are checked
-                                      const doneCount = updatedItems.filter((it) => it.sourceType === 'daily_task' && it.sourceId === planItem.sourceId && it.isDone).length;
-                                      saves.push(axios.post(`${apiUrl}/aris/daily-tasks/${planItem.sourceId}/toggle`, { count: doneCount }, { headers: getAuthHeaders() }));
-                                    } else if (planItem.sourceType === 'work_item' && planItem.sourceId) {
-                                      saves.push(axios.patch(`${apiUrl}/aris/work-items/${planItem.sourceId}`, { status: newDone ? 'done' : 'in_progress' }, { headers: getAuthHeaders() }));
+                                // Use functional setState to avoid stale closure issues with rapid clicks
+                                setDayPlan((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedItems = prev.items.map((it, i) =>
+                                    i === idx ? { ...it, isDone: newDone } : it
+                                  );
+                                  // Fire API calls in background
+                                  const persist = async () => {
+                                    try {
+                                      const saves = [
+                                        axios.post(`${apiUrl}/aris/day-plan`, { date: prev.planDate, items: updatedItems, summary: prev.summary }, { headers: getAuthHeaders() }),
+                                      ];
+                                      if (planItem.sourceType === 'daily_task' && planItem.sourceId) {
+                                        const doneCount = updatedItems.filter((it) => it.sourceType === 'daily_task' && it.sourceId === planItem.sourceId && it.isDone).length;
+                                        saves.push(axios.post(`${apiUrl}/aris/daily-tasks/${planItem.sourceId}/toggle`, { count: doneCount }, { headers: getAuthHeaders() }));
+                                      } else if (planItem.sourceType === 'work_item' && planItem.sourceId) {
+                                        saves.push(axios.patch(`${apiUrl}/aris/work-items/${planItem.sourceId}`, { status: newDone ? 'done' : 'in_progress' }, { headers: getAuthHeaders() }));
+                                      }
+                                      await Promise.all(saves);
+                                      fetchDailyTasks();
+                                      fetchOngoingItems();
+                                    } catch (err) {
+                                      setDayPlan((p) => {
+                                        if (!p) return p;
+                                        const reverted = p.items.map((it, i) => i === idx ? { ...it, isDone: !newDone } : it);
+                                        return { ...p, items: reverted };
+                                      });
+                                      setError(err?.response?.data?.error || 'Failed to update');
                                     }
-                                    await Promise.all(saves);
-                                    fetchDailyTasks(); // refresh sidebar counts
-                                    fetchOngoingItems();
-                                  } catch (err) {
-                                    // Revert on failure
-                                    setDayPlan((prev) => {
-                                      if (!prev) return prev;
-                                      const reverted = prev.items.map((it, i) => i === idx ? { ...it, isDone: !newDone } : it);
-                                      return { ...prev, items: reverted };
-                                    });
-                                    setError(err?.response?.data?.error || 'Failed to update');
-                                  }
-                                };
-                                persist();
+                                  };
+                                  persist();
+                                  return { ...prev, items: updatedItems };
+                                });
                               }}
                             />
                           )}

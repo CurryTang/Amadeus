@@ -26,24 +26,41 @@ function todayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Rolling 7-day window: today is always day 1.
-// Look back 6 days to count completions in the trailing 7-day window.
-function startOfWeek(dateStr) {
+// ─── Week boundary helpers ──────────────────────────────────────────────────
+// Fixed Mon–Sun week for routine tasks (gives real catch-up pressure).
+// Rolling 7-day window kept only for totalTarget='total' tasks (no weekly cycle).
+
+function startOfFixedWeek(dateStr) {
   const d = new Date(dateStr + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() - 6); // 6 days back = 7-day window ending today
+  const dow = d.getUTCDay(); // 0=Sun … 6=Sat
+  const mondayOffset = dow === 0 ? 6 : dow - 1; // Sun→6, Mon→0, Tue→1 …
+  d.setUTCDate(d.getUTCDate() - mondayOffset);
   return d.toISOString().slice(0, 10);
 }
 
-function endOfWeek(dateStr) {
-  // End of the rolling window is always today
-  return dateStr;
+function endOfFixedWeek(dateStr) {
+  const d = new Date(startOfFixedWeek(dateStr) + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 6); // Sunday
+  return d.toISOString().slice(0, 10);
 }
 
-function daysRemainingInWeek(/* dateStr */) {
-  // Rolling window: today is day 1, so there are always 7 days ahead
-  // (the window slides forward each day)
-  return 7;
+function daysRemainingInFixedWeek(dateStr) {
+  const end = new Date(endOfFixedWeek(dateStr) + 'T00:00:00Z');
+  const cur = new Date(dateStr + 'T00:00:00Z');
+  return Math.max(1, Math.round((end - cur) / 86400000) + 1); // include today
 }
+
+// Rolling 7-day window (used for totalTarget='total' tasks)
+function startOfRollingWeek(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 6);
+  return d.toISOString().slice(0, 10);
+}
+
+// Backward-compat aliases used by getWeeklyProgress
+function startOfWeek(dateStr) { return startOfFixedWeek(dateStr); }
+function endOfWeek(dateStr) { return endOfFixedWeek(dateStr); }
+function daysRemainingInWeek(dateStr) { return daysRemainingInFixedWeek(dateStr); }
 
 function normalizeDailyTask(row) {
   if (!row) return null;
@@ -553,6 +570,76 @@ function createArisDailyService() {
     };
   }
 
+  // ─── Finalize Day Plan ─────────────────────────────────────────────────────
+
+  async function finalizeDayPlan(date) {
+    date = date || todayDate();
+    const plan = await getDayPlan(date);
+    if (!plan) throw new Error('No plan found for this date');
+    if (plan.status === 'finalized') return plan; // already finalized
+    const db = getDb();
+    const now = nowIso();
+    await db.execute({
+      sql: `UPDATE aris_day_plans SET status = 'finalized', updated_at = ? WHERE id = ?`,
+      args: [now, plan.id],
+    });
+    return getDayPlan(date);
+  }
+
+  // ─── Carry Over Incomplete Items to Next Day ──────────────────────────────
+
+  async function carryOverToNextDay(fromDate) {
+    fromDate = fromDate || todayDate();
+    const sourcePlan = await getDayPlan(fromDate);
+    if (!sourcePlan) throw new Error('No plan found for this date');
+
+    // Compute next day
+    const nextDay = new Date(fromDate + 'T00:00:00Z');
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const nextDateStr = nextDay.toISOString().slice(0, 10);
+
+    // Collect incomplete items from today
+    const incompleteItems = (sourcePlan.items || []).filter((item) => !item.isDone);
+
+    if (incompleteItems.length === 0) {
+      // Nothing to carry over — just finalize today
+      await finalizeDayPlan(fromDate);
+      return { fromDate, toDate: nextDateStr, carriedOver: 0, nextPlan: await getDayPlan(nextDateStr) };
+    }
+
+    // Strip time/done state for the new day (items start fresh)
+    const carriedItems = incompleteItems.map((item) => ({
+      ...item,
+      time: null,
+      isDone: false,
+      carriedFrom: fromDate,
+    }));
+
+    // Merge with any existing plan for next day
+    const existingNextPlan = await getDayPlan(nextDateStr);
+    const existingItems = existingNextPlan ? existingNextPlan.items : [];
+    // Deduplicate: don't carry over items already in next day's plan (by title + sourceId)
+    const existingKeys = new Set(existingItems.map((i) => `${i.sourceType || ''}:${i.sourceId || ''}:${i.title || ''}`));
+    const newItems = carriedItems.filter((i) => !existingKeys.has(`${i.sourceType || ''}:${i.sourceId || ''}:${i.title || ''}`));
+    const mergedItems = [...existingItems, ...newItems];
+
+    // Save next day's plan
+    const summary = existingNextPlan?.summary
+      ? existingNextPlan.summary
+      : `Carried over ${newItems.length} item(s) from ${fromDate}`;
+    await saveDayPlan(nextDateStr, mergedItems, summary);
+
+    // Finalize today's plan
+    await finalizeDayPlan(fromDate);
+
+    return {
+      fromDate,
+      toDate: nextDateStr,
+      carriedOver: newItems.length,
+      nextPlan: await getDayPlan(nextDateStr),
+    };
+  }
+
   return {
     DAILY_TASK_CATEGORIES,
     DAILY_TASK_FREQUENCIES,
@@ -568,7 +655,13 @@ function createArisDailyService() {
     getUpcomingMilestones,
     getDayPlan,
     saveDayPlan,
+    finalizeDayPlan,
+    carryOverToNextDay,
     buildDayContext,
+    // Expose week helpers for testing
+    _startOfFixedWeek: startOfFixedWeek,
+    _endOfFixedWeek: endOfFixedWeek,
+    _daysRemainingInFixedWeek: daysRemainingInFixedWeek,
   };
 }
 

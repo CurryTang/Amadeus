@@ -1081,6 +1081,127 @@ router.post('/day-plan', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/aris/day-plan/finalize — mark today's plan as finalized
+router.post('/day-plan/finalize', requireAuth, async (req, res) => {
+  try {
+    const { date } = req.body;
+    const plan = await dailyService.finalizeDayPlan(date || undefined);
+    res.json({ plan });
+  } catch (error) {
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// POST /api/aris/day-plan/carry-over — carry incomplete items to next day
+router.post('/day-plan/carry-over', requireAuth, async (req, res) => {
+  try {
+    const { fromDate } = req.body;
+    const result = await dailyService.carryOverToNextDay(fromDate || undefined);
+    res.json(result);
+  } catch (error) {
+    res.status(classifyArisError(error)).json({ error: error.message });
+  }
+});
+
+// POST /api/aris/day-plan/ai-schedule — generate schedule using AI (Codex CLI)
+router.post('/day-plan/ai-schedule', requireAuth, async (req, res) => {
+  try {
+    const { prompt, model, reasoningEffort } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+
+    const codexService = require('../services/codex-cli.service');
+    const available = await codexService.isAvailable();
+    if (!available) return res.status(503).json({ error: 'Codex CLI not available on server' });
+
+    const result = await codexService.runCodex(prompt, {
+      model: model || 'gpt-5.4-codex',
+      timeout: 3 * 60 * 1000, // 3 min
+      reasoningEffort: reasoningEffort || 'high',
+    });
+
+    // Parse the AI response into schedule items
+    const text = result.text || '';
+    const items = parseAiScheduleResponse(text);
+    res.json({ items, rawText: text });
+  } catch (error) {
+    console.error('[ARIS] AI schedule error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Parse AI-generated schedule text into structured items.
+ * Expects lines like: "9:00 AM - 10:30 AM | [Project] Task title | description"
+ * or "9:00 AM | Task title (45min) | description"
+ */
+function parseAiScheduleResponse(text) {
+  const lines = text.split('\n').filter((l) => l.trim());
+  const items = [];
+  const uid = () => Math.random().toString(36).slice(2, 10);
+
+  // Try to find time-based lines
+  const timePattern = /(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))/;
+
+  for (const line of lines) {
+    const timeMatch = line.match(timePattern);
+    if (!timeMatch) continue;
+
+    const time = timeMatch[1].toUpperCase().replace(/\s+/g, ' ');
+
+    // Extract duration if present (e.g., "45min", "1h", "60 min")
+    const durMatch = line.match(/(\d+)\s*(?:min(?:utes?)?|m)\b/i) || line.match(/(\d+(?:\.\d+)?)\s*(?:h(?:ours?)?|hr)\b/i);
+    let estimatedMinutes = 30;
+    if (durMatch) {
+      const val = parseFloat(durMatch[1]);
+      estimatedMinutes = line.match(/h(?:ours?)?|hr/i) ? Math.round(val * 60) : Math.round(val);
+    }
+
+    // Remove time and duration from the line to get the title/description
+    let rest = line
+      .replace(/\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\s*[-–—]?\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)/i, '')
+      .replace(timePattern, '')
+      .replace(/(\d+)\s*(?:min(?:utes?)?|m)\b/i, '')
+      .replace(/^\s*[-–—|:]+\s*/, '')
+      .trim();
+
+    // Split by | or — for title and description
+    const parts = rest.split(/\s*[|—–]\s*/);
+    const title = (parts[0] || '').replace(/^\s*[-*•]\s*/, '').trim();
+    const description = (parts.slice(1).join(' — ')).trim();
+
+    if (!title) continue;
+
+    // Detect category from title/content
+    let category = 'general';
+    const lower = title.toLowerCase();
+    if (/research|paper|read.*paper|literature/i.test(lower)) category = 'research';
+    else if (/code|coding|implement|develop|debug|fix|refactor/i.test(lower)) category = 'coding';
+    else if (/writ/i.test(lower)) category = 'writing';
+    else if (/exercise|workout|run|gym|walk/i.test(lower)) category = 'exercise';
+    else if (/read/i.test(lower)) category = 'reading';
+    else if (/learn|study|course/i.test(lower)) category = 'learning';
+
+    // Detect source type
+    let sourceType = 'daily_task';
+    if (/break|lunch|dinner|rest/i.test(lower)) sourceType = 'break';
+    else if (/\[.*\]/.test(title)) sourceType = 'work_item';
+
+    items.push({
+      id: uid(),
+      time,
+      title,
+      description,
+      category,
+      estimatedMinutes,
+      sourceType,
+      sourceId: '',
+      isDone: false,
+    });
+  }
+
+  return items;
+}
+
 // GET /api/aris/day-context — build full context for day scheduling
 router.get('/day-context', requireAuth, async (req, res) => {
   try {
