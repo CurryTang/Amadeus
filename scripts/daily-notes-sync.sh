@@ -12,14 +12,18 @@
 #
 # Environment (set in launchd plist or export before running):
 #   API_URL          — backend API base URL (default: https://auto-reader.duckdns.org/api)
-#   ADMIN_TOKEN      — Bearer token for API auth
+#   ADMIN_TOKEN      — Bearer token for API auth (REQUIRED)
 #   OBSIDIAN_VAULT   — path to Obsidian vault papers folder
 
 set -euo pipefail
 
 API_URL="${API_URL:-https://auto-reader.duckdns.org/api}"
-ADMIN_TOKEN="${ADMIN_TOKEN:-ed9f158b1d2f7d722a69909420701f6ef647b5336503696c34e8243e6ca4086f}"
 OBSIDIAN_VAULT="${OBSIDIAN_VAULT:-/Users/czk/Documents/dl/deeplearning/notes/papers}"
+
+if [ -z "${ADMIN_TOKEN:-}" ]; then
+  echo "[daily-notes-sync] ERROR: ADMIN_TOKEN env var is required"
+  exit 1
+fi
 
 AUTH="Authorization: Bearer ${ADMIN_TOKEN}"
 LOG_PREFIX="[daily-notes-sync]"
@@ -80,6 +84,12 @@ echo "$pending_json" | node -e "
     return new Promise((resolve, reject) => {
       const mod = url.startsWith('https') ? https : http;
       const req = mod.get(url, { headers: { 'Authorization': 'Bearer ' + token } }, (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          let body = '';
+          res.on('data', c => body += c);
+          res.on('end', () => reject(new Error('HTTP ' + res.statusCode + ': ' + body.slice(0,200))));
+          return;
+        }
         let body = '';
         res.on('data', c => body += c);
         res.on('end', () => {
@@ -104,7 +114,13 @@ echo "$pending_json" | node -e "
       }, (res) => {
         let body = '';
         res.on('data', c => body += c);
-        res.on('end', () => resolve(body));
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error('HTTP ' + res.statusCode + ': ' + body.slice(0,200)));
+          } else {
+            resolve(body);
+          }
+        });
       });
       req.on('error', reject);
       req.end('{}');
@@ -134,13 +150,13 @@ echo "$pending_json" | node -e "
           continue;
         }
 
-        // Write to vault
+        // Write to vault (title only — matches Obsidian naming convention)
         const safeName = sanitizeTitle(doc.title);
         const filePath = path.join(vault, safeName + '.md');
         fs.writeFileSync(filePath, content, 'utf8');
         console.log('[daily-notes-sync] Exported: ' + safeName + '.md');
 
-        // Mark as exported
+        // Mark as exported on backend
         await postJson(apiUrl + '/documents/' + doc.id + '/obsidian-exported');
         exported++;
       } catch (err) {
@@ -150,6 +166,7 @@ echo "$pending_json" | node -e "
     }
 
     console.log('[daily-notes-sync] Done. Exported: ' + exported + ', Failed: ' + failed);
+    if (failed > 0) process.exit(1);
   })();
 " || {
   log "ERROR: Export script failed"
