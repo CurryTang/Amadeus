@@ -76,6 +76,7 @@ function normalizeDailyTask(row) {
     weeklyCredit: row.weekly_credit ?? (row.total_target || 7),
     totalTarget: row.total_target ?? null, // null = routine task (no target)
     targetPeriod: row.target_period || 'weekly',
+    pickGroup: row.pick_group ?? null, // null = standalone, string = group label
     priority: row.priority ?? 0,
     isActive: row.is_active === 1 || row.is_active === true,
     createdAt: row.created_at,
@@ -148,7 +149,7 @@ function createArisDailyService() {
     return normalizeDailyTask(result.rows?.[0]);
   }
 
-  async function createDailyTask({ title, description, category, frequency, weekday, estimatedMinutes, weeklyCredit, totalTarget, targetPeriod, priority }) {
+  async function createDailyTask({ title, description, category, frequency, weekday, estimatedMinutes, weeklyCredit, totalTarget, targetPeriod, pickGroup, priority }) {
     if (!title?.trim()) throw new Error('Title is required');
     if (frequency && !DAILY_TASK_FREQUENCIES.includes(frequency)) {
       throw new Error(`Invalid frequency: ${frequency}. Must be one of: ${DAILY_TASK_FREQUENCIES.join(', ')}`);
@@ -164,9 +165,9 @@ function createArisDailyService() {
     // For weekly_credit column (legacy), compute from totalTarget or default
     const credit = target ?? (frequency === 'daily' ? 7 : 1);
     await db.execute({
-      sql: `INSERT INTO aris_daily_tasks (id, title, description, category, frequency, weekday, estimated_minutes, weekly_credit, total_target, target_period, priority, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      args: [id, title.trim(), description || '', category || 'general', frequency || 'daily', weekday ?? null, estimatedMinutes ?? 30, credit, target, targetPeriod || 'weekly', priority ?? 0, now, now],
+      sql: `INSERT INTO aris_daily_tasks (id, title, description, category, frequency, weekday, estimated_minutes, weekly_credit, total_target, target_period, pick_group, priority, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      args: [id, title.trim(), description || '', category || 'general', frequency || 'daily', weekday ?? null, estimatedMinutes ?? 30, credit, target, targetPeriod || 'weekly', pickGroup || null, priority ?? 0, now, now],
     });
     return getDailyTask(id);
   }
@@ -182,7 +183,7 @@ function createArisDailyService() {
       title: 'title', description: 'description', category: 'category',
       frequency: 'frequency', weekday: 'weekday', estimatedMinutes: 'estimated_minutes',
       weeklyCredit: 'weekly_credit', totalTarget: 'total_target', targetPeriod: 'target_period',
-      priority: 'priority', isActive: 'is_active',
+      pickGroup: 'pick_group', priority: 'priority', isActive: 'is_active',
     };
     for (const [key, col] of Object.entries(allowed)) {
       if (updates[key] !== undefined) {
@@ -301,19 +302,40 @@ function createArisDailyService() {
 
     const daysLeft = daysRemainingInWeek(dateStr);
 
+    // ─── Pick group aggregation ───────────────────────────────────────────
+    // Tasks sharing the same pickGroup pool their completions.
+    // Completing ANY task in the group counts toward the shared weekly target.
+    const pickGroupCompletions = {}; // groupName → total completion count
+    const pickGroupAllTimeCompletions = {}; // groupName → total all-time count
+    for (const task of tasks) {
+      if (!task.pickGroup) continue;
+      const gWeek = (weekCompletionsByTask[task.id] || []).length;
+      pickGroupCompletions[task.pickGroup] = (pickGroupCompletions[task.pickGroup] || 0) + gWeek;
+      if (allCompletionsByTask[task.id]) {
+        pickGroupAllTimeCompletions[task.pickGroup] = (pickGroupAllTimeCompletions[task.pickGroup] || 0) + allCompletionsByTask[task.id].length;
+      }
+    }
+
     return tasks.map((task) => {
       const isTotal = task.totalTarget != null && task.targetPeriod === 'total';
+      const inPickGroup = !!task.pickGroup;
 
-      // For 'total' period, count all-time completions; otherwise count this week's
-      const completedCount = isTotal
-        ? (allCompletionsByTask[task.id] || []).length
-        : (weekCompletionsByTask[task.id] || []).length;
+      // For pick group tasks, use the pooled completion count
+      let completedCount;
+      if (inPickGroup) {
+        completedCount = isTotal
+          ? (pickGroupAllTimeCompletions[task.pickGroup] || 0)
+          : (pickGroupCompletions[task.pickGroup] || 0);
+      } else {
+        completedCount = isTotal
+          ? (allCompletionsByTask[task.id] || []).length
+          : (weekCompletionsByTask[task.id] || []).length;
+      }
 
-      // Determine the effective target
+      // Determine the effective target (same for all tasks in a pick group)
       let weeklyTarget;
       if (task.totalTarget != null) {
         if (task.targetPeriod === 'total') {
-          // Overall target — no weekly cycle
           weeklyTarget = task.totalTarget;
         } else if (task.targetPeriod === 'daily') {
           weeklyTarget = task.totalTarget * 7;
@@ -321,21 +343,20 @@ function createArisDailyService() {
           weeklyTarget = task.totalTarget;
         }
       } else {
-        // Routine task: frequency-based (daily=7, weekly=1, one_time=1)
         weeklyTarget = task.frequency === 'daily' ? 7 : 1;
       }
 
       const remaining = Math.max(0, weeklyTarget - completedCount);
-      // Daily quota: for 'total' period no daily quota pressure; otherwise spread over remaining days
       const dailyQuota = isTotal ? 0 : (remaining > 0 ? Math.ceil(remaining / daysLeft) : 0);
 
       return {
         ...task,
-        weeklyCredit: weeklyTarget, // backward compat
+        weeklyCredit: weeklyTarget,
         weeklyTarget,
         totalTarget: task.totalTarget,
         targetPeriod: task.targetPeriod,
-        completedThisWeek: isTotal ? completedCount : completedCount, // for 'total': this is all-time count
+        pickGroup: task.pickGroup,
+        completedThisWeek: completedCount,
         completedAllTime: isTotal ? completedCount : undefined,
         remaining,
         dailyQuota,
@@ -504,8 +525,40 @@ function createArisDailyService() {
     });
 
     // Tasks that still have remaining target and aren't done today
-    const pendingDailyTasks = todayTasks.filter((t) => t.remaining > 0 && !completedTaskIds.has(t.id));
+    let pendingDailyTasks = todayTasks.filter((t) => t.remaining > 0 && !completedTaskIds.has(t.id));
     const completedDailyTasks = todayTasks.filter((t) => completedTaskIds.has(t.id));
+
+    // ─── Pick group handling ─────────────────────────────────────────────
+    // For pick groups: only show ONE task from the group per day (rotate by day).
+    // The group's weekly quota is shared, so completing any member counts.
+    // Ensure at least one from each incomplete pick group always appears.
+    const pickGroupsSeen = new Set();
+    const completedPickGroups = new Set();
+    for (const t of completedDailyTasks) {
+      if (t.pickGroup) completedPickGroups.add(t.pickGroup);
+    }
+    // Deterministic daily rotation: pick based on day-of-year mod group size
+    const dayOfYear = Math.floor((new Date(date + 'T00:00:00Z') - new Date(date.slice(0, 4) + '-01-01T00:00:00Z')) / 86400000);
+    const pickGroupMembers = {}; // group → [tasks]
+    for (const t of pendingDailyTasks) {
+      if (t.pickGroup) {
+        if (!pickGroupMembers[t.pickGroup]) pickGroupMembers[t.pickGroup] = [];
+        pickGroupMembers[t.pickGroup].push(t);
+      }
+    }
+    pendingDailyTasks = pendingDailyTasks.filter((t) => {
+      if (!t.pickGroup) return true; // not in a group — always show
+      if (completedPickGroups.has(t.pickGroup)) return false; // group already has a completion today
+      if (pickGroupsSeen.has(t.pickGroup)) return false; // already picked one from this group
+      // Pick one task from the group by rotating based on day
+      const members = pickGroupMembers[t.pickGroup];
+      const pickedIdx = dayOfYear % members.length;
+      if (members[pickedIdx].id === t.id) {
+        pickGroupsSeen.add(t.pickGroup);
+        return true;
+      }
+      return false;
+    });
 
     const daysLeft = daysRemainingInWeek(date);
 
@@ -522,17 +575,19 @@ function createArisDailyService() {
         weeklyTarget: t.weeklyTarget,
         totalTarget: t.totalTarget,
         targetPeriod: t.targetPeriod,
+        pickGroup: t.pickGroup,
         completedThisWeek: t.completedThisWeek,
         completedAllTime: t.completedAllTime,
         remaining: t.remaining,
         dailyQuota: t.dailyQuota,
-        isRoutine: t.totalTarget == null, // no target = routine task
+        isRoutine: t.totalTarget == null,
         priority: t.priority,
       })),
       completedDailyTasks: completedDailyTasks.map((t) => ({
         id: t.id,
         title: t.title,
         category: t.category,
+        pickGroup: t.pickGroup,
       })),
       ongoingWorkItems: ongoingItems.map((item) => ({
         id: item.id,
@@ -560,6 +615,7 @@ function createArisDailyService() {
         weeklyTarget: t.weeklyTarget,
         totalTarget: t.totalTarget,
         targetPeriod: t.targetPeriod,
+        pickGroup: t.pickGroup,
         completedThisWeek: t.completedThisWeek,
         completedAllTime: t.completedAllTime,
         remaining: t.remaining,

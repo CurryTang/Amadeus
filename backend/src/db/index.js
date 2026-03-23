@@ -780,6 +780,12 @@ How does this work relate to other important papers in the field? What prior wor
   try { await db.execute(`ALTER TABLE aris_daily_tasks ADD COLUMN total_target INTEGER DEFAULT NULL`); } catch (_) { /* already exists */ }
   try { await db.execute(`ALTER TABLE aris_daily_tasks ADD COLUMN target_period TEXT DEFAULT 'weekly'`); } catch (_) { /* already exists */ }
 
+  // ─── Migration: pick_group for daily tasks (choose 1/N from group) ─────────
+  // pick_group: optional string label. Tasks sharing the same pick_group only need
+  // a combined total of completions (e.g., "Learn RL" and "Read papers" in group
+  // "daily-learning" — completing either one counts toward the group quota).
+  try { await db.execute(`ALTER TABLE aris_daily_tasks ADD COLUMN pick_group TEXT DEFAULT NULL`); } catch (_) { /* already exists */ }
+
   // ─── Migrations: Milestones v2 (recurrence support) ────────────────────────
   // recurrence: NULL = one-time, 'weekly' = repeats every week
   // recurrence_day: 0-6 (Sun-Sat) for weekly milestones

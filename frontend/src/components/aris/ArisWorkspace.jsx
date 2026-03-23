@@ -1607,11 +1607,12 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
   );
   const controlTowerCards = useMemo(
     () => {
+      const fmtWorkflow = (wf) => (wf && wf !== 'custom_run') ? wf.replace(/_/g, ' ') : '';
       const actionableItems = [
-        ...(controlTower?.overdueWakeups || []).map((item) => ({ ...item, kind: 'wakeup', status: 'overdue', title: item.reason || 'Wake-up' })),
-        ...(controlTower?.reviewReadyRuns || []).map((item) => ({ ...item, kind: 'review', status: 'review_ready', title: item.title || item.workflowType || 'Review-ready run', summary: item.resultSummary || item.summary || '' })),
+        ...(controlTower?.overdueWakeups || []).map((item) => ({ ...item, kind: 'wakeup', status: 'overdue', title: item.reason || 'Overdue wake-up' })),
+        ...(controlTower?.reviewReadyRuns || []).map((item) => ({ ...item, kind: 'review', status: 'review_ready', title: item.title || fmtWorkflow(item.workflowType) || 'Review-ready run', summary: item.resultSummary || item.summary || '' })),
         ...(controlTower?.blockedWorkItems || []).map((item) => ({ ...item, kind: 'work_item', status: 'blocked', title: item.title || 'Blocked work item', summary: item.blockedReason || item.summary || '' })),
-        ...(controlTower?.staleRuns || []).map((item) => ({ ...item, kind: 'run', status: 'waiting', title: item.title || item.workflowType || 'Stale run', summary: item.summary || '' })),
+        ...(controlTower?.staleRuns || []).map((item) => ({ ...item, kind: 'run', status: 'waiting', title: item.title || fmtWorkflow(item.workflowType) || 'Stale run', summary: item.summary || '' })),
       ];
       return actionableItems.map((item) => buildArisControlTowerCard(item));
     },
