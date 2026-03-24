@@ -623,6 +623,36 @@ function createArisDailyService() {
         isOnTrack: t.isOnTrack,
         isRoutine: t.totalTarget == null,
       })),
+      // Previous day's plan (for continuity context)
+      previousDayPlan: await (async () => {
+        const prevDate = new Date(date + 'T00:00:00Z');
+        prevDate.setUTCDate(prevDate.getUTCDate() - 1);
+        const prevDateStr = prevDate.toISOString().slice(0, 10);
+        const prevPlan = await getDayPlan(prevDateStr);
+        if (!prevPlan || !prevPlan.items || prevPlan.items.length === 0) return null;
+        const done = prevPlan.items.filter((i) => i.isDone).length;
+        const total = prevPlan.items.filter((i) => i.sourceType !== 'break').length;
+        const incomplete = prevPlan.items
+          .filter((i) => !i.isDone && i.sourceType !== 'break')
+          .map((i) => ({ title: i.title, sourceType: i.sourceType, category: i.category }));
+        return {
+          date: prevDateStr,
+          status: prevPlan.status,
+          completedCount: done,
+          totalCount: total,
+          incompleteItems: incomplete,
+        };
+      })(),
+      // Week-so-far: completions per day within fixed week
+      weekCompletionsByDay: await (async () => {
+        const ws = startOfFixedWeek(date);
+        const allWeekCompletions = await listCompletions({ weekStart: ws });
+        const byDay = {};
+        for (const c of allWeekCompletions) {
+          byDay[c.completedDate] = (byDay[c.completedDate] || 0) + 1;
+        }
+        return byDay;
+      })(),
     };
   }
 

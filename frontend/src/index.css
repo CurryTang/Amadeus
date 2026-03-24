@@ -39,12 +39,12 @@ body {
 .header {
   background: linear-gradient(180deg, #ffffff 0%, #f5f8ff 100%);
   color: var(--text);
-  padding: 14px 24px 12px;
+  padding: 10px 24px 8px;
   position: sticky;
   top: 0;
   z-index: 40;
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .header-row {
@@ -55,7 +55,7 @@ body {
 }
 
 .header-content h1 {
-  font-size: 36px;
+  font-size: 28px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
@@ -10142,11 +10142,7 @@ button.vibe-skill-chip.is-active {
 .research-obsidian-btn:hover:not(:disabled) { background: #4f46e5; }
 .research-obsidian-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.aris-sub-copy {
-  color: #46615c;
-  font-size: 0.9rem;
-  padding: 8px 0;
-}
+/* removed aris-sub-copy — sub-row hidden when on ARIS */
 
 .aris-workspace {
   display: flex;
@@ -12607,7 +12603,7 @@ button.vibe-skill-chip.is-active {
 .ct-layout {
   display: grid;
   grid-template-columns: 220px 1fr;
-  height: calc(100vh - 120px);
+  height: calc(100vh - 80px);
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   overflow: hidden;
@@ -13828,7 +13824,14 @@ button.vibe-skill-chip.is-active {
 .ct-my-day-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
+}
+
+.myday-secondary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
 }
 
 .ct-my-day-panel .ct-section-header {
@@ -13848,6 +13851,28 @@ button.vibe-skill-chip.is-active {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+/* Project filter badge (shown when a project is selected on My Day) */
+.ct-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #ede9fe;
+  color: #6d28d9;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ct-filter-badge:hover { background: #ddd6fe; }
+
+.myday-filter-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 400;
 }
 
 /* Weekly progress cards */
@@ -14563,4 +14588,5 @@ button.vibe-skill-chip.is-active {
   .myday-form-grid { grid-template-columns: 1fr; }
   .myday-session-list { grid-template-columns: 1fr; }
   .myday-task-list { grid-template-columns: 1fr; }
+  .myday-secondary-grid { grid-template-columns: 1fr; }
 }

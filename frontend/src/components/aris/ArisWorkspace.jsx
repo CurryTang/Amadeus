@@ -454,6 +454,29 @@ function buildSchedulePrompt(context) {
     lines.push(`- ${t.title} (${t.category}, ~${t.estimatedMinutes}min, ${targetInfo})`);
   }
 
+  // Previous day context (what was done / left over)
+  if (context.previousDayPlan) {
+    const prev = context.previousDayPlan;
+    lines.push('');
+    lines.push(`# Yesterday (${prev.date}): ${prev.completedCount}/${prev.totalCount} items completed`);
+    if (prev.incompleteItems && prev.incompleteItems.length > 0) {
+      lines.push('Incomplete from yesterday (consider prioritizing):');
+      for (const item of prev.incompleteItems.slice(0, 5)) {
+        lines.push(`- ${item.title} (${item.sourceType})`);
+      }
+    }
+  }
+
+  // Week-so-far summary
+  if (context.weekCompletionsByDay && Object.keys(context.weekCompletionsByDay).length > 0) {
+    lines.push('');
+    lines.push('# Week so far (completions per day):');
+    const days = Object.entries(context.weekCompletionsByDay).sort(([a], [b]) => a.localeCompare(b));
+    for (const [day, count] of days) {
+      lines.push(`- ${day}: ${count} task(s) completed`);
+    }
+  }
+
   lines.push('',
     '# Output Format',
     'Return ONLY a time-blocked schedule, one line per block:',
@@ -2266,7 +2289,16 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   key={project.id}
                   type="button"
                   className={`ct-project-item${selectedProjectId === project.id ? ' is-active' : ''}`}
-                  onClick={() => setSelectedProjectId(project.id)}
+                  onClick={() => {
+                    // Toggle project selection — on My Day this filters work items
+                    if (selectedProjectId === project.id) {
+                      setSelectedProjectId(null);
+                    } else {
+                      setSelectedProjectId(project.id);
+                      // On non-My Day panels, switch to Overview
+                      if (ctPanel !== CT_PANELS.MY_DAY) setCtPanel(CT_PANELS.OVERVIEW);
+                    }
+                  }}
                 >
                   <span className="ct-project-name">{project.name}</span>
                   <span className="ct-project-counts">
@@ -2617,6 +2649,11 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
               <div className="ct-section-header">
                 <h3>My Day &mdash; {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
                 <div className="ct-header-actions">
+                  {selectedProjectId && (
+                    <span className="ct-filter-badge" onClick={() => setSelectedProjectId(null)} title="Click to clear filter">
+                      {contextData?.projects?.find((p) => p.id === selectedProjectId)?.name || 'Project'} ×
+                    </span>
+                  )}
                   <button className="ct-btn ct-btn--sm" onClick={() => { fetchDailyTasks(); fetchOngoingItems(); fetchDayPlan(); fetchUpcomingMilestones(); }} disabled={loadingDailyTasks}>Refresh</button>
                   <button className="ct-btn ct-btn--primary ct-btn--sm" onClick={handleScheduleDay} disabled={schedulingDay}>
                     {schedulingDay ? 'Scheduling...' : 'Schedule My Day'}
@@ -2652,6 +2689,89 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   </div>
                 </div>
               )}
+
+              {/* ── Day Plan (Generated Schedule) — primary section ── */}
+              {dayPlan && dayPlan.items && dayPlan.items.length > 0 && (
+                <div className="myday-section">
+                  <div className="myday-section-header">
+                    <h4 className="myday-section-title">Today&apos;s Schedule</h4>
+                    <span className="myday-plan-summary">{dayPlan.summary}</span>
+                  </div>
+                  <div className="myday-schedule myday-schedule--scrollable">
+                    {dayPlan.items.map((item, idx) => {
+                      const planItem = buildDayPlanItem(item);
+                      const isActionable = planItem.sourceType === 'daily_task' || planItem.sourceType === 'work_item';
+                      return (
+                        <div key={planItem.id || idx} className={`myday-schedule-item${planItem.sourceType === 'break' ? ' is-break' : ''}${planItem.isDone ? ' is-done' : ''}`}>
+                          {isActionable && (
+                            <button
+                              type="button"
+                              className={`myday-schedule-check${planItem.isDone ? ' is-checked' : ''}`}
+                              title={planItem.isDone ? 'Mark incomplete' : (planItem.sourceType === 'work_item' ? 'Done for today' : 'Mark done')}
+                              onClick={() => {
+                                if (planItem.sourceType === 'work_item' && planItem.sourceId && !planItem.isDone) {
+                                  handleWorkItemAction(planItem.sourceId, 'done_today');
+                                  return;
+                                }
+                                const newDone = !planItem.isDone;
+                                setDayPlan((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedItems = prev.items.map((it, i) =>
+                                    i === idx ? { ...it, isDone: newDone } : it
+                                  );
+                                  const persist = async () => {
+                                    try {
+                                      const saves = [
+                                        axios.post(`${apiUrl}/aris/day-plan`, { date: prev.planDate, items: updatedItems, summary: prev.summary }, { headers: getAuthHeaders() }),
+                                      ];
+                                      if (planItem.sourceType === 'daily_task' && planItem.sourceId) {
+                                        const doneCount = updatedItems.filter((it) => it.sourceType === 'daily_task' && it.sourceId === planItem.sourceId && it.isDone).length;
+                                        saves.push(axios.post(`${apiUrl}/aris/daily-tasks/${planItem.sourceId}/toggle`, { count: doneCount }, { headers: getAuthHeaders() }));
+                                      } else if (planItem.sourceType === 'work_item' && planItem.sourceId) {
+                                        saves.push(axios.patch(`${apiUrl}/aris/work-items/${planItem.sourceId}`, { status: 'in_progress', nextBestAction: '' }, { headers: getAuthHeaders() }));
+                                      }
+                                      await Promise.all(saves);
+                                      fetchDailyTasks();
+                                      fetchOngoingItems();
+                                    } catch (err) {
+                                      setDayPlan((p) => {
+                                        if (!p) return p;
+                                        const reverted = p.items.map((it, i) => i === idx ? { ...it, isDone: !newDone } : it);
+                                        return { ...p, items: reverted };
+                                      });
+                                      setError(err?.response?.data?.error || 'Failed to update');
+                                    }
+                                  };
+                                  persist();
+                                  return { ...prev, items: updatedItems };
+                                });
+                              }}
+                            />
+                          )}
+                          <div className="myday-schedule-time">{planItem.time}</div>
+                          <div className="myday-schedule-content">
+                            <span className="myday-schedule-title">
+                              {planItem.categoryIcon} {planItem.title}
+                            </span>
+                            {planItem.description && <span className="myday-schedule-desc">{planItem.description}</span>}
+                          </div>
+                          <span className="myday-schedule-duration">{planItem.estimatedMinutes}min</span>
+                          {planItem.sourceType === 'work_item' && planItem.sourceId && !planItem.isDone && (
+                            <div className="myday-schedule-actions">
+                              <button type="button" className="schedule-action-btn schedule-action-waiting" title="Waiting / blocked" onClick={() => handleWorkItemAction(planItem.sourceId, 'waiting')}>⏸</button>
+                              <button type="button" className="schedule-action-btn schedule-action-done-today" title="Done for today" onClick={() => handleWorkItemAction(planItem.sourceId, 'done_today')}>✓</button>
+                              <button type="button" className="schedule-action-btn schedule-action-all-done" title="All done" onClick={() => handleWorkItemAction(planItem.sourceId, 'all_done')}>✅</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Two-column grid for secondary sections ── */}
+              <div className="myday-secondary-grid">
 
               {/* ── Claude Code Sessions (project-linked only) ── */}
               {(() => {
@@ -2849,15 +2969,18 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                 </div>
               )}
 
-              {/* ── Ongoing Work Items (Cross-Project) ── */}
+              {/* ── Ongoing Work Items (filtered by selected project) ── */}
               <div className="myday-section">
-                <h4 className="myday-section-title">Ongoing Work Items</h4>
+                <h4 className="myday-section-title">
+                  Ongoing Work Items
+                  {selectedProjectId && <span className="myday-filter-hint"> (filtered)</span>}
+                </h4>
                 {loadingOngoing && <div className="ct-empty-hint">Loading...</div>}
                 {!loadingOngoing && ongoingItems.length === 0 && (
                   <div className="ct-empty-hint">No ongoing work items across projects.</div>
                 )}
                 <div className="myday-ongoing-list">
-                  {ongoingItems.map((item) => {
+                  {ongoingItems.filter((item) => !selectedProjectId || item.projectId === selectedProjectId).map((item) => {
                     const row = buildOngoingWorkItemRow(item);
                     return (
                       <div key={item.id} className="myday-ongoing-row" onClick={() => { setSelectedProjectId(item.projectId); setSelectedWorkItemId(item.id); setCtPanel(CT_PANELS.WORK_ITEMS); }}>
@@ -2870,6 +2993,8 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                   })}
                 </div>
               </div>
+
+              </div>{/* end myday-secondary-grid */}
 
               {/* ── Upcoming Milestones & Deadlines ── */}
               {upcomingMilestones.length > 0 && (
@@ -2888,84 +3013,6 @@ export default function ArisWorkspace({ apiUrl, getAuthHeaders }) {
                         </div>
                       </div>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Day Plan (Generated Schedule) ── */}
-              {dayPlan && dayPlan.items && dayPlan.items.length > 0 && (
-                <div className="myday-section">
-                  <div className="myday-section-header">
-                    <h4 className="myday-section-title">Today&apos;s Schedule</h4>
-                    <span className="myday-plan-summary">{dayPlan.summary}</span>
-                  </div>
-                  <div className="myday-schedule myday-schedule--scrollable">
-                    {dayPlan.items.map((item, idx) => {
-                      const planItem = buildDayPlanItem(item);
-                      const isActionable = planItem.sourceType === 'daily_task' || planItem.sourceType === 'work_item';
-                      return (
-                        <div key={planItem.id || idx} className={`myday-schedule-item${planItem.sourceType === 'break' ? ' is-break' : ''}${planItem.isDone ? ' is-done' : ''}`}>
-                          {isActionable && (
-                            <button
-                              type="button"
-                              className={`myday-schedule-check${planItem.isDone ? ' is-checked' : ''}`}
-                              title={planItem.isDone ? 'Mark incomplete' : 'Mark done'}
-                              onClick={() => {
-                                const newDone = !item.isDone;
-                                // Use functional setState to avoid stale closure issues with rapid clicks
-                                setDayPlan((prev) => {
-                                  if (!prev) return prev;
-                                  const updatedItems = prev.items.map((it, i) =>
-                                    i === idx ? { ...it, isDone: newDone } : it
-                                  );
-                                  // Fire API calls in background
-                                  const persist = async () => {
-                                    try {
-                                      const saves = [
-                                        axios.post(`${apiUrl}/aris/day-plan`, { date: prev.planDate, items: updatedItems, summary: prev.summary }, { headers: getAuthHeaders() }),
-                                      ];
-                                      if (planItem.sourceType === 'daily_task' && planItem.sourceId) {
-                                        const doneCount = updatedItems.filter((it) => it.sourceType === 'daily_task' && it.sourceId === planItem.sourceId && it.isDone).length;
-                                        saves.push(axios.post(`${apiUrl}/aris/daily-tasks/${planItem.sourceId}/toggle`, { count: doneCount }, { headers: getAuthHeaders() }));
-                                      } else if (planItem.sourceType === 'work_item' && planItem.sourceId) {
-                                        saves.push(axios.patch(`${apiUrl}/aris/work-items/${planItem.sourceId}`, { status: newDone ? 'done' : 'in_progress' }, { headers: getAuthHeaders() }));
-                                      }
-                                      await Promise.all(saves);
-                                      fetchDailyTasks();
-                                      fetchOngoingItems();
-                                    } catch (err) {
-                                      setDayPlan((p) => {
-                                        if (!p) return p;
-                                        const reverted = p.items.map((it, i) => i === idx ? { ...it, isDone: !newDone } : it);
-                                        return { ...p, items: reverted };
-                                      });
-                                      setError(err?.response?.data?.error || 'Failed to update');
-                                    }
-                                  };
-                                  persist();
-                                  return { ...prev, items: updatedItems };
-                                });
-                              }}
-                            />
-                          )}
-                          <div className="myday-schedule-time">{planItem.time}</div>
-                          <div className="myday-schedule-content">
-                            <span className="myday-schedule-title">
-                              {planItem.categoryIcon} {planItem.title}
-                            </span>
-                            {planItem.description && <span className="myday-schedule-desc">{planItem.description}</span>}
-                          </div>
-                          <span className="myday-schedule-duration">{planItem.estimatedMinutes}min</span>
-                          {planItem.sourceType === 'work_item' && planItem.sourceId && !planItem.isDone && (
-                            <div className="myday-schedule-actions">
-                              <button type="button" className="schedule-action-btn schedule-action-waiting" title="Waiting / blocked" onClick={() => handleWorkItemAction(planItem.sourceId, 'waiting')}>⏸</button>
-                              <button type="button" className="schedule-action-btn schedule-action-done-today" title="Done for today" onClick={() => handleWorkItemAction(planItem.sourceId, 'done_today')}>✓</button>
-                              <button type="button" className="schedule-action-btn schedule-action-all-done" title="All done" onClick={() => handleWorkItemAction(planItem.sourceId, 'all_done')}>✅</button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
                   </div>
                 </div>
               )}
