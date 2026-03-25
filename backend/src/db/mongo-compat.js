@@ -423,7 +423,9 @@ async function handleUpdate(sql, args) {
           continue;
         }
       }
-      update[col] = valExpr.replace(/^'|'$/g, '');
+      const cleaned = valExpr.replace(/^'|'$/g, '');
+      // Coerce numeric literals: "0" -> 0, "1" -> 1, etc.
+      update[col] = /^-?\d+(\.\d+)?$/.test(cleaned) ? Number(cleaned) : cleaned;
     }
   }
 
