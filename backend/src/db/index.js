@@ -36,6 +36,11 @@ async function initDatabase() {
     )
   `);
 
+  // Migration: backfill null created_at/updated_at in documents (MongoDB compat layer
+  // didn't auto-set DEFAULT CURRENT_TIMESTAMP for columns not in INSERT)
+  await db.execute(`UPDATE documents SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL`);
+  await db.execute(`UPDATE documents SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL`);
+
   // Create tags table for managing available tags
   await db.execute(`
     CREATE TABLE IF NOT EXISTS tags (

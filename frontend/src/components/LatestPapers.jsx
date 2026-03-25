@@ -165,7 +165,7 @@ function PaperCard({ paper, onSave, onOpen, saving, isAuthenticated, position })
   );
 }
 
-function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false, autoGenerate = false, analysisProvider = 'codex-cli' }) {
+function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false, autoGenerate = false, analysisProvider = 'codex-cli', onPaperSaved }) {
   const [papers, setPapers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -529,6 +529,7 @@ function LatestPapers({ apiUrl, isAuthenticated, getAuthHeaders, debug = false, 
       });
       const saveEvent = buildTrackerEventPayload('save', paper, { position });
       if (saveEvent) trackEvents([saveEvent]);
+      if (onPaperSaved) onPaperSaved();
     } catch (e) {
       console.error('Save paper error:', e);
       alert(e.response?.data?.error || 'Failed to save paper');

@@ -716,6 +716,7 @@ function AppContent() {
             debug={IS_DEV}
             autoGenerate={autoGenerate}
             analysisProvider={provider}
+            onPaperSaved={() => setRefreshTrigger((prev) => prev + 1)}
           />
         </div>
 

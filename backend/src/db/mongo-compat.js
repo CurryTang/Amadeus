@@ -300,6 +300,11 @@ async function handleInsert(sql, args) {
     }
   }
 
+  // Auto-set timestamp defaults that SQLite would handle via DEFAULT CURRENT_TIMESTAMP
+  const now = new Date().toISOString();
+  if (doc.created_at === undefined) doc.created_at = now;
+  if (doc.updated_at === undefined) doc.updated_at = now;
+
   // Handle auto-increment id
   const collection = database.collection(tableName);
   if (!doc.id && columns.includes('id') && doc.id === undefined) {
