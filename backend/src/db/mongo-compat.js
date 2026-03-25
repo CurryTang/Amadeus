@@ -187,11 +187,6 @@ async function handleSelect(sql, args) {
   // Parse selected columns
   const projection = parseSelectColumns(sql);
 
-  // Debug: log documents queries with is_read filter
-  if (tableName === 'documents' && filter.is_read !== undefined) {
-    console.log('[mongo-compat] documents query filter:', JSON.stringify(filter), 'sort:', JSON.stringify(sort));
-  }
-
   let cursor = collection.find(filter);
   if (projection) cursor = cursor.project(projection);
   if (Object.keys(sort).length > 0) cursor = cursor.sort(sort);
@@ -199,9 +194,6 @@ async function handleSelect(sql, args) {
   if (limit > 0) cursor = cursor.limit(limit);
 
   const rows = await cursor.toArray();
-  if (tableName === 'documents' && filter.is_read !== undefined) {
-    console.log('[mongo-compat] documents query returned', rows.length, 'rows');
-  }
 
   // Map _id to id for compatibility
   return { rows: rows.map(mapRow) };

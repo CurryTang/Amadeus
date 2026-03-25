@@ -41,6 +41,16 @@ async function initDatabase() {
   await db.execute(`UPDATE documents SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL`);
   await db.execute(`UPDATE documents SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL`);
   await db.execute(`UPDATE documents SET is_read = 0 WHERE is_read IS NULL`);
+  // Fix is_read stored as string "0"/"1" from earlier mongo-compat bug
+  {
+    const { getDatabase } = require('./mongo-compat');
+    try {
+      const mdb = getDatabase();
+      const docs = mdb.collection('documents');
+      await docs.updateMany({ is_read: "0" }, { $set: { is_read: 0 } });
+      await docs.updateMany({ is_read: "1" }, { $set: { is_read: 1 } });
+    } catch (e) { /* ignore if mongo-compat not ready */ }
+  }
 
   // Create tags table for managing available tags
   await db.execute(`
