@@ -90,8 +90,8 @@ async function createDocument(data) {
   const tags = JSON.stringify(data.tags || []);
 
   const result = await db.execute({
-    sql: `INSERT INTO documents (title, type, original_url, s3_key, s3_url, file_size, mime_type, tags, notes, user_id, reader_mode, analysis_provider, processing_status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    sql: `INSERT INTO documents (title, type, original_url, s3_key, s3_url, file_size, mime_type, tags, notes, user_id, reader_mode, analysis_provider, processing_status, is_read, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     args: [
       data.title,
       data.type || 'other',

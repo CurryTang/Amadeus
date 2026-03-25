@@ -561,8 +561,14 @@ function parseConditions(clause, args, startIdx) {
         val = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
       }
 
+      // SQLite uses 0/1 for booleans; MongoDB may store true/false.
+      // Match both representations for equality checks on 0 or 1.
       switch (op) {
-        case '=': filter[col] = val; break;
+        case '=':
+          if (val === 0) filter[col] = { $in: [0, false] };
+          else if (val === 1) filter[col] = { $in: [1, true] };
+          else filter[col] = val;
+          break;
         case '!=': case '<>': filter[col] = { $ne: val }; break;
         case '>': filter[col] = { ...(filter[col] || {}), $gt: val }; break;
         case '>=': filter[col] = { ...(filter[col] || {}), $gte: val }; break;
